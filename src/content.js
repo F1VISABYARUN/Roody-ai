@@ -22,6 +22,7 @@
   let fullHistoryCache = "";
   let lastGatherTime = 0;
   let geminiVoice = false; // use Gemini for voice? (set at boot if a key exists)
+  let voiceMode = false; // hands-free back-and-forth conversation
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -170,6 +171,7 @@
         <span id="roody-title">Roody</span>
         <span id="roody-sub">read-only · here to think with you</span>
       </div>
+      <button id="roody-voicemode" title="Hands-free voice chat">🎧</button>
       <button id="roody-listen" title="Auto-react to new answers">👂</button>
       <button id="roody-close" title="Close">×</button>
     </div>
@@ -239,13 +241,19 @@
   let speakToken = 0; // bumped on stop so stale TTS replies don't start playing
   let ttsWarned = false;
 
-  function browserSpeak(text) {
-    if (!synth) return;
+  function browserSpeak(text, onDone) {
+    if (!synth) {
+      if (onDone) onDone();
+      return;
+    }
     try {
       synth.cancel();
       const u = new SpeechSynthesisUtterance(text);
+      if (onDone) u.onend = onDone;
       synth.speak(u);
-    } catch (_) {}
+    } catch (_) {
+      if (onDone) onDone();
+    }
   }
 
   // Stop Roody talking, right now.
@@ -262,9 +270,13 @@
   }
 
   // Roody's warm voice: Gemini TTS if available, else the free browser voice.
-  function speak(text) {
-    if (!text) return;
-    if (!geminiVoice) return browserSpeak(text);
+  // onDone fires when Roody finishes speaking (used to auto-listen in voice mode).
+  function speak(text, onDone) {
+    if (!text) {
+      if (onDone) onDone();
+      return;
+    }
+    if (!geminiVoice) return browserSpeak(text, onDone);
     const myToken = speakToken;
     chrome.runtime.sendMessage({ type: "roody:tts", payload: { text } }, (res) => {
       if (myToken !== speakToken) return; // user pressed stop while we waited
@@ -278,7 +290,7 @@
               ". Check your Gemini key in settings.)"
           );
         }
-        return browserSpeak(text); // graceful fallback
+        return browserSpeak(text, onDone); // graceful fallback
       }
       try {
         const blob = pcm16ToWav(base64ToBytes(res.audioBase64), rateFromMime(res.mime));
@@ -286,32 +298,43 @@
         stopSpeaking(); // clear anything currently playing first
         const audio = new Audio(url);
         currentAudio = audio;
-        audio.onended = () => URL.revokeObjectURL(url);
-        audio.play().catch(() => browserSpeak(text));
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          URL.revokeObjectURL(url);
+          if (onDone) onDone();
+        };
+        audio.onended = finish;
+        audio.play().catch(() => browserSpeak(text, onDone));
       } catch (_) {
-        browserSpeak(text);
+        browserSpeak(text, onDone);
       }
     });
   }
 
   // ---- Talking to Roody's brain --------------------------------------------
-  function callRoody(userText, pageContext, onText) {
+  // onText fills the bubble; onSpoken (optional) fires after Roody finishes
+  // speaking — used by hands-free voice mode to auto-listen next.
+  function callRoody(userText, pageContext, onText, onSpoken) {
     chrome.runtime.sendMessage(
       { type: "roody:ask", payload: { userText, pageContext, history } },
       (res) => {
         if (chrome.runtime.lastError) {
           onText("I lost the connection to my brain for a second. Try again?");
+          if (onSpoken) onSpoken();
           return;
         }
         if (!res || !res.ok) {
           onText((res && res.error) || "Something went wrong.");
+          if (onSpoken) onSpoken();
           return;
         }
         onText(res.text);
         history.push({ role: "user", content: userText });
         history.push({ role: "assistant", content: res.text });
         if (history.length > 20) history.splice(0, history.length - 20);
-        speak(res.text);
+        speak(res.text, onSpoken);
       }
     );
   }
@@ -334,6 +357,7 @@
   // Stop Roody talking instantly.
   panel.querySelector("#roody-stop").addEventListener("click", () => {
     stopSpeaking();
+    if (voiceMode) stopVoiceMode();
     if (recording) {
       recording = false;
       try { recorder && recorder.stop(); } catch (_) {}
@@ -361,6 +385,7 @@
   }
 
   function onSettled() {
+    if (voiceMode) return; // don't chime in the middle of a hands-free call
     if (!autoChime || reacting) return;
     if (Date.now() - lastReactTime < REACT_COOLDOWN_MS) return;
     const sig = readPage().slice(-600); // fingerprint of the latest content
@@ -472,6 +497,93 @@
     } else {
       browserListenToggle();
     }
+  });
+
+  // ---- Hands-free voice mode -----------------------------------------------
+  // Roody speaks, then auto-listens for your reply, back and forth — like a
+  // phone call. Listening uses the browser's speech recognition (it detects
+  // when you stop talking); Roody's voice is still Gemini. Say "stop" to end.
+  const voiceBtn = panel.querySelector("#roody-voicemode");
+  let vsr = null;
+
+  function buildVSR() {
+    if (!SR) return null;
+    const r = new SR();
+    r.lang = "en-US";
+    r.interimResults = false;
+    r.maxAlternatives = 1;
+    r.continuous = false;
+    r.addEventListener("result", (e) => onVoiceHeard(e.results[0][0].transcript));
+    r.addEventListener("end", () => mic.classList.remove("roody-listening"));
+    return r;
+  }
+
+  function vListen() {
+    if (!voiceMode) return;
+    if (!vsr) vsr = buildVSR();
+    if (!vsr) {
+      addBubble("roody", "This browser can't listen hands-free — tap the mic instead.");
+      stopVoiceMode();
+      return;
+    }
+    try {
+      vsr.start();
+      mic.classList.add("roody-listening");
+    } catch (_) {}
+  }
+
+  function onVoiceHeard(text) {
+    if (!voiceMode) return;
+    mic.classList.remove("roody-listening");
+    text = (text || "").trim();
+    const words = text.split(/\s+/);
+    if (words.length <= 3 && /\bstop\b/i.test(text)) {
+      const bye = "Okay, I'll stop. I'm right here when you want me.";
+      addBubble("roody", bye);
+      speak(bye, stopVoiceMode);
+      return;
+    }
+    if (!text) return vListen();
+    addBubble("you", text);
+    const thinking = addBubble("roody", "…");
+    callRoody(
+      text,
+      recentTask(),
+      (t) => (thinking.textContent = t),
+      () => {
+        if (voiceMode) setTimeout(vListen, 250); // listen again after Roody speaks
+      }
+    );
+  }
+
+  function startVoiceMode() {
+    if (voiceMode) return;
+    if (!SR) {
+      addBubble("roody", "Hands-free needs browser speech support — tap the mic to talk instead.");
+      return;
+    }
+    voiceMode = true;
+    if (panel.style.display === "none") panel.style.display = "flex";
+    voiceBtn.classList.add("roody-on");
+    orb.classList.add("roody-voice");
+    const opener = "Okay, I'm listening. What's on your mind?";
+    addBubble("roody", opener);
+    speak(opener, () => {
+      if (voiceMode) vListen();
+    });
+  }
+
+  function stopVoiceMode() {
+    voiceMode = false;
+    voiceBtn.classList.remove("roody-on");
+    orb.classList.remove("roody-voice");
+    mic.classList.remove("roody-listening");
+    try { vsr && vsr.stop(); } catch (_) {}
+  }
+
+  voiceBtn.addEventListener("click", () => {
+    if (voiceMode) stopVoiceMode();
+    else startVoiceMode();
   });
 
   // ---- Boot -----------------------------------------------------------------

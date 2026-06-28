@@ -70,7 +70,8 @@
   font-size: 11px;
   opacity: 0.9;
 }
-#roody-listen {
+#roody-listen,
+#roody-voicemode {
   background: rgba(255, 255, 255, 0.25);
   border: none;
   border-radius: 8px;
@@ -81,9 +82,18 @@
   line-height: 1;
   opacity: 0.55;
 }
-#roody-listen.roody-on {
+#roody-listen.roody-on,
+#roody-voicemode.roody-on {
   opacity: 1;
   background: rgba(255, 255, 255, 0.45);
+}
+/* Orb pulses green-ish while a hands-free call is live. */
+#roody-orb.roody-voice {
+  animation: roody-call 1.4s infinite ease-in-out;
+}
+@keyframes roody-call {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.5); }
+  50% { box-shadow: 0 0 0 10px rgba(76, 175, 80, 0); }
 }
 #roody-close {
   background: transparent;

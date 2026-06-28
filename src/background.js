@@ -59,47 +59,62 @@ async function askRoody({ userText, pageContext, history }) {
     { role: "user", content: `${contextBlock}${userText}` },
   ];
 
-  let resp;
-  try {
-    resp = await fetch(ANTHROPIC_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        // Required for calling the API directly from a browser extension (CORS).
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 1024,
-        system: self.ROODY_SYSTEM,
-        messages,
-      }),
-    });
-  } catch (e) {
-    return { ok: false, error: `I couldn't reach the network. (${e.message})` };
-  }
+  // Web search lets Roody look things up when the page isn't enough.
+  const { roodyWebSearch } = await chrome.storage.local.get(["roodyWebSearch"]);
+  const tools =
+    roodyWebSearch !== false
+      ? [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }]
+      : undefined;
 
-  if (!resp.ok) {
-    const body = await resp.text();
-    return {
-      ok: false,
-      error: `Something went wrong talking to Claude (${resp.status}). ${body.slice(0, 200)}`,
-    };
+  // Server-side search runs a loop; if it pauses, re-send to let it continue.
+  let finalText = "";
+  for (let i = 0; i < 4; i++) {
+    let resp;
+    try {
+      resp = await fetch(ANTHROPIC_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          // Required for calling the API directly from a browser extension (CORS).
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1024,
+          system: self.ROODY_SYSTEM,
+          messages,
+          ...(tools ? { tools } : {}),
+        }),
+      });
+    } catch (e) {
+      return { ok: false, error: `I couldn't reach the network. (${e.message})` };
+    }
+    if (!resp.ok) {
+      const body = await resp.text();
+      return {
+        ok: false,
+        error: `Something went wrong talking to Claude (${resp.status}). ${body.slice(0, 200)}`,
+      };
+    }
+    const data = await resp.json();
+    if (data.usage) {
+      addUsage(model, data.usage.input_tokens || 0, data.usage.output_tokens || 0);
+    }
+    const txt = (data.content || [])
+      .filter((b) => b.type === "text")
+      .map((b) => b.text)
+      .join("")
+      .trim();
+    if (txt) finalText = txt;
+    if (data.stop_reason === "pause_turn") {
+      messages.push({ role: "assistant", content: data.content });
+      continue;
+    }
+    break;
   }
-
-  const data = await resp.json();
-  if (data.usage) {
-    addUsage(model, data.usage.input_tokens || 0, data.usage.output_tokens || 0);
-  }
-  const text = (data.content || [])
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join("")
-    .trim();
-
-  return { ok: true, text: text || "…" };
+  return { ok: true, text: finalText || "…" };
 }
 
 // ---- Gemini voice (Roody's mouth and ears) --------------------------------

@@ -34,6 +34,12 @@ You, coding ──▶ ChatGPT / Claude in the browser
   it on its own and chimes in (toggle the 👂 in Roody's header to mute)
 - 📜 **Auto-scroll reading** — Roody scrolls the thread to load the full history
   before reading, so it sees the whole conversation, not just the bottom
+- 🎧 **Hands-free voice mode** — tap the headset, then just talk back and forth
+  with Roody like a phone call. Say "stop" (or tap ⏹) to end it.
+- ⏹️ **Stop button** — cut Roody off mid-sentence anytime
+- 🌐 **Web search** — Roody can look things up for current, real facts (toggle
+  in settings)
+- 💰 **Cost meter** in settings — see your estimated spend
 - 🗣️ Talk to Roody by voice or by typing — it speaks back
 - 🎙️ **Warm voice via Gemini** (optional) — add a Google Gemini key and Roody
   gets a natural voice (TTS) and better listening (STT). No key? It falls back
