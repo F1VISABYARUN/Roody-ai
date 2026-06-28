@@ -23,6 +23,7 @@ const PRICES = {
   "claude-haiku-4-5": { in: 1, out: 5 },
   "gemini-tts": { in: 0.5, out: 10 }, // approximate
   "gemini-stt": { in: 0.3, out: 1 }, // approximate
+  "gemini-2.5-flash": { in: 0.3, out: 2.5 },
 };
 async function addUsage(model, inTok, outTok) {
   const p = PRICES[model] || { in: 0, out: 0 };
@@ -36,15 +37,19 @@ async function addUsage(model, inTok, outTok) {
   await chrome.storage.local.set({ roodyUsage: u });
 }
 
-// Ask Claude. `pageContext` is the read-only text Roody scraped from the page;
-// `history` is the running chat between the human and Roody.
+// Ask Roody's brain. Routes to Claude or Gemini depending on which model is
+// selected in settings. `pageContext` is the read-only text Roody scraped from
+// the page; `history` is the running chat between the human and Roody.
 async function askRoody({ userText, pageContext, history }) {
   const { apiKey, model } = await getSettings();
+  if (model && model.startsWith("gemini-")) {
+    return askGeminiBrain({ userText, pageContext, history, model });
+  }
   if (!apiKey) {
     return {
       ok: false,
       error:
-        "I don't have an API key yet. Open Roody's settings (click the extension icon) and paste your Anthropic key so I can think.",
+        "I don't have an Anthropic key yet. Open Roody's settings and paste your key — or pick the Gemini brain in the dropdown instead.",
     };
   }
 
@@ -120,6 +125,69 @@ async function askRoody({ userText, pageContext, history }) {
 
 // ---- Gemini voice (Roody's mouth and ears) --------------------------------
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+
+// Alternate brain — Gemini Flash, ~10x cheaper than Sonnet. Same persona,
+// same page context, same chat history shape.
+async function askGeminiBrain({ userText, pageContext, history, model }) {
+  const { roodyGeminiKey } = await chrome.storage.local.get(["roodyGeminiKey"]);
+  if (!roodyGeminiKey) {
+    return {
+      ok: false,
+      error:
+        "Gemini brain selected but no Gemini key — open Roody's settings and paste one (free at aistudio.google.com/apikey).",
+    };
+  }
+  const contextBlock = pageContext
+    ? `Here is what I can currently see on the page (read-only):\n\n"""\n${pageContext.slice(0, 14000)}\n"""\n\n`
+    : "";
+
+  // Gemini's chat shape: roles are "user" and "model".
+  const contents = [
+    ...history.map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    })),
+    { role: "user", parts: [{ text: contextBlock + userText }] },
+  ];
+
+  let resp;
+  try {
+    resp = await fetch(`${GEMINI_BASE}/${model}:generateContent`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-goog-api-key": roodyGeminiKey,
+      },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: self.ROODY_SYSTEM }] },
+        contents,
+        generationConfig: { temperature: 0.4, maxOutputTokens: 400 },
+      }),
+    });
+  } catch (e) {
+    return { ok: false, error: `Couldn't reach Gemini. (${e.message})` };
+  }
+  if (!resp.ok) {
+    return {
+      ok: false,
+      error: `Gemini brain error ${resp.status}: ${(await resp.text()).slice(0, 200)}`,
+    };
+  }
+  const data = await resp.json();
+  if (data.usageMetadata) {
+    addUsage(
+      "gemini-2.5-flash",
+      data.usageMetadata.promptTokenCount || 0,
+      data.usageMetadata.candidatesTokenCount || 0
+    );
+  }
+  const text = (data?.candidates?.[0]?.content?.parts || [])
+    .map((p) => p.text)
+    .filter(Boolean)
+    .join("")
+    .trim();
+  return { ok: true, text: text || "…" };
+}
 
 // Text -> speech. Returns base64 PCM (signed 16-bit, mono) + its mime.
 async function geminiTTS(text) {

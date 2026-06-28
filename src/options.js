@@ -1,12 +1,20 @@
-// Load and save Roody's settings (stored locally in this browser only).
-const keyEl = document.getElementById("key");
-const modelEl = document.getElementById("model");
-const gkeyEl = document.getElementById("gkey");
-const voiceEl = document.getElementById("voice");
-const webEl = document.getElementById("websearch");
-const enabledEl = document.getElementById("enabled");
-const statusEl = document.getElementById("status");
+// Roody settings — everything you can turn on, off, change, or wipe.
 
+const $ = (id) => document.getElementById(id);
+const keyEl = $("key");
+const modelEl = $("model");
+const gkeyEl = $("gkey");
+const voiceEl = $("voice");
+const webEl = $("websearch");
+const enabledEl = $("enabled");
+const statusEl = $("status");
+
+function showKeyStatus(el, hasIt) {
+  el.textContent = hasIt ? "✓ Key saved on this computer" : "Not set";
+  el.classList.toggle("has", hasIt);
+}
+
+// Load everything saved.
 chrome.storage.local
   .get([
     "roodyApiKey", "roodyModel", "roodyGeminiKey",
@@ -17,33 +25,49 @@ chrome.storage.local
     if (s.roodyModel) modelEl.value = s.roodyModel;
     if (s.roodyGeminiKey) gkeyEl.value = s.roodyGeminiKey;
     if (s.roodyVoice) voiceEl.value = s.roodyVoice;
-    webEl.checked = s.roodyWebSearch !== false; // default on
-    enabledEl.checked = s.roodyEnabled !== false; // default on
+    webEl.checked = s.roodyWebSearch !== false;
+    enabledEl.checked = s.roodyEnabled !== false;
+    showKeyStatus($("keystatus"), !!s.roodyApiKey);
+    showKeyStatus($("gstatus"), !!s.roodyGeminiKey);
   });
-// Flip Roody on/off instantly when the master switch changes.
+
+// Master ON/OFF — flip live, no save button needed.
 enabledEl.addEventListener("change", () => {
   chrome.storage.local.set({ roodyEnabled: enabledEl.checked });
 });
 
-// Show the running cost estimate.
-const spendEl = document.getElementById("spend");
-const spendCallsEl = document.getElementById("spendcalls");
+// ✕ buttons — wipe a key clean off this computer, instantly.
+$("clearkey").addEventListener("click", () => {
+  if (!confirm("Remove the Anthropic key from this browser?")) return;
+  keyEl.value = "";
+  chrome.storage.local.set({ roodyApiKey: "" });
+  showKeyStatus($("keystatus"), false);
+});
+$("clearg").addEventListener("click", () => {
+  if (!confirm("Remove the Gemini key from this browser?")) return;
+  gkeyEl.value = "";
+  chrome.storage.local.set({ roodyGeminiKey: "" });
+  showKeyStatus($("gstatus"), false);
+});
+
+// Live cost.
 function showSpend() {
   chrome.storage.local.get(["roodyUsage"]).then(({ roodyUsage }) => {
     const u = roodyUsage || { costUSD: 0, calls: 0 };
-    spendEl.textContent = "$" + (u.costUSD || 0).toFixed(4);
-    spendCallsEl.textContent = u.calls ? ` · ${u.calls} calls` : "";
+    $("spend").textContent = "$" + (u.costUSD || 0).toFixed(4);
+    $("spendcalls").textContent = u.calls ? ` · ${u.calls} calls` : "";
   });
 }
 showSpend();
-document.getElementById("resetspend").addEventListener("click", async () => {
+$("resetspend").addEventListener("click", async () => {
   await chrome.storage.local.set({
     roodyUsage: { costUSD: 0, calls: 0, inTok: 0, outTok: 0 },
   });
   showSpend();
 });
 
-document.getElementById("save").addEventListener("click", async () => {
+// Save the rest.
+$("save").addEventListener("click", async () => {
   await chrome.storage.local.set({
     roodyApiKey: keyEl.value.trim(),
     roodyModel: modelEl.value,
@@ -52,6 +76,8 @@ document.getElementById("save").addEventListener("click", async () => {
     roodyWebSearch: webEl.checked,
     roodyEnabled: enabledEl.checked,
   });
+  showKeyStatus($("keystatus"), !!keyEl.value.trim());
+  showKeyStatus($("gstatus"), !!gkeyEl.value.trim());
   statusEl.textContent = "Saved ✓";
   setTimeout(() => (statusEl.textContent = ""), 2000);
 });
