@@ -168,14 +168,19 @@
     <div id="roody-header">
       <div id="roody-headtext">
         <span id="roody-title">Roody</span>
-        <span id="roody-sub">read-only · tap the mic to talk</span>
+        <span id="roody-sub">read-only · one switch · conversation flows</span>
       </div>
       <button id="roody-close" title="Close">×</button>
     </div>
     <div id="roody-log"></div>
+    <div id="roody-toggle-row">
+      <button id="roody-toggle" title="Turn voice ON / OFF">
+        <span id="roody-toggle-icon">🎙️</span>
+        <span id="roody-toggle-label">Voice OFF — tap to start</span>
+      </button>
+    </div>
     <div id="roody-inputrow">
-      <button id="roody-mic" title="Tap to talk to Roody">🎤</button>
-      <input id="roody-text" type="text" placeholder="…or type to Roody" autocomplete="off" />
+      <input id="roody-text" type="text" placeholder="…or just type to Roody" autocomplete="off" />
       <button id="roody-send" title="Send">➤</button>
     </div>
   `;
@@ -451,6 +456,7 @@
 
   function onSettled() {
     if (!autoChime || reacting) return;
+    if (voiceOn) return; // don't chime during a live voice conversation
     if (Date.now() - lastReactTime < REACT_COOLDOWN_MS) return;
     const sig = readPage().slice(-600); // fingerprint of the latest content
     if (sig === lastAnswerSig) return; // nothing actually new
@@ -469,129 +475,155 @@
     obs.observe(main, { childList: true, subtree: true, characterData: true });
   }
 
-  // ---- THE one button: mic ------------------------------------------------
-  // It plays four roles, never more than one at a time:
-  //   IDLE      🎤  tap to talk
-  //   RECORDING 🔴  recording your voice (tap again to send what you've said)
-  //   THINKING  …   Roody is thinking
-  //   SPEAKING  ⏹  Roody is talking — tap to shut up instantly
-  // No other audio buttons. No headset. No ear.
-  const mic = panel.querySelector("#roody-mic");
+  // ---- THE one switch: Voice ON / OFF -------------------------------------
+  // ON  = Roody talks first, listens always, you interrupt by talking.
+  // OFF = full silence, no listening, no talking.
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-
+  const toggleBtn = panel.querySelector("#roody-toggle");
+  const toggleIcon = panel.querySelector("#roody-toggle-icon");
+  const toggleLabel = panel.querySelector("#roody-toggle-label");
+  // micState is kept for orb/CSS hooks elsewhere; meanings here are advisory.
   let micState = "idle";
-  function setMic(state) {
-    micState = state;
-    mic.classList.remove("roody-rec", "roody-stop", "roody-think");
-    if (state === "recording") { mic.textContent = "🔴"; mic.classList.add("roody-rec"); mic.title = "Listening — tap to send"; }
-    else if (state === "thinking") { mic.textContent = "…"; mic.classList.add("roody-think"); mic.title = "Thinking…"; }
-    else if (state === "speaking") { mic.textContent = "⏹"; mic.classList.add("roody-stop"); mic.title = "STOP Roody talking"; }
-    else { mic.textContent = "🎤"; mic.title = "Tap to talk to Roody"; }
+  function setMic(state) { micState = state; }
+  function setToggleVisual(on) {
+    toggleBtn.classList.toggle("on", on);
+    toggleIcon.textContent = on ? "🔴" : "🎙️";
+    toggleLabel.textContent = on ? "Voice ON — tap to stop" : "Voice OFF — tap to start";
   }
-  setMic("idle");
+  setToggleVisual(false);
 
-  // Hard stop everything: cancels Roody's voice, mic recording, browser STT.
-  function stopEverything() {
+  // ---- The voice loop -----------------------------------------------------
+  // Continuous SpeechRecognition. When ON, Roody listens always; when you talk
+  // it cuts Roody off (barge-in) and replies. Echo filter prevents Roody from
+  // hearing its own voice. Toggle OFF stops everything cleanly.
+  let voiceOn = false;
+  let sr = null;
+  let recentRoodyWords = ""; // for echo filter
+
+  function buildSR() {
+    if (!SR) return null;
+    const r = new SR();
+    r.lang = "en-US";
+    r.continuous = false; // one utterance at a time, easier to debounce
+    r.interimResults = false;
+    r.maxAlternatives = 1;
+    r.onresult = (e) => onUserSpoke(e.results[0][0].transcript || "");
+    r.onerror = (e) => {
+      // "no-speech" / "aborted" / "audio-capture" — common and recoverable,
+      // just keep the loop going. Bigger errors will fall through to onend.
+    };
+    r.onend = () => {
+      // If voice mode is still on, restart so we're always listening.
+      if (voiceOn) setTimeout(() => { try { sr.start(); } catch (_) {} }, 250);
+    };
+    return r;
+  }
+
+  function startListening() {
+    if (!voiceOn) return;
+    if (!sr) sr = buildSR();
+    if (!sr) {
+      addBubble("roody", "This browser can't listen hands-free — you can still type to me.");
+      voiceTurnOff();
+      return;
+    }
+    try { sr.start(); } catch (_) {}
+  }
+
+  function stopListening() {
+    if (!sr) return;
+    try { sr.onend = null; sr.stop(); } catch (_) {}
+    sr = null;
+  }
+
+  // Cheap echo filter: was that 'user speech' actually Roody's voice echoing
+  // back through the speakers? If most of it appears in what Roody just said,
+  // skip it. Not perfect — true barge-in needs Deepgram + echo cancellation —
+  // but works well in normal use.
+  function isProbablyEcho(text) {
+    if (!recentRoodyWords) return false;
+    const t = (text || "").toLowerCase().trim();
+    if (t.length < 6) return false;
+    const haystack = recentRoodyWords.toLowerCase();
+    // If a 12-char chunk appears verbatim in Roody's recent speech → echo.
+    for (let i = 0; i + 12 <= t.length; i += 4) {
+      if (haystack.includes(t.slice(i, i + 12))) return true;
+    }
+    return false;
+  }
+
+  function onUserSpoke(rawText) {
+    const text = (rawText || "").trim();
+    if (!voiceOn || !text) return;
+    if (isProbablyEcho(text)) return; // ignore self-feedback
+    // Barge-in: cut Roody off the moment we hear you.
     stopSpeaking();
-    try { if (recorder && recording) recorder.stop(); } catch (_) {}
-    recording = false;
-    try { if (sr && srListening) sr.stop(); } catch (_) {}
-    srListening = false;
+    addBubble("you", text);
+    const thinking = addBubble("roody", "…");
+    setMic("thinking");
+    callRoody(
+      text,
+      recentTask(),
+      (t) => {
+        thinking.textContent = t;
+        recentRoodyWords = t; // remember for echo filter
+      },
+      () => setMic("idle")
+    );
+  }
+
+  async function voiceTurnOn() {
+    if (voiceOn) return;
+    if (!SR) {
+      addBubble("roody", "This browser can't do hands-free voice — try Chrome. You can still type to me.");
+      return;
+    }
+    voiceOn = true;
+    setToggleVisual(true);
+    if (panel.style.display === "none") panel.style.display = "flex";
+
+    // Best-effort: pre-warm the mic with echo cancellation enabled so SR
+    // benefits from Chrome's AEC processing during Roody's speech.
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      s.getTracks().forEach((t) => t.stop()); // just opens the pipe & permission
+    } catch (_) {}
+
+    // Roody opens the conversation based on what's on screen, then starts
+    // listening as soon as it finishes speaking.
+    const thinking = addBubble("roody", "…");
+    callRoody(
+      OPENER_PROMPT,
+      recentTask() || "(nothing visible yet)",
+      (t) => {
+        thinking.textContent = t;
+        recentRoodyWords = t;
+      },
+      () => { if (voiceOn) startListening(); }
+    );
+  }
+
+  function voiceTurnOff() {
+    voiceOn = false;
+    setToggleVisual(false);
+    stopSpeaking();
+    stopListening();
     setMic("idle");
   }
 
-  function pickRecMime() {
-    const types = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm"];
-    for (const t of types) {
-      if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
-    }
-    return "";
-  }
-
-  let recorder = null;
-  let recChunks = [];
-  let recording = false;
-
-  async function startGeminiRecording() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = pickRecMime();
-      recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      recChunks = [];
-      recorder.ondataavailable = (e) => e.data.size && recChunks.push(e.data);
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(recChunks, { type: recorder.mimeType || "audio/webm" });
-        const audioBase64 = await blobToBase64(blob);
-        const mime = (recorder.mimeType || "audio/webm").split(";")[0];
-        setMic("thinking");
-        chrome.runtime.sendMessage(
-          { type: "roody:stt", payload: { audioBase64, mime } },
-          (res) => {
-            if (chrome.runtime.lastError || !res || !res.ok || !res.text) {
-              addBubble("roody", "I couldn't quite catch that — mind typing it?");
-              setMic("idle");
-              return;
-            }
-            send(res.text); // this will speak the reply and reset mic state
-          }
-        );
-      };
-      recorder.start();
-      recording = true;
-      setMic("recording");
-    } catch (_) {
-      addBubble("roody", "I couldn't reach your microphone. You can still type to me.");
-      setMic("idle");
-    }
-  }
-
-  // Lazily-built browser speech-recognition fallback.
-  let sr = null;
-  let srListening = false;
-  function browserListenStart() {
-    if (!SR) {
-      addBubble("roody", "This browser can't listen — but you can always type to me.");
-      return;
-    }
-    if (!sr) {
-      sr = new SR();
-      sr.lang = "en-US";
-      sr.interimResults = false;
-      sr.maxAlternatives = 1;
-      sr.addEventListener("result", (e) => {
-        srListening = false;
-        send(e.results[0][0].transcript); // mic state managed by send()
-      });
-      sr.addEventListener("end", () => {
-        srListening = false;
-        if (micState === "recording") setMic("idle");
-      });
-    }
-    try {
-      sr.start();
-      srListening = true;
-      setMic("recording");
-    } catch (_) {}
-  }
-
-  // THE one mic button. Its job depends on what Roody is doing right now.
-  mic.addEventListener("click", () => {
-    // Roody is talking? Tapping the button means STOP, full stop.
-    if (micState === "speaking") return stopEverything();
-    // Mid-thought? Tapping also stops everything (escape hatch).
-    if (micState === "thinking") return stopEverything();
-    // Already recording? Tapping ends the recording = "send what I just said".
-    if (micState === "recording") {
-      if (recording) { try { recorder.stop(); } catch (_) {} recording = false; }
-      else if (sr && srListening) { try { sr.stop(); } catch (_) {} srListening = false; }
-      return;
-    }
-    // Idle → start listening to the user. Gemini if a key is set, else browser.
-    const canRecord = window.MediaRecorder && navigator.mediaDevices;
-    if (geminiVoice && canRecord) startGeminiRecording();
-    else browserListenStart();
+  toggleBtn.addEventListener("click", () => {
+    if (voiceOn) voiceTurnOff();
+    else voiceTurnOn();
   });
+
+  // Keep the legacy stopEverything callable for other paths (auto-chime, etc.)
+  function stopEverything() {
+    stopSpeaking();
+    if (voiceOn) voiceTurnOff();
+    setMic("idle");
+  }
 
   // ---- Boot -----------------------------------------------------------------
   chrome.storage.local

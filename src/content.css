@@ -144,35 +144,44 @@
 #roody-text:focus {
   border-color: #e98a3c;
 }
-#roody-mic,
 #roody-send {
   border: none;
   border-radius: 10px;
   width: 44px;
   cursor: pointer;
   font-size: 18px;
+  background: #e98a3c;
+  color: #fff;
+}
+/* The ONE big voice toggle. */
+#roody-toggle-row {
+  padding: 10px 12px 0;
+  background: #fffaf3;
+}
+#roody-toggle {
+  width: 100%;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   background: #fbe9d6;
-  transition: background 0.15s ease;
+  color: #6b4a2b;
+  transition: background 0.2s ease, color 0.2s ease;
 }
-#roody-send {
-  background: #e98a3c;
-  color: #fff;
-}
-/* States for the one mic button. */
-#roody-mic.roody-rec {
-  background: #e98a3c;
-  color: #fff;
-  animation: roody-pulse 1s infinite;
-}
-#roody-mic.roody-think {
-  background: #f6e6c8;
-  color: #8a7560;
-}
-#roody-mic.roody-stop {
+#roody-toggle:hover { background: #f6dcb8; }
+#roody-toggle #roody-toggle-icon { font-size: 18px; }
+#roody-toggle.on {
   background: #d9534f;
   color: #fff;
-  animation: roody-pulse 0.9s infinite;
+  animation: roody-pulse 1.2s infinite;
 }
+#roody-toggle.on:hover { background: #c9302c; }
 @keyframes roody-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(233, 138, 60, 0.6); }
   50% { box-shadow: 0 0 0 6px rgba(233, 138, 60, 0); }
