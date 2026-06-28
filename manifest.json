@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Roody — the calm AI voice in your code",
+  "version": "0.1.0",
+  "description": "Roody is a read-only AI companion that lives on top of ChatGPT and Claude. It reads, talks, finds mistakes, and helps you breathe — it never edits your code.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://claude.ai/*",
+    "https://api.anthropic.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "options_page": "src/options.html",
+  "action": {
+    "default_title": "Roody — open settings"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*"
+      ],
+      "js": ["src/content.js"],
+      "css": ["src/content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
