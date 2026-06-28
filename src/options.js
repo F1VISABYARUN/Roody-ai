@@ -25,7 +25,13 @@ chrome.storage.local
     if (s.roodyApiKey) keyEl.value = s.roodyApiKey;
     if (s.roodyModel) modelEl.value = s.roodyModel;
     if (s.roodyGeminiKey) gkeyEl.value = s.roodyGeminiKey;
-    if (s.roodyVoice) voiceEl.value = s.roodyVoice;
+    // Roody is female-voice-only now; if a previously saved male voice (Puck,
+    // Charon, etc.) is in storage, snap it back to the default Kore.
+    const validFemale = new Set(["Kore","Aoede","Leda","Zephyr","Callirrhoe","Autonoe","Despina","Erinome","Laomedeia","Achernar","Vindemiatrix","Sulafat"]);
+    voiceEl.value = s.roodyVoice && validFemale.has(s.roodyVoice) ? s.roodyVoice : "Kore";
+    if (s.roodyVoice && !validFemale.has(s.roodyVoice)) {
+      chrome.storage.local.set({ roodyVoice: "Kore" }); // persist the snap-back
+    }
     webEl.checked = s.roodyWebSearch !== false;
     chimeEl.checked = s.roodyAutoChime === true; // off by default
     enabledEl.checked = s.roodyEnabled !== false;

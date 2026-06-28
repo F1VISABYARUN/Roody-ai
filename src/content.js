@@ -298,6 +298,28 @@
   let speakToken = 0; // bumped on stop so stale TTS replies don't start playing
   let ttsWarned = false;
 
+  // Pick a female-sounding voice for the browser fallback. Browsers don't expose
+  // a gender flag, so we score by known-female names. Cached after first pick.
+  let pickedFemaleVoice = null;
+  function pickFemaleVoice() {
+    if (pickedFemaleVoice) return pickedFemaleVoice;
+    if (!synth) return null;
+    const voices = synth.getVoices() || [];
+    if (!voices.length) return null; // Chrome loads voices async — try again later
+    const femaleHints = /(female|samantha|victoria|karen|tessa|allison|ava|susan|zira|hazel|fiona|moira|kate|serena|catherine|jenny|aria|emma|sophie|amy|joanna|salli|kimberly|kendra|sara|nora|nicole|google us english|google uk english female)/i;
+    // Prefer English female voices first
+    const enFemale = voices.find((v) => /^en/i.test(v.lang) && femaleHints.test(v.name));
+    if (enFemale) return (pickedFemaleVoice = enFemale);
+    const anyFemale = voices.find((v) => femaleHints.test(v.name));
+    if (anyFemale) return (pickedFemaleVoice = anyFemale);
+    // Last resort: any English voice (likely sounds neutral, beats nothing)
+    return voices.find((v) => /^en/i.test(v.lang)) || null;
+  }
+  // Some browsers load the voice list asynchronously — listen for it.
+  if (synth && typeof synth.onvoiceschanged !== "undefined") {
+    synth.addEventListener("voiceschanged", () => { pickedFemaleVoice = null; pickFemaleVoice(); });
+  }
+
   function browserSpeak(text, onDone) {
     if (!synth) {
       if (onDone) onDone();
@@ -306,6 +328,10 @@
     try {
       synth.cancel();
       const u = new SpeechSynthesisUtterance(text);
+      const v = pickFemaleVoice();
+      if (v) u.voice = v;
+      u.rate = 1.0;
+      u.pitch = 1.05; // a touch higher = slightly warmer/femme on system voices
       setOrbState("speaking");
       setMic("speaking");
       u.onend = () => {
