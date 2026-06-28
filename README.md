@@ -24,10 +24,21 @@ You, coding ──▶ ChatGPT / Claude in the browser
 ## What works today (Phase 0)
 
 - 🟠 An orb that appears on `chatgpt.com`, `chat.openai.com`, and `claude.ai`
-- 👀 Roody reads the visible conversation/code on the page (read-only)
+- 👀 Roody reads the conversation/code on the page (read-only)
+- 👂 **Live watching** — when ChatGPT/Claude finishes a new answer, Roody notices
+  it on its own and chimes in (toggle the 👂 in Roody's header to mute)
+- 📜 **Auto-scroll reading** — Roody scrolls the thread to load the full history
+  before reading, so it sees the whole conversation, not just the bottom
 - 🗣️ Talk to Roody by voice (free browser speech) or by typing — it speaks back
 - 🧠 Powered by Claude (`claude-opus-4-8` by default; Sonnet / Haiku selectable)
 - 🔒 Read-only by design — there is no code path that edits the page
+
+### How the live watching works
+
+A `MutationObserver` watches the page for changes. When the page goes quiet for
+~1.8s (the answer has stopped streaming), Roody treats that as "a new answer
+finished," reads it, and reacts. A fingerprint + cooldown stop it from reacting
+twice to the same thing, and the 👂 toggle turns it off entirely.
 
 ## Install (developer mode)
 
