@@ -286,7 +286,7 @@
 
   // ---- Live watching: react when a new answer lands ------------------------
   const REACTION_PROMPT =
-    "(Automatic check-in: a new answer just finished on the page. Look at the MOST RECENT answer. If something looks wrong, risky, or like it'll cause a loop, say so in a sentence and point to where. Otherwise give one quick thought or ask one sharp question. Keep it short and spoken-sounding.)";
+    "(Automatic check-in: a new answer just finished on the page. React to the MOST RECENT answer like a friend reading along — about whatever the topic is, not only code. If it's code and something looks wrong, risky, or like it'll loop, say so and point to where. If it's anything else, add a quick thought, ask one sharp question, or gently flag anything that seems off or inaccurate. If it's just genuinely good, you can simply say so. Keep it to a sentence or two, spoken-sounding.)";
 
   async function reactToNewAnswer() {
     if (reacting) return;

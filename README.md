@@ -3,9 +3,14 @@
 **A calm, read-only AI voice that lives in your code.**
 
 Roody is a Chrome extension that puts a little orb on top of ChatGPT and Claude.
-It can **read** the conversation and code on your screen, **talk** with you like a
-human — by voice or text — **spot mistakes**, and help you **breathe and reframe**
-when you're stuck in a frustrating loop.
+It reads along with **any** conversation on your screen — code, a recipe, an
+essay, a plan, a science question — and **talks** with you like a human, by voice
+or text. It's a curious co-thinker: it reacts, asks questions, expands your
+thinking, **catches mistakes** (especially in code), and helps you **breathe and
+reframe** when you're stuck in a frustrating loop.
+
+It's not just a bug-finder — it's a companion for whatever you're thinking
+through. When it *is* code, it gets extra sharp about errors and loops.
 
 The one hard rule: **Roody never edits your code.** It reads, it thinks with you,
 it suggests in words. The changes are always yours to make. That's the trust.
