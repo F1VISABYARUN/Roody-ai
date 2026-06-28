@@ -375,11 +375,12 @@
       if (onDone) onDone();
       return;
     }
-    if (!geminiVoice) return browserSpeak(text, onDone);
+    if (!geminiVoice) { rlog("🔈 ROBOTIC voice (no Gemini key set)"); return browserSpeak(text, onDone); }
     const myToken = speakToken;
     chrome.runtime.sendMessage({ type: "roody:tts", payload: { text } }, (res) => {
       if (myToken !== speakToken) return; // user pressed stop while we waited
       if (chrome.runtime.lastError || !res || !res.ok || !res.audioBase64) {
+        rlog("🔈 ROBOTIC voice (Gemini TTS failed, falling back to browser)");
         if (!ttsWarned && res && res.error) {
           ttsWarned = true;
           addBubble(
@@ -391,6 +392,7 @@
         }
         return browserSpeak(text, onDone); // graceful fallback
       }
+      rlog("🔊 Roody warm voice playing");
       try {
         const blob = pcm16ToWav(base64ToBytes(res.audioBase64), rateFromMime(res.mime));
         const url = URL.createObjectURL(blob);
@@ -527,12 +529,14 @@
   setToggleVisual(false);
 
   // ---- The voice loop -----------------------------------------------------
-  // Continuous SpeechRecognition. When ON, Roody listens always; when you talk
-  // it cuts Roody off (barge-in) and replies. Echo filter prevents Roody from
-  // hearing its own voice. Toggle OFF stops everything cleanly.
+  // Continuous SpeechRecognition. When ON, Roody listens; we PAUSE the mic
+  // while Roody speaks to kill self-echo. Toggle OFF cancels everything in
+  // flight via turnSession so late callbacks bail cleanly.
   let voiceOn = false;
   let sr = null;
-  let recentRoodyWords = ""; // for echo filter
+  let recentRoodyWords = ""; // for echo filter (second line of defense)
+  let isRoodySpeaking = false; // gates SR auto-restart
+  let turnSession = 0; // bumped on Voice OFF — late Claude/TTS replies bail
 
   function buildSR() {
     if (!SR) { rlog("❌ SpeechRecognition unavailable in this browser"); return null; }
@@ -554,8 +558,15 @@
     r.onerror = (e) => rlog(`⚠ SR error: ${e.error || "unknown"}`);
     r.onend = () => {
       rlog("🎤 SR ended");
-      if (voiceOn) setTimeout(() => {
-        try { sr.start(); rlog("🎤 SR restart"); }
+      // Don't restart while Roody is talking — that's how echo gets in.
+      // When speak() finishes, it'll call startListening() itself.
+      if (!voiceOn || isRoodySpeaking) {
+        if (isRoodySpeaking) rlog("⏸ SR paused (Roody is speaking)");
+        return;
+      }
+      setTimeout(() => {
+        if (!voiceOn || isRoodySpeaking) return;
+        try { sr && sr.start(); rlog("🎤 SR restart"); }
         catch (e) { rlog(`⚠ SR restart failed: ${e.message}`); }
       }, 250);
     };
@@ -601,21 +612,32 @@
     if (!text) { rlog("…ignored (empty)"); return; }
     if (isProbablyEcho(text)) { rlog(`…ignored as ECHO of Roody's last reply: "${text}"`); return; }
     rlog(`→ sending to brain: "${text}"`);
+    stopListening(); // we won't listen again until Roody is done speaking
     stopSpeaking();
     addBubble("you", text);
     const thinking = addBubble("roody", "…");
     setMic("thinking");
     const sentAt = performance.now();
+    const mySession = turnSession;
+    isRoodySpeaking = true; // claim the speaking lane immediately
     callRoody(
       text,
       recentTask(),
       (t) => {
+        if (mySession !== turnSession) { rlog("…dropped reply (Voice was turned OFF)"); return; }
         const ms = Math.round(performance.now() - sentAt);
         rlog(`🧠 brain replied in ${ms}ms (${t.length} chars)`);
         thinking.textContent = t;
         recentRoodyWords = t;
       },
-      () => { rlog("🔊 Roody finished speaking"); setMic("idle"); }
+      () => {
+        // This fires after Roody finishes speaking the reply (or fails to).
+        isRoodySpeaking = false;
+        if (mySession !== turnSession) { rlog("…suppressed listen-resume (Voice OFF)"); return; }
+        rlog("🔊 Roody finished speaking → resume listening");
+        setMic("idle");
+        if (voiceOn) startListening();
+      }
     );
   }
 
@@ -639,23 +661,41 @@
       rlog("✓ mic permission OK (echo-cancellation on)");
     } catch (e) { rlog(`⚠ mic permission: ${e.message}`); }
 
-    // Roody opens the conversation based on what's on screen, then starts
-    // listening as soon as it finishes speaking.
+    // If Roody already greeted from the orb-open, DON'T greet again — just
+    // start listening straight away. This was the double-opener bug that made
+    // two API calls fire and the second TTS 500.
+    if (openerSent) {
+      rlog("⤳ Roody already greeted — starting to listen straight away");
+      startListening();
+      return;
+    }
+
+    // First-ever greeting: Roody opens the conversation, then listens after.
+    openerSent = true;
+    const mySession = turnSession;
+    isRoodySpeaking = true;
     const thinking = addBubble("roody", "…");
     callRoody(
       OPENER_PROMPT,
       recentTask() || "(nothing visible yet)",
       (t) => {
+        if (mySession !== turnSession) return;
         thinking.textContent = t;
         recentRoodyWords = t;
       },
-      () => { if (voiceOn) startListening(); }
+      () => {
+        isRoodySpeaking = false;
+        if (mySession !== turnSession) return;
+        if (voiceOn) startListening();
+      }
     );
   }
 
   function voiceTurnOff() {
     rlog("===== VOICE OFF =====");
     voiceOn = false;
+    turnSession++; // any in-flight Claude/TTS callbacks will now bail
+    isRoodySpeaking = false;
     setToggleVisual(false);
     stopSpeaking();
     stopListening();

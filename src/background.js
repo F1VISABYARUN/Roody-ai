@@ -215,42 +215,56 @@ async function geminiTTS(text) {
     "roodyGeminiKey",
     "roodyVoice",
   ]);
-  if (!roodyGeminiKey) { rlog("⚠ TTS skipped: no Gemini key (using browser voice)"); return { ok: false, error: "no-gemini-key" }; }
+  if (!roodyGeminiKey) { rlog("⚠ TTS skipped: no Gemini key → robotic browser voice"); return { ok: false, error: "no-gemini-key" }; }
   const t0 = performance.now();
   rlog(`→ Gemini TTS (${text.length} chars, voice=${roodyVoice || "Kore"})`);
 
-  let resp;
-  try {
-    resp = await fetch(
-      `${GEMINI_BASE}/gemini-2.5-flash-preview-tts:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-goog-api-key": roodyGeminiKey,
+  const body = JSON.stringify({
+    contents: [{ parts: [{ text }] }],
+    generationConfig: {
+      responseModalities: ["AUDIO"],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName: roodyVoice || "Kore" },
         },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text }] }],
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: roodyVoice || "Kore" },
-              },
-            },
-          },
-        }),
-      }
-    );
-  } catch (e) {
-    rlog(`❌ TTS network: ${e.message}`);
-    return { ok: false, error: `tts-network ${e.message}` };
+      },
+    },
+  });
+
+  // One attempt + one retry on 500/503/429 — Gemini TTS is flaky under load.
+  async function attempt(n) {
+    let resp;
+    try {
+      resp = await fetch(
+        `${GEMINI_BASE}/gemini-2.5-flash-preview-tts:generateContent`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-goog-api-key": roodyGeminiKey },
+          body,
+        }
+      );
+    } catch (e) {
+      rlog(`❌ TTS network${n > 1 ? " (retry)" : ""}: ${e.message}`);
+      return { transient: true, error: `tts-network ${e.message}` };
+    }
+    if (resp.ok) return { resp };
+    const txt = (await resp.text()).slice(0, 160);
+    const transient = resp.status === 500 || resp.status === 503 || resp.status === 429;
+    rlog(`❌ TTS ${resp.status}${n > 1 ? " (retry)" : ""}: ${txt}`);
+    return { transient, status: resp.status, error: `tts ${resp.status} ${txt}` };
   }
-  if (!resp.ok) {
-    const body = (await resp.text()).slice(0, 160);
-    rlog(`❌ TTS ${resp.status}: ${body}`);
-    return { ok: false, error: `tts ${resp.status} ${body}` };
+
+  let r = await attempt(1);
+  if (!r.resp && r.transient) {
+    rlog("↻ retrying TTS after transient error…");
+    await new Promise((res) => setTimeout(res, 400));
+    r = await attempt(2);
   }
+  if (!r.resp) {
+    rlog("⚠ Gemini TTS failed twice → falling back to robotic browser voice");
+    return { ok: false, error: r.error };
+  }
+  const resp = r.resp;
   const data = await resp.json();
   const ms = Math.round(performance.now() - t0);
   if (data.usageMetadata) {
