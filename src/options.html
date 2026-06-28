@@ -135,6 +135,25 @@
       <br /><button id="resetspend" class="small" style="margin-top:8px;background:#8a7560">Reset counter</button>
     </div>
 
+    <!-- LOGS / DIAGNOSTICS -->
+    <h2>🧰 Logs (paste these when something feels off)</h2>
+    <div class="note">
+      Live record of what Roody is doing, with timings and errors. Newest at
+      the bottom. If a reply was slow, look for the <code>Claude</code> line —
+      its <code>ms</code> is how long the brain took. If a voice turn was
+      missed, look for <code>SR error</code> or <code>ignored as ECHO</code>.
+      <br /><br />
+      <div style="display:flex; gap:8px; margin-bottom:8px">
+        <button id="reflog" class="small">↻ Refresh</button>
+        <button id="copylog" class="small" style="background:#6b4a2b">📋 Copy</button>
+        <button id="clearlog" class="ghost small">Clear</button>
+        <label style="margin:0 0 0 auto; font-weight:400; font-size:12px; display:flex; align-items:center; gap:6px">
+          <input id="autorefresh" type="checkbox" style="width:auto" checked /> auto-refresh
+        </label>
+      </div>
+      <textarea id="logbox" readonly style="width:100%;height:240px;font-family:ui-monospace,Menlo,monospace;font-size:12px;border:1px solid #e7d4ba;border-radius:8px;padding:8px;background:#fff7ec;color:#3a2c1e;white-space:pre;overflow:auto"></textarea>
+    </div>
+
     <!-- SHARING -->
     <h2>🤝 Sharing Roody</h2>
     <div class="note warn">

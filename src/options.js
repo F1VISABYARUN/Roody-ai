@@ -68,6 +68,29 @@ $("resetspend").addEventListener("click", async () => {
   showSpend();
 });
 
+// ---- Logs panel ----------------------------------------------------------
+const logBox = $("logbox");
+const autoEl = $("autorefresh");
+function showLog() {
+  chrome.storage.local.get(["roodyLog"]).then(({ roodyLog }) => {
+    const lines = Array.isArray(roodyLog) ? roodyLog : [];
+    logBox.value = lines.join("\n");
+    logBox.scrollTop = logBox.scrollHeight;
+  });
+}
+showLog();
+$("reflog").addEventListener("click", showLog);
+$("copylog").addEventListener("click", async () => {
+  await navigator.clipboard.writeText(logBox.value || "(empty)");
+  $("copylog").textContent = "✓ Copied";
+  setTimeout(() => ($("copylog").textContent = "📋 Copy"), 1500);
+});
+$("clearlog").addEventListener("click", async () => {
+  await chrome.storage.local.set({ roodyLog: [] });
+  showLog();
+});
+let autoTimer = setInterval(() => { if (autoEl.checked) showLog(); }, 1500);
+
 // Save the rest.
 $("save").addEventListener("click", async () => {
   await chrome.storage.local.set({

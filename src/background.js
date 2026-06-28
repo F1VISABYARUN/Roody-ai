@@ -37,6 +37,19 @@ async function addUsage(model, inTok, outTok) {
   await chrome.storage.local.set({ roodyUsage: u });
 }
 
+// ---- Roody log -----------------------------------------------------------
+// A circular buffer of recent events (timing + errors). Visible in Settings so
+// you can paste it back when something feels off. Stored in chrome.storage so
+// it survives across pages and is shared between content + background.
+async function rlog(line) {
+  const ts = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
+  const { roodyLog } = await chrome.storage.local.get(["roodyLog"]);
+  const log = Array.isArray(roodyLog) ? roodyLog : [];
+  log.push(`${ts}  ${line}`);
+  while (log.length > 200) log.shift();
+  await chrome.storage.local.set({ roodyLog: log });
+}
+
 // Ask Roody's brain. Routes to Claude or Gemini depending on which model is
 // selected in settings. `pageContext` is the read-only text Roody scraped from
 // the page; `history` is the running chat between the human and Roody.
@@ -64,17 +77,20 @@ async function askRoody({ userText, pageContext, history }) {
     { role: "user", content: `${contextBlock}${userText}` },
   ];
 
-  // Web search lets Roody look things up when the page isn't enough.
+  // Web search lets Roody look things up when the page isn't enough. Each
+  // search hop adds ~1-3s though — skip if voice mode wants speed.
   const { roodyWebSearch } = await chrome.storage.local.get(["roodyWebSearch"]);
   const tools =
     roodyWebSearch !== false
-      ? [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }]
+      ? [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }]
       : undefined;
 
   // Server-side search runs a loop; if it pauses, re-send to let it continue.
   let finalText = "";
   for (let i = 0; i < 4; i++) {
     let resp;
+    const t0 = performance.now();
+    rlog(`→ Claude ${model} (msgs=${messages.length}${tools ? " +web" : ""})`);
     try {
       resp = await fetch(ANTHROPIC_URL, {
         method: "POST",
@@ -95,19 +111,23 @@ async function askRoody({ userText, pageContext, history }) {
         }),
       });
     } catch (e) {
+      rlog(`❌ Claude network: ${e.message}`);
       return { ok: false, error: `I couldn't reach the network. (${e.message})` };
     }
     if (!resp.ok) {
       const body = await resp.text();
+      rlog(`❌ Claude ${resp.status}: ${body.slice(0, 120)}`);
       return {
         ok: false,
         error: `Something went wrong talking to Claude (${resp.status}). ${body.slice(0, 200)}`,
       };
     }
     const data = await resp.json();
-    if (data.usage) {
-      addUsage(model, data.usage.input_tokens || 0, data.usage.output_tokens || 0);
-    }
+    const ms = Math.round(performance.now() - t0);
+    const inTok = data.usage?.input_tokens || 0;
+    const outTok = data.usage?.output_tokens || 0;
+    rlog(`✓ Claude ${ms}ms · in=${inTok} out=${outTok} · ${data.stop_reason}`);
+    if (data.usage) addUsage(model, inTok, outTok);
     const txt = (data.content || [])
       .filter((b) => b.type === "text")
       .map((b) => b.text)
@@ -195,7 +215,9 @@ async function geminiTTS(text) {
     "roodyGeminiKey",
     "roodyVoice",
   ]);
-  if (!roodyGeminiKey) return { ok: false, error: "no-gemini-key" };
+  if (!roodyGeminiKey) { rlog("⚠ TTS skipped: no Gemini key (using browser voice)"); return { ok: false, error: "no-gemini-key" }; }
+  const t0 = performance.now();
+  rlog(`→ Gemini TTS (${text.length} chars, voice=${roodyVoice || "Kore"})`);
 
   let resp;
   try {
@@ -221,12 +243,16 @@ async function geminiTTS(text) {
       }
     );
   } catch (e) {
+    rlog(`❌ TTS network: ${e.message}`);
     return { ok: false, error: `tts-network ${e.message}` };
   }
   if (!resp.ok) {
-    return { ok: false, error: `tts ${resp.status} ${(await resp.text()).slice(0, 160)}` };
+    const body = (await resp.text()).slice(0, 160);
+    rlog(`❌ TTS ${resp.status}: ${body}`);
+    return { ok: false, error: `tts ${resp.status} ${body}` };
   }
   const data = await resp.json();
+  const ms = Math.round(performance.now() - t0);
   if (data.usageMetadata) {
     addUsage(
       "gemini-tts",
@@ -237,7 +263,8 @@ async function geminiTTS(text) {
   const part = (data?.candidates?.[0]?.content?.parts || []).find(
     (p) => p.inlineData
   );
-  if (!part) return { ok: false, error: "tts-no-audio" };
+  if (!part) { rlog(`❌ TTS no audio in response (${ms}ms)`); return { ok: false, error: "tts-no-audio" }; }
+  rlog(`✓ TTS ${ms}ms · ${Math.round(part.inlineData.data.length / 1024)}KB`);
   return { ok: true, audioBase64: part.inlineData.data, mime: part.inlineData.mimeType };
 }
 
@@ -301,6 +328,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "roody:stt") {
     geminiSTT(msg.payload).then(sendResponse);
     return true;
+  }
+  // Content script can post a log line through us so everything lands in one place.
+  if (msg?.type === "roody:log") {
+    rlog(msg.payload?.line || "");
+    sendResponse({ ok: true });
+    return false;
   }
 });
 

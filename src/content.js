@@ -25,6 +25,14 @@
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  // Send a log line to the background so it shows up in Settings.
+  function rlog(line) {
+    try { chrome.runtime.sendMessage({ type: "roody:log", payload: { line } }); } catch (_) {}
+    // also surface to devtools for quick eyeballing
+    try { console.log("[Roody]", line); } catch (_) {}
+  }
+  rlog(`page=${location.hostname} ua=${navigator.userAgent.slice(0, 60)}`);
+
   // ---- Audio helpers (turn Gemini's raw PCM into something playable) --------
   function base64ToBytes(b64) {
     const bin = atob(b64);
@@ -501,20 +509,29 @@
   let recentRoodyWords = ""; // for echo filter
 
   function buildSR() {
-    if (!SR) return null;
+    if (!SR) { rlog("❌ SpeechRecognition unavailable in this browser"); return null; }
     const r = new SR();
     r.lang = "en-US";
-    r.continuous = false; // one utterance at a time, easier to debounce
+    r.continuous = false;
     r.interimResults = false;
     r.maxAlternatives = 1;
-    r.onresult = (e) => onUserSpoke(e.results[0][0].transcript || "");
-    r.onerror = (e) => {
-      // "no-speech" / "aborted" / "audio-capture" — common and recoverable,
-      // just keep the loop going. Bigger errors will fall through to onend.
+    r.onstart = () => rlog("🎤 SR start (listening)");
+    r.onaudiostart = () => rlog("🎤 audio capture began");
+    r.onspeechstart = () => rlog("🎤 speech detected — you started talking");
+    r.onspeechend = () => rlog("🎤 speech ended");
+    r.onresult = (e) => {
+      const heard = e.results[0][0].transcript || "";
+      const conf = (e.results[0][0].confidence || 0).toFixed(2);
+      rlog(`🎤 HEARD: "${heard}" (conf=${conf})`);
+      onUserSpoke(heard);
     };
+    r.onerror = (e) => rlog(`⚠ SR error: ${e.error || "unknown"}`);
     r.onend = () => {
-      // If voice mode is still on, restart so we're always listening.
-      if (voiceOn) setTimeout(() => { try { sr.start(); } catch (_) {} }, 250);
+      rlog("🎤 SR ended");
+      if (voiceOn) setTimeout(() => {
+        try { sr.start(); rlog("🎤 SR restart"); }
+        catch (e) { rlog(`⚠ SR restart failed: ${e.message}`); }
+      }, 250);
     };
     return r;
   }
@@ -554,42 +571,47 @@
 
   function onUserSpoke(rawText) {
     const text = (rawText || "").trim();
-    if (!voiceOn || !text) return;
-    if (isProbablyEcho(text)) return; // ignore self-feedback
-    // Barge-in: cut Roody off the moment we hear you.
+    if (!voiceOn) { rlog("…ignored (voiceOn=false)"); return; }
+    if (!text) { rlog("…ignored (empty)"); return; }
+    if (isProbablyEcho(text)) { rlog(`…ignored as ECHO of Roody's last reply: "${text}"`); return; }
+    rlog(`→ sending to brain: "${text}"`);
     stopSpeaking();
     addBubble("you", text);
     const thinking = addBubble("roody", "…");
     setMic("thinking");
+    const sentAt = performance.now();
     callRoody(
       text,
       recentTask(),
       (t) => {
+        const ms = Math.round(performance.now() - sentAt);
+        rlog(`🧠 brain replied in ${ms}ms (${t.length} chars)`);
         thinking.textContent = t;
-        recentRoodyWords = t; // remember for echo filter
+        recentRoodyWords = t;
       },
-      () => setMic("idle")
+      () => { rlog("🔊 Roody finished speaking"); setMic("idle"); }
     );
   }
 
   async function voiceTurnOn() {
     if (voiceOn) return;
     if (!SR) {
+      rlog("❌ Can't turn voice on — no SpeechRecognition support");
       addBubble("roody", "This browser can't do hands-free voice — try Chrome. You can still type to me.");
       return;
     }
+    rlog("===== VOICE ON =====");
     voiceOn = true;
     setToggleVisual(true);
     if (panel.style.display === "none") panel.style.display = "flex";
 
-    // Best-effort: pre-warm the mic with echo cancellation enabled so SR
-    // benefits from Chrome's AEC processing during Roody's speech.
     try {
       const s = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
-      s.getTracks().forEach((t) => t.stop()); // just opens the pipe & permission
-    } catch (_) {}
+      s.getTracks().forEach((t) => t.stop());
+      rlog("✓ mic permission OK (echo-cancellation on)");
+    } catch (e) { rlog(`⚠ mic permission: ${e.message}`); }
 
     // Roody opens the conversation based on what's on screen, then starts
     // listening as soon as it finishes speaking.
@@ -606,6 +628,7 @@
   }
 
   function voiceTurnOff() {
+    rlog("===== VOICE OFF =====");
     voiceOn = false;
     setToggleVisual(false);
     stopSpeaking();
