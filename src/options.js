@@ -4,17 +4,26 @@ const modelEl = document.getElementById("model");
 const gkeyEl = document.getElementById("gkey");
 const voiceEl = document.getElementById("voice");
 const webEl = document.getElementById("websearch");
+const enabledEl = document.getElementById("enabled");
 const statusEl = document.getElementById("status");
 
 chrome.storage.local
-  .get(["roodyApiKey", "roodyModel", "roodyGeminiKey", "roodyVoice", "roodyWebSearch"])
+  .get([
+    "roodyApiKey", "roodyModel", "roodyGeminiKey",
+    "roodyVoice", "roodyWebSearch", "roodyEnabled",
+  ])
   .then((s) => {
     if (s.roodyApiKey) keyEl.value = s.roodyApiKey;
     if (s.roodyModel) modelEl.value = s.roodyModel;
     if (s.roodyGeminiKey) gkeyEl.value = s.roodyGeminiKey;
     if (s.roodyVoice) voiceEl.value = s.roodyVoice;
     webEl.checked = s.roodyWebSearch !== false; // default on
+    enabledEl.checked = s.roodyEnabled !== false; // default on
   });
+// Flip Roody on/off instantly when the master switch changes.
+enabledEl.addEventListener("change", () => {
+  chrome.storage.local.set({ roodyEnabled: enabledEl.checked });
+});
 
 // Show the running cost estimate.
 const spendEl = document.getElementById("spend");
@@ -41,6 +50,7 @@ document.getElementById("save").addEventListener("click", async () => {
     roodyGeminiKey: gkeyEl.value.trim(),
     roodyVoice: voiceEl.value,
     roodyWebSearch: webEl.checked,
+    roodyEnabled: enabledEl.checked,
   });
   statusEl.textContent = "Saved ✓";
   setTimeout(() => (statusEl.textContent = ""), 2000);

@@ -30,6 +30,20 @@
   0%, 100% { transform: scale(1); box-shadow: 0 6px 20px rgba(233, 138, 60, 0.45); }
   50% { transform: scale(1.14); box-shadow: 0 8px 30px rgba(233, 138, 60, 0.75); }
 }
+/* GREEN = Roody is speaking right now. */
+#roody-orb.roody-speaking {
+  background: radial-gradient(circle at 35% 30%, #b6f4b0, #3fae3f);
+  box-shadow: 0 0 0 0 rgba(63, 174, 63, 0.6);
+  animation: roody-speak 1s infinite ease-in-out;
+}
+@keyframes roody-speak {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(63, 174, 63, 0.6); }
+  50% { box-shadow: 0 0 0 12px rgba(63, 174, 63, 0); }
+}
+/* RED = Roody has been stopped / is silent. Calms back to orange on next event. */
+#roody-orb.roody-stopped {
+  background: radial-gradient(circle at 35% 30%, #ffb3a8, #d9534f);
+}
 
 #roody-panel {
   position: fixed;

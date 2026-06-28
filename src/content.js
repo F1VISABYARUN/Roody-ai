@@ -187,6 +187,12 @@
   document.body.appendChild(orb);
   document.body.appendChild(panel);
 
+  // Honor the "Roody is off" master switch — hide everything and bail.
+  function applyEnabled(enabled) {
+    orb.style.display = enabled ? "flex" : "none";
+    if (!enabled) panel.style.display = "none";
+  }
+
   const log = panel.querySelector("#roody-log");
   const input = panel.querySelector("#roody-text");
   const listenBtn = panel.querySelector("#roody-listen");
@@ -249,9 +255,14 @@
     try {
       synth.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      if (onDone) u.onend = onDone;
+      setOrbState("speaking");
+      u.onend = () => {
+        setOrbState("idle");
+        if (onDone) onDone();
+      };
       synth.speak(u);
     } catch (_) {
+      setOrbState("idle");
       if (onDone) onDone();
     }
   }
@@ -267,6 +278,14 @@
         currentAudio = null;
       }
     } catch (_) {}
+    setOrbState("idle");
+  }
+
+  // Orb glow: green = speaking, red = stopped/idle, default orange otherwise.
+  function setOrbState(state) {
+    orb.classList.remove("roody-speaking", "roody-stopped");
+    if (state === "speaking") orb.classList.add("roody-speaking");
+    else if (state === "idle") orb.classList.add("roody-stopped");
   }
 
   // Roody's warm voice: Gemini TTS if available, else the free browser voice.
@@ -303,10 +322,15 @@
           if (done) return;
           done = true;
           URL.revokeObjectURL(url);
+          setOrbState("idle");
           if (onDone) onDone();
         };
         audio.onended = finish;
-        audio.play().catch(() => browserSpeak(text, onDone));
+        setOrbState("speaking");
+        audio.play().catch(() => {
+          setOrbState("idle");
+          browserSpeak(text, onDone);
+        });
       } catch (_) {
         browserSpeak(text, onDone);
       }
@@ -587,13 +611,21 @@
   });
 
   // ---- Boot -----------------------------------------------------------------
-  chrome.storage.local.get(["roodyAutoChime", "roodyGeminiKey"]).then((s) => {
-    if (typeof s.roodyAutoChime === "boolean") autoChime = s.roodyAutoChime;
-    geminiVoice = !!s.roodyGeminiKey; // warm voice on if a Gemini key is saved
-    reflectListenState();
+  chrome.storage.local
+    .get(["roodyAutoChime", "roodyGeminiKey", "roodyEnabled"])
+    .then((s) => {
+      if (typeof s.roodyAutoChime === "boolean") autoChime = s.roodyAutoChime;
+      geminiVoice = !!s.roodyGeminiKey; // warm voice on if a Gemini key is saved
+      applyEnabled(s.roodyEnabled !== false); // default on
+      reflectListenState();
     // Don't react to whatever is already on the page when we load —
     // only to answers that appear from now on.
     lastAnswerSig = readPage().slice(-600);
     startWatching();
+
+    // React to the master switch flipping in settings without a refresh.
+    chrome.storage.onChanged.addListener((changes) => {
+      if (changes.roodyEnabled) applyEnabled(changes.roodyEnabled.newValue !== false);
+    });
   });
 })();

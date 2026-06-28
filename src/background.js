@@ -82,7 +82,8 @@ async function askRoody({ userText, pageContext, history }) {
         },
         body: JSON.stringify({
           model,
-          max_tokens: 1024,
+          max_tokens: 400, // short spoken replies — keeps latency + cost low
+          temperature: 0.4, // focused, less rambly
           system: self.ROODY_SYSTEM,
           messages,
           ...(tools ? { tools } : {}),
