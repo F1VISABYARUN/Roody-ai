@@ -28,7 +28,8 @@ You, coding ──▶ ChatGPT / Claude in the browser
 
 ## What works today (Phase 0)
 
-- 🟠 An orb that appears on `chatgpt.com`, `chat.openai.com`, and `claude.ai`
+- 🟠 An orb that appears on every major AI site: **ChatGPT, Claude, Gemini,
+  Perplexity, Grok (grok.com &amp; x.com), Kimi, DeepSeek**
 - 👀 Roody reads the conversation/code on the page (read-only)
 - 👂 **Live watching** — when ChatGPT/Claude finishes a new answer, Roody notices
   it on its own and chimes in (toggle the 👂 in Roody's header to mute)

@@ -1,13 +1,21 @@
 {
   "manifest_version": 3,
   "name": "Roody — the calm AI voice in your code",
-  "version": "0.1.0",
-  "description": "Roody is a read-only AI companion that lives on top of ChatGPT and Claude. It reads, talks, finds mistakes, and helps you breathe — it never edits your code.",
+  "version": "0.2.0",
+  "description": "Roody is a read-only AI companion that lives on top of ChatGPT, Claude, Gemini, Perplexity, Grok, Kimi and DeepSeek. It reads, talks, finds mistakes, helps you breathe — it never edits your code.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
     "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://www.perplexity.ai/*",
+    "https://perplexity.ai/*",
+    "https://x.com/*",
+    "https://grok.com/*",
+    "https://www.kimi.com/*",
+    "https://kimi.com/*",
+    "https://chat.deepseek.com/*",
     "https://api.anthropic.com/*",
     "https://generativelanguage.googleapis.com/*"
   ],
@@ -23,7 +31,15 @@
       "matches": [
         "https://chatgpt.com/*",
         "https://chat.openai.com/*",
-        "https://claude.ai/*"
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://www.perplexity.ai/*",
+        "https://perplexity.ai/*",
+        "https://x.com/*",
+        "https://grok.com/*",
+        "https://www.kimi.com/*",
+        "https://kimi.com/*",
+        "https://chat.deepseek.com/*"
       ],
       "js": ["src/content.js"],
       "css": ["src/content.css"],
