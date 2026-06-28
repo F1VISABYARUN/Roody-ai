@@ -96,14 +96,41 @@
     <!-- VOICE -->
     <h2>🎙️ Voice (the talking &amp; listening)</h2>
 
-    <label for="gkey">Google Gemini API key <span style="font-weight:400;color:#8a7560">(optional — warm voice; also powers Gemini brain if selected above)</span></label>
+    <div class="note ok" style="margin-bottom:8px">
+      <strong>Want a real human voice?</strong> Add an ElevenLabs key below
+      (10k chars/month free at <a href="https://elevenlabs.io" target="_blank">elevenlabs.io</a>).
+      It's ~20× faster than Gemini TTS (sub-second vs 8 seconds) and sounds
+      indistinguishable from a real person. If both keys are set, Roody uses
+      ElevenLabs and only falls back to Gemini if it fails.
+    </div>
+
+    <label for="ekey">ElevenLabs API key <span style="font-weight:400;color:#8a7560">(optional — premium, sub-second human voice)</span></label>
+    <div class="row">
+      <input id="ekey" type="password" placeholder="sk_..." />
+      <button id="cleare" class="ghost small" title="Remove this key">✕</button>
+    </div>
+    <p id="estatus" class="keystatus"></p>
+
+    <label for="evoice">ElevenLabs voice</label>
+    <select id="evoice">
+      <option value="21m00Tcm4TlvDq8ikWAM">Rachel — calm, warm ⭐ (default)</option>
+      <option value="EXAVITQu4vr4xnSDxMaL">Sarah — soft, friendly</option>
+      <option value="AZnzlk1XvdvUeBnXmlld">Domi — strong, confident</option>
+      <option value="MF3mGyEYCl7XYWbV9V6O">Elli — youthful, bright</option>
+      <option value="XB0fDUnXU5powFXDhCwa">Charlotte — gentle, expressive</option>
+      <option value="9BWtsMINqrJLrRacOk9x">Aria — natural, conversational</option>
+      <option value="custom">Other → paste a custom voice ID below</option>
+    </select>
+    <input id="evoicecustom" type="text" placeholder="Custom voice ID (only if 'Other' selected)" style="margin-top:6px" />
+
+    <label for="gkey">Google Gemini API key <span style="font-weight:400;color:#8a7560">(optional — fallback voice; also powers Gemini brain if selected above)</span></label>
     <div class="row">
       <input id="gkey" type="password" placeholder="AIza..." />
       <button id="clearg" class="ghost small" title="Remove this key">✕</button>
     </div>
     <p id="gstatus" class="keystatus"></p>
 
-    <label for="voice">Roody's voice <span style="font-weight:400;color:#8a7560">(female voices only)</span></label>
+    <label for="voice">Gemini voice <span style="font-weight:400;color:#8a7560">(used when no ElevenLabs key — female voices only)</span></label>
     <select id="voice">
       <option value="Kore">Kore — calm &amp; firm ⭐ (recommended)</option>
       <option value="Aoede">Aoede — breezy &amp; light</option>

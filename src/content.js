@@ -392,9 +392,14 @@
         }
         return browserSpeak(text, onDone); // graceful fallback
       }
-      rlog("🔊 Roody warm voice playing");
+      rlog(`🔊 Roody warm voice playing (${res.mime})`);
       try {
-        const blob = pcm16ToWav(base64ToBytes(res.audioBase64), rateFromMime(res.mime));
+        // ElevenLabs returns MP3 (audio/mpeg) — play as-is.
+        // Gemini returns raw PCM with rate hint in mime — wrap in WAV header.
+        const isPcm = /pcm|L16/i.test(res.mime || "");
+        const blob = isPcm
+          ? pcm16ToWav(base64ToBytes(res.audioBase64), rateFromMime(res.mime))
+          : new Blob([base64ToBytes(res.audioBase64)], { type: res.mime || "audio/mpeg" });
         const url = URL.createObjectURL(blob);
         stopSpeaking(); // clear anything currently playing first
         const audio = new Audio(url);
@@ -716,10 +721,11 @@
 
   // ---- Boot -----------------------------------------------------------------
   chrome.storage.local
-    .get(["roodyAutoChime", "roodyGeminiKey", "roodyEnabled"])
+    .get(["roodyAutoChime", "roodyGeminiKey", "roodyElevenKey", "roodyEnabled"])
     .then((s) => {
       if (typeof s.roodyAutoChime === "boolean") autoChime = s.roodyAutoChime;
-      geminiVoice = !!s.roodyGeminiKey; // warm voice on if a Gemini key is saved
+      // Warm voice is ON if ANY premium TTS key is set (ElevenLabs OR Gemini).
+      geminiVoice = !!(s.roodyElevenKey || s.roodyGeminiKey);
       applyEnabled(s.roodyEnabled !== false); // default on
       reflectListenState();
     // Don't react to whatever is already on the page when we load —

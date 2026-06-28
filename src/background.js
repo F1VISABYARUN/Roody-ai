@@ -24,6 +24,9 @@ const PRICES = {
   "gemini-tts": { in: 0.5, out: 10 }, // approximate
   "gemini-stt": { in: 0.3, out: 1 }, // approximate
   "gemini-2.5-flash": { in: 0.3, out: 2.5 },
+  // ElevenLabs charges per character, not per token. We track chars in "out"
+  // slot (input chars are 0) at ~$0.30/1k chars = $300/1M for the Creator tier.
+  "elevenlabs": { in: 0, out: 300 },
 };
 async function addUsage(model, inTok, outTok) {
   const p = PRICES[model] || { in: 0, out: 0 };
@@ -141,6 +144,53 @@ async function askRoody({ userText, pageContext, history }) {
     break;
   }
   return { ok: true, text: finalText || "…" };
+}
+
+// ---- ElevenLabs voice (premium TTS — most human, sub-second) -------------
+// If a key is set in settings, Roody uses ElevenLabs instead of Gemini TTS.
+// Flash v2.5 model = lowest latency (~75-300 ms) at solid quality.
+const ELEVEN_BASE = "https://api.elevenlabs.io/v1";
+async function elevenLabsTTS(text) {
+  const { roodyElevenKey, roodyElevenVoice } = await chrome.storage.local.get([
+    "roodyElevenKey",
+    "roodyElevenVoice",
+  ]);
+  if (!roodyElevenKey) return { ok: false, error: "no-eleven-key" };
+  const voiceId = roodyElevenVoice || "21m00Tcm4TlvDq8ikWAM"; // Rachel
+  const t0 = performance.now();
+  rlog(`→ ElevenLabs TTS (${text.length} chars, voice=${voiceId.slice(0, 8)}…)`);
+  try {
+    const resp = await fetch(
+      `${ELEVEN_BASE}/text-to-speech/${voiceId}?output_format=mp3_22050_32`,
+      {
+        method: "POST",
+        headers: {
+          "xi-api-key": roodyElevenKey,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          text,
+          model_id: "eleven_flash_v2_5", // fastest model
+        }),
+      }
+    );
+    if (!resp.ok) {
+      const body = (await resp.text()).slice(0, 200);
+      rlog(`❌ ElevenLabs ${resp.status}: ${body}`);
+      return { ok: false, error: `el ${resp.status} ${body}` };
+    }
+    const buf = await resp.arrayBuffer();
+    const ms = Math.round(performance.now() - t0);
+    rlog(`✓ ElevenLabs ${ms}ms · ${Math.round(buf.byteLength / 1024)}KB`);
+    // base64-encode the MP3 bytes for transit to the content script
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return { ok: true, audioBase64: btoa(bin), mime: "audio/mpeg" };
+  } catch (e) {
+    rlog(`❌ ElevenLabs network: ${e.message}`);
+    return { ok: false, error: `el-net ${e.message}` };
+  }
 }
 
 // ---- Gemini voice (Roody's mouth and ears) --------------------------------
@@ -336,7 +386,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true; // keep the channel open for the async reply
   }
   if (msg?.type === "roody:tts") {
-    geminiTTS(msg.payload.text).then(sendResponse);
+    // Prefer ElevenLabs (premium, sub-second, human) when its key is set.
+    // Fall through to Gemini TTS otherwise. Each function handles its own
+    // "no key" early-return, so this works in any combination.
+    (async () => {
+      const { roodyElevenKey } = await chrome.storage.local.get(["roodyElevenKey"]);
+      if (roodyElevenKey) {
+        const r = await elevenLabsTTS(msg.payload.text);
+        if (r.ok) {
+          addUsage("elevenlabs", 0, msg.payload.text.length);
+          return sendResponse(r);
+        }
+        // If ElevenLabs failed, try Gemini as a backup so we don't fall to robot.
+        rlog("↻ ElevenLabs failed, trying Gemini TTS as backup");
+      }
+      sendResponse(await geminiTTS(msg.payload.text));
+    })();
     return true;
   }
   if (msg?.type === "roody:stt") {

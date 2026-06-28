@@ -5,6 +5,9 @@ const keyEl = $("key");
 const modelEl = $("model");
 const gkeyEl = $("gkey");
 const voiceEl = $("voice");
+const ekeyEl = $("ekey");
+const evoiceEl = $("evoice");
+const evoiceCustomEl = $("evoicecustom");
 const webEl = $("websearch");
 const chimeEl = $("autochime");
 const enabledEl = $("enabled");
@@ -18,13 +21,22 @@ function showKeyStatus(el, hasIt) {
 // Load everything saved.
 chrome.storage.local
   .get([
-    "roodyApiKey", "roodyModel", "roodyGeminiKey",
+    "roodyApiKey", "roodyModel", "roodyGeminiKey", "roodyElevenKey", "roodyElevenVoice",
     "roodyVoice", "roodyWebSearch", "roodyEnabled", "roodyAutoChime",
   ])
   .then((s) => {
     if (s.roodyApiKey) keyEl.value = s.roodyApiKey;
     if (s.roodyModel) modelEl.value = s.roodyModel;
     if (s.roodyGeminiKey) gkeyEl.value = s.roodyGeminiKey;
+    if (s.roodyElevenKey) ekeyEl.value = s.roodyElevenKey;
+    // If saved voice is one of the known ones, select it; else show as Custom.
+    const knownVoices = ["21m00Tcm4TlvDq8ikWAM","EXAVITQu4vr4xnSDxMaL","AZnzlk1XvdvUeBnXmlld","MF3mGyEYCl7XYWbV9V6O","XB0fDUnXU5powFXDhCwa","9BWtsMINqrJLrRacOk9x"];
+    if (s.roodyElevenVoice && knownVoices.includes(s.roodyElevenVoice)) {
+      evoiceEl.value = s.roodyElevenVoice;
+    } else if (s.roodyElevenVoice) {
+      evoiceEl.value = "custom";
+      evoiceCustomEl.value = s.roodyElevenVoice;
+    }
     // Roody is female-voice-only now; if a previously saved male voice (Puck,
     // Charon, etc.) is in storage, snap it back to the default Kore.
     const validFemale = new Set(["Kore","Aoede","Leda","Zephyr","Callirrhoe","Autonoe","Despina","Erinome","Laomedeia","Achernar","Vindemiatrix","Sulafat"]);
@@ -37,7 +49,16 @@ chrome.storage.local
     enabledEl.checked = s.roodyEnabled !== false;
     showKeyStatus($("keystatus"), !!s.roodyApiKey);
     showKeyStatus($("gstatus"), !!s.roodyGeminiKey);
+    showKeyStatus($("estatus"), !!s.roodyElevenKey);
   });
+
+// Clear ElevenLabs key
+$("cleare").addEventListener("click", () => {
+  if (!confirm("Remove the ElevenLabs key from this browser?")) return;
+  ekeyEl.value = "";
+  chrome.storage.local.set({ roodyElevenKey: "" });
+  showKeyStatus($("estatus"), false);
+});
 
 // Master ON/OFF — flip live, no save button needed.
 enabledEl.addEventListener("change", () => {
@@ -99,10 +120,16 @@ let autoTimer = setInterval(() => { if (autoEl.checked) showLog(); }, 1500);
 
 // Save the rest.
 $("save").addEventListener("click", async () => {
+  const elevenVoice =
+    evoiceEl.value === "custom"
+      ? (evoiceCustomEl.value || "").trim()
+      : evoiceEl.value;
   await chrome.storage.local.set({
     roodyApiKey: keyEl.value.trim(),
     roodyModel: modelEl.value,
     roodyGeminiKey: gkeyEl.value.trim(),
+    roodyElevenKey: ekeyEl.value.trim(),
+    roodyElevenVoice: elevenVoice,
     roodyVoice: voiceEl.value,
     roodyWebSearch: webEl.checked,
     roodyAutoChime: chimeEl.checked,
@@ -110,6 +137,7 @@ $("save").addEventListener("click", async () => {
   });
   showKeyStatus($("keystatus"), !!keyEl.value.trim());
   showKeyStatus($("gstatus"), !!gkeyEl.value.trim());
+  showKeyStatus($("estatus"), !!ekeyEl.value.trim());
   statusEl.textContent = "Saved ✓";
   setTimeout(() => (statusEl.textContent = ""), 2000);
 });
