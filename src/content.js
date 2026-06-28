@@ -81,6 +81,13 @@
     return text;
   }
 
+  // Just the most recent task — the tail of what's on screen. Cheaper and
+  // focused, so Roody talks about what you're doing right now, not the whole day.
+  function recentTask() {
+    const t = readPage();
+    return t ? t.slice(-2500) : "";
+  }
+
   // Find the scrollable container holding the conversation (best effort —
   // the biggest element on the page that actually scrolls).
   function findScrollContainer() {
@@ -168,7 +175,8 @@
     </div>
     <div id="roody-log"></div>
     <div id="roody-inputrow">
-      <button id="roody-mic" title="Hold to talk">🎤</button>
+      <button id="roody-mic" title="Tap to talk">🎤</button>
+      <button id="roody-stop" title="Stop Roody talking">⏹</button>
       <input id="roody-text" type="text" placeholder="Talk to Roody…" autocomplete="off" />
       <button id="roody-send" title="Send">➤</button>
     </div>
@@ -184,13 +192,24 @@
   orb.addEventListener("click", () => {
     const open = panel.style.display === "none";
     panel.style.display = open ? "flex" : "none";
-    if (open && log.childElementCount === 0) {
-      addBubble(
-        "roody",
-        "Hey. I'm Roody. I can see what's on your screen and I'm here to read it with you, talk it through, and spot anything that looks off. I'll even chime in on my own when a new answer lands. I won't change a thing — that part's always yours. What are we looking at?"
-      );
-    }
+    if (open && log.childElementCount === 0) openingHello();
   });
+
+  // Roody talks first: looks at JUST the latest task on the page and opens up.
+  const OPENER_PROMPT =
+    "(The user just opened you. Look ONLY at the most recent thing on the page — their latest message and the latest answer. Open the conversation out loud: one warm, short line about what they're working on, then ask them one thing. One or two sentences, spoken. Don't summarize the whole page.)";
+
+  function openingHello() {
+    const recent = recentTask();
+    if (!recent) {
+      const hi = "Hey, I'm Roody. What are we looking at?";
+      addBubble("roody", hi);
+      speak(hi);
+      return;
+    }
+    const thinking = addBubble("roody", "…");
+    callRoody(OPENER_PROMPT, recent, (t) => (thinking.textContent = t));
+  }
   panel.querySelector("#roody-close").addEventListener("click", () => {
     panel.style.display = "none";
   });
@@ -217,6 +236,9 @@
   }
 
   let currentAudio = null;
+  let speakToken = 0; // bumped on stop so stale TTS replies don't start playing
+  let ttsWarned = false;
+
   function browserSpeak(text) {
     if (!synth) return;
     try {
@@ -225,21 +247,47 @@
       synth.speak(u);
     } catch (_) {}
   }
+
+  // Stop Roody talking, right now.
+  function stopSpeaking() {
+    speakToken++; // any in-flight TTS reply is now stale
+    try { if (synth) synth.cancel(); } catch (_) {}
+    try {
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+        currentAudio = null;
+      }
+    } catch (_) {}
+  }
+
   // Roody's warm voice: Gemini TTS if available, else the free browser voice.
   function speak(text) {
     if (!text) return;
     if (!geminiVoice) return browserSpeak(text);
+    const myToken = speakToken;
     chrome.runtime.sendMessage({ type: "roody:tts", payload: { text } }, (res) => {
+      if (myToken !== speakToken) return; // user pressed stop while we waited
       if (chrome.runtime.lastError || !res || !res.ok || !res.audioBase64) {
+        if (!ttsWarned && res && res.error) {
+          ttsWarned = true;
+          addBubble(
+            "roody",
+            "🔈 (my warm voice isn't connecting — using the plain browser voice. Gemini said: " +
+              String(res.error).slice(0, 90) +
+              ". Check your Gemini key in settings.)"
+          );
+        }
         return browserSpeak(text); // graceful fallback
       }
       try {
         const blob = pcm16ToWav(base64ToBytes(res.audioBase64), rateFromMime(res.mime));
         const url = URL.createObjectURL(blob);
-        if (currentAudio) currentAudio.pause();
-        currentAudio = new Audio(url);
-        currentAudio.onended = () => URL.revokeObjectURL(url);
-        currentAudio.play().catch(() => browserSpeak(text));
+        stopSpeaking(); // clear anything currently playing first
+        const audio = new Audio(url);
+        currentAudio = audio;
+        audio.onended = () => URL.revokeObjectURL(url);
+        audio.play().catch(() => browserSpeak(text));
       } catch (_) {
         browserSpeak(text);
       }
@@ -283,10 +331,18 @@
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") send(input.value);
   });
+  // Stop Roody talking instantly.
+  panel.querySelector("#roody-stop").addEventListener("click", () => {
+    stopSpeaking();
+    if (recording) {
+      recording = false;
+      try { recorder && recorder.stop(); } catch (_) {}
+    }
+  });
 
   // ---- Live watching: react when a new answer lands ------------------------
   const REACTION_PROMPT =
-    "(Automatic check-in: a new answer just finished on the page. React to the MOST RECENT answer like a friend reading along — about whatever the topic is, not only code. If it's code and something looks wrong, risky, or like it'll loop, say so and point to where. If it's anything else, add a quick thought, ask one sharp question, or gently flag anything that seems off or inaccurate. If it's just genuinely good, you can simply say so. Keep it to a sentence or two, spoken-sounding.)";
+    "(A new answer just landed. React to it in ONE short spoken sentence, like a friend reading along. If it's code and something looks wrong, point to it; otherwise a quick thought or a question. Keep it tiny.)";
 
   async function reactToNewAnswer() {
     if (reacting) return;
@@ -295,7 +351,7 @@
     if (panel.style.display === "none") panel.style.display = "flex";
 
     const thinking = addBubble("roody", "…");
-    const ctx = await buildContext();
+    const ctx = recentTask(); // just the latest task, not the whole chat
     callRoody(REACTION_PROMPT, ctx, (t) => {
       thinking.textContent = t;
       orb.classList.remove("roody-thinking");

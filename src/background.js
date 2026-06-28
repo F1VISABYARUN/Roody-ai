@@ -15,6 +15,27 @@ async function getSettings() {
   return { apiKey: roodyApiKey, model: roodyModel || MODEL };
 }
 
+// ---- Cost meter -----------------------------------------------------------
+// Rough $/1M tokens. Gemini TTS/STT billed approximately by tokens.
+const PRICES = {
+  "claude-opus-4-8": { in: 5, out: 25 },
+  "claude-sonnet-4-6": { in: 3, out: 15 },
+  "claude-haiku-4-5": { in: 1, out: 5 },
+  "gemini-tts": { in: 0.5, out: 10 }, // approximate
+  "gemini-stt": { in: 0.3, out: 1 }, // approximate
+};
+async function addUsage(model, inTok, outTok) {
+  const p = PRICES[model] || { in: 0, out: 0 };
+  const cost = (inTok * p.in + outTok * p.out) / 1e6;
+  const { roodyUsage } = await chrome.storage.local.get(["roodyUsage"]);
+  const u = roodyUsage || { costUSD: 0, calls: 0, inTok: 0, outTok: 0 };
+  u.costUSD += cost;
+  u.calls += 1;
+  u.inTok += inTok;
+  u.outTok += outTok;
+  await chrome.storage.local.set({ roodyUsage: u });
+}
+
 // Ask Claude. `pageContext` is the read-only text Roody scraped from the page;
 // `history` is the running chat between the human and Roody.
 async function askRoody({ userText, pageContext, history }) {
@@ -69,6 +90,9 @@ async function askRoody({ userText, pageContext, history }) {
   }
 
   const data = await resp.json();
+  if (data.usage) {
+    addUsage(model, data.usage.input_tokens || 0, data.usage.output_tokens || 0);
+  }
   const text = (data.content || [])
     .filter((b) => b.type === "text")
     .map((b) => b.text)
@@ -119,6 +143,13 @@ async function geminiTTS(text) {
     return { ok: false, error: `tts ${resp.status} ${(await resp.text()).slice(0, 160)}` };
   }
   const data = await resp.json();
+  if (data.usageMetadata) {
+    addUsage(
+      "gemini-tts",
+      data.usageMetadata.promptTokenCount || 0,
+      data.usageMetadata.candidatesTokenCount || 0
+    );
+  }
   const part = (data?.candidates?.[0]?.content?.parts || []).find(
     (p) => p.inlineData
   );
@@ -159,6 +190,13 @@ async function geminiSTT({ audioBase64, mime }) {
     return { ok: false, error: `stt ${resp.status}` };
   }
   const data = await resp.json();
+  if (data.usageMetadata) {
+    addUsage(
+      "gemini-stt",
+      data.usageMetadata.promptTokenCount || 0,
+      data.usageMetadata.candidatesTokenCount || 0
+    );
+  }
   const text = (data?.candidates?.[0]?.content?.parts || [])
     .map((p) => p.text)
     .filter(Boolean)

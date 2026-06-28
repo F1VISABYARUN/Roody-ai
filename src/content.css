@@ -145,6 +145,7 @@
   border-color: #e98a3c;
 }
 #roody-mic,
+#roody-stop,
 #roody-send {
   border: none;
   border-radius: 10px;
@@ -152,6 +153,10 @@
   cursor: pointer;
   font-size: 16px;
   background: #fbe9d6;
+}
+#roody-stop {
+  background: #f3d2cf;
+  color: #b03a2e;
 }
 #roody-send {
   background: #e98a3c;

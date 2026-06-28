@@ -14,6 +14,24 @@ chrome.storage.local
     if (s.roodyVoice) voiceEl.value = s.roodyVoice;
   });
 
+// Show the running cost estimate.
+const spendEl = document.getElementById("spend");
+const spendCallsEl = document.getElementById("spendcalls");
+function showSpend() {
+  chrome.storage.local.get(["roodyUsage"]).then(({ roodyUsage }) => {
+    const u = roodyUsage || { costUSD: 0, calls: 0 };
+    spendEl.textContent = "$" + (u.costUSD || 0).toFixed(4);
+    spendCallsEl.textContent = u.calls ? ` · ${u.calls} calls` : "";
+  });
+}
+showSpend();
+document.getElementById("resetspend").addEventListener("click", async () => {
+  await chrome.storage.local.set({
+    roodyUsage: { costUSD: 0, calls: 0, inTok: 0, outTok: 0 },
+  });
+  showSpend();
+});
+
 document.getElementById("save").addEventListener("click", async () => {
   await chrome.storage.local.set({
     roodyApiKey: keyEl.value.trim(),
