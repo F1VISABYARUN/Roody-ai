@@ -2,7 +2,9 @@
 importScripts("persona.js");
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
-const MODEL = "claude-opus-4-8";
+// Roody just reads and chats — Sonnet is the sweet spot (smart + ~40% cheaper
+// than Opus). Users can switch to Haiku (cheaper) or Opus (sharper) in settings.
+const MODEL = "claude-sonnet-4-6";
 
 // Pull the user's settings (API key + chosen model) from extension storage.
 async function getSettings() {

@@ -38,8 +38,9 @@ You, coding ──▶ ChatGPT / Claude in the browser
 - 🎙️ **Warm voice via Gemini** (optional) — add a Google Gemini key and Roody
   gets a natural voice (TTS) and better listening (STT). No key? It falls back
   to the free browser voice automatically.
-- 🧠 **Brain: Claude** (`claude-opus-4-8` by default; Sonnet / Haiku selectable)
-  — the sharpest reasoning for reading code and finding mistakes
+- 🧠 **Brain: Claude** (`claude-sonnet-4-6` by default — smart and ~40% cheaper
+  than Opus, the sweet spot for a read-and-chat buddy; Haiku for cheapest, Opus
+  for sharpest, both selectable)
 - 🔒 Read-only by design — there is no code path that edits the page
 
 ### Roody's brain vs Roody's voice
