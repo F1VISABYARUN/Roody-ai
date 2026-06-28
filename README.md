@@ -29,9 +29,25 @@ You, coding ──▶ ChatGPT / Claude in the browser
   it on its own and chimes in (toggle the 👂 in Roody's header to mute)
 - 📜 **Auto-scroll reading** — Roody scrolls the thread to load the full history
   before reading, so it sees the whole conversation, not just the bottom
-- 🗣️ Talk to Roody by voice (free browser speech) or by typing — it speaks back
-- 🧠 Powered by Claude (`claude-opus-4-8` by default; Sonnet / Haiku selectable)
+- 🗣️ Talk to Roody by voice or by typing — it speaks back
+- 🎙️ **Warm voice via Gemini** (optional) — add a Google Gemini key and Roody
+  gets a natural voice (TTS) and better listening (STT). No key? It falls back
+  to the free browser voice automatically.
+- 🧠 **Brain: Claude** (`claude-opus-4-8` by default; Sonnet / Haiku selectable)
+  — the sharpest reasoning for reading code and finding mistakes
 - 🔒 Read-only by design — there is no code path that edits the page
+
+### Roody's brain vs Roody's voice
+
+These are deliberately separate so you can use the best of each:
+
+| | Powered by | What it does |
+|---|---|---|
+| **Brain** | Claude | Reads your code, finds bugs, asks the smart questions |
+| **Voice** | Gemini (or free browser) | Speaks Roody's words, listens to yours |
+
+The Anthropic key drives the brain; the optional Gemini key drives the voice
+(`gemini-2.5-flash-preview-tts` for speaking, `gemini-2.5-flash` for listening).
 
 ### How the live watching works
 

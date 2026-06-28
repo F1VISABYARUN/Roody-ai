@@ -76,10 +76,107 @@ async function askRoody({ userText, pageContext, history }) {
   return { ok: true, text: text || "…" };
 }
 
+// ---- Gemini voice (Roody's mouth and ears) --------------------------------
+const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+
+// Text -> speech. Returns base64 PCM (signed 16-bit, mono) + its mime.
+async function geminiTTS(text) {
+  const { roodyGeminiKey, roodyVoice } = await chrome.storage.local.get([
+    "roodyGeminiKey",
+    "roodyVoice",
+  ]);
+  if (!roodyGeminiKey) return { ok: false, error: "no-gemini-key" };
+
+  let resp;
+  try {
+    resp = await fetch(
+      `${GEMINI_BASE}/gemini-2.5-flash-preview-tts:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": roodyGeminiKey,
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text }] }],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: roodyVoice || "Kore" },
+              },
+            },
+          },
+        }),
+      }
+    );
+  } catch (e) {
+    return { ok: false, error: `tts-network ${e.message}` };
+  }
+  if (!resp.ok) {
+    return { ok: false, error: `tts ${resp.status} ${(await resp.text()).slice(0, 160)}` };
+  }
+  const data = await resp.json();
+  const part = (data?.candidates?.[0]?.content?.parts || []).find(
+    (p) => p.inlineData
+  );
+  if (!part) return { ok: false, error: "tts-no-audio" };
+  return { ok: true, audioBase64: part.inlineData.data, mime: part.inlineData.mimeType };
+}
+
+// Speech -> text. Takes base64 audio + its mime, returns the transcript.
+async function geminiSTT({ audioBase64, mime }) {
+  const { roodyGeminiKey } = await chrome.storage.local.get(["roodyGeminiKey"]);
+  if (!roodyGeminiKey) return { ok: false, error: "no-gemini-key" };
+
+  let resp;
+  try {
+    resp = await fetch(`${GEMINI_BASE}/gemini-2.5-flash:generateContent`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-goog-api-key": roodyGeminiKey,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: "Transcribe this audio to plain text. Return ONLY the exact words spoken — no commentary, no quotes.",
+              },
+              { inlineData: { mimeType: mime, data: audioBase64 } },
+            ],
+          },
+        ],
+      }),
+    });
+  } catch (e) {
+    return { ok: false, error: `stt-network ${e.message}` };
+  }
+  if (!resp.ok) {
+    return { ok: false, error: `stt ${resp.status}` };
+  }
+  const data = await resp.json();
+  const text = (data?.candidates?.[0]?.content?.parts || [])
+    .map((p) => p.text)
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  return { ok: true, text };
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "roody:ask") {
     askRoody(msg.payload).then(sendResponse);
     return true; // keep the channel open for the async reply
+  }
+  if (msg?.type === "roody:tts") {
+    geminiTTS(msg.payload.text).then(sendResponse);
+    return true;
+  }
+  if (msg?.type === "roody:stt") {
+    geminiSTT(msg.payload).then(sendResponse);
+    return true;
   }
 });
 

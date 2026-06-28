@@ -60,17 +60,34 @@
       <option value="claude-haiku-4-5">Claude Haiku 4.5 — fastest</option>
     </select>
 
+    <label for="gkey">Google Gemini API key <span style="font-weight:400;color:#8a7560">(optional — for the warm voice)</span></label>
+    <input id="gkey" type="password" placeholder="AIza..." />
+
+    <label for="voice">Roody's voice</label>
+    <select id="voice">
+      <option value="Kore">Kore — calm &amp; steady (default)</option>
+      <option value="Aoede">Aoede — breezy &amp; light</option>
+      <option value="Puck">Puck — upbeat &amp; friendly</option>
+      <option value="Charon">Charon — clear &amp; informative</option>
+      <option value="Leda">Leda — youthful &amp; warm</option>
+      <option value="Zephyr">Zephyr — bright</option>
+    </select>
+
     <button id="save">Save</button>
     <span id="status"></span>
 
     <div class="note">
       <strong>Roody only ever reads.</strong> It looks at the conversation on
       your ChatGPT / Claude tab, talks it through with you, and points out
-      mistakes — but it never edits anything. Your key is stored locally in this
-      browser and only used to talk to Claude.
+      mistakes — but it never edits anything. Your keys are stored locally in
+      this browser; the Anthropic key talks to Claude (Roody's brain) and the
+      Gemini key powers the warm voice.
       <br /><br />
-      Get a key at
-      <a href="https://console.anthropic.com/" target="_blank">console.anthropic.com</a>.
+      Anthropic key →
+      <a href="https://console.anthropic.com/" target="_blank">console.anthropic.com</a>
+      · Gemini key →
+      <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>.
+      No Gemini key? Roody just uses the free browser voice.
     </div>
 
     <script src="options.js"></script>

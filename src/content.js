@@ -21,8 +21,56 @@
   let lastReactTime = 0;
   let fullHistoryCache = "";
   let lastGatherTime = 0;
+  let geminiVoice = false; // use Gemini for voice? (set at boot if a key exists)
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // ---- Audio helpers (turn Gemini's raw PCM into something playable) --------
+  function base64ToBytes(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+  function rateFromMime(mime) {
+    const m = /rate=(\d+)/.exec(mime || "");
+    return m ? parseInt(m[1], 10) : 24000;
+  }
+  // Wrap signed-16-bit mono PCM in a WAV header so an <audio> element can play it.
+  function pcm16ToWav(pcm, sampleRate) {
+    const dataSize = pcm.length;
+    const buf = new ArrayBuffer(44 + dataSize);
+    const v = new DataView(buf);
+    const str = (off, s) => {
+      for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i));
+    };
+    str(0, "RIFF");
+    v.setUint32(4, 36 + dataSize, true);
+    str(8, "WAVE");
+    str(12, "fmt ");
+    v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true); // PCM
+    v.setUint16(22, 1, true); // mono
+    v.setUint32(24, sampleRate, true);
+    v.setUint32(28, sampleRate * 2, true); // byte rate
+    v.setUint16(32, 2, true); // block align
+    v.setUint16(34, 16, true); // bits per sample
+    str(36, "data");
+    v.setUint32(40, dataSize, true);
+    new Uint8Array(buf, 44).set(pcm);
+    return new Blob([buf], { type: "audio/wav" });
+  }
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onloadend = () => {
+        const s = String(r.result);
+        resolve(s.slice(s.indexOf(",") + 1));
+      };
+      r.onerror = reject;
+      r.readAsDataURL(blob);
+    });
+  }
 
   // ---- Read the page (read-only) -------------------------------------------
   // The text currently rendered on screen — what you can see right now.
@@ -168,15 +216,34 @@
     return b;
   }
 
-  function speak(text) {
+  let currentAudio = null;
+  function browserSpeak(text) {
     if (!synth) return;
     try {
       synth.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      u.rate = 1.0;
-      u.pitch = 1.0;
       synth.speak(u);
     } catch (_) {}
+  }
+  // Roody's warm voice: Gemini TTS if available, else the free browser voice.
+  function speak(text) {
+    if (!text) return;
+    if (!geminiVoice) return browserSpeak(text);
+    chrome.runtime.sendMessage({ type: "roody:tts", payload: { text } }, (res) => {
+      if (chrome.runtime.lastError || !res || !res.ok || !res.audioBase64) {
+        return browserSpeak(text); // graceful fallback
+      }
+      try {
+        const blob = pcm16ToWav(base64ToBytes(res.audioBase64), rateFromMime(res.mime));
+        const url = URL.createObjectURL(blob);
+        if (currentAudio) currentAudio.pause();
+        currentAudio = new Audio(url);
+        currentAudio.onended = () => URL.revokeObjectURL(url);
+        currentAudio.play().catch(() => browserSpeak(text));
+      } catch (_) {
+        browserSpeak(text);
+      }
+    });
   }
 
   // ---- Talking to Roody's brain --------------------------------------------
@@ -257,36 +324,104 @@
     obs.observe(main, { childList: true, subtree: true, characterData: true });
   }
 
-  // ---- Voice in (free browser speech recognition) --------------------------
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  // ---- Voice in -------------------------------------------------------------
+  // Gemini STT (record the mic, send to Gemini) when a key exists; otherwise the
+  // free browser speech recognition. Either way the mic button is press-to-talk.
   const mic = panel.querySelector("#roody-mic");
-  if (SR) {
-    const rec = new SR();
-    rec.lang = "en-US";
-    rec.interimResults = false;
-    rec.maxAlternatives = 1;
-    let listening = false;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-    rec.addEventListener("result", (e) => send(e.results[0][0].transcript));
-    rec.addEventListener("end", () => {
-      listening = false;
-      mic.classList.remove("roody-listening");
-    });
-    mic.addEventListener("click", () => {
-      if (listening) return rec.stop();
-      try {
-        rec.start();
-        listening = true;
-        mic.classList.add("roody-listening");
-      } catch (_) {}
-    });
-  } else {
-    mic.style.display = "none";
+  function pickRecMime() {
+    const types = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm"];
+    for (const t of types) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
+    }
+    return "";
   }
 
+  let recorder = null;
+  let recChunks = [];
+  let recording = false;
+
+  async function startGeminiRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = pickRecMime();
+      recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recChunks = [];
+      recorder.ondataavailable = (e) => e.data.size && recChunks.push(e.data);
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        mic.classList.remove("roody-listening");
+        const blob = new Blob(recChunks, { type: recorder.mimeType || "audio/webm" });
+        const audioBase64 = await blobToBase64(blob);
+        const mime = (recorder.mimeType || "audio/webm").split(";")[0];
+        const thinking = addBubble("you", "🎤 …");
+        chrome.runtime.sendMessage(
+          { type: "roody:stt", payload: { audioBase64, mime } },
+          (res) => {
+            thinking.remove();
+            if (chrome.runtime.lastError || !res || !res.ok || !res.text) {
+              addBubble("roody", "I couldn't quite catch that — mind typing it?");
+              return;
+            }
+            send(res.text);
+          }
+        );
+      };
+      recorder.start();
+      recording = true;
+      mic.classList.add("roody-listening");
+    } catch (_) {
+      addBubble("roody", "I couldn't reach your microphone. You can still type to me.");
+    }
+  }
+
+  // Lazily-built browser speech-recognition fallback.
+  let sr = null;
+  let srListening = false;
+  function browserListenToggle() {
+    if (!SR) {
+      addBubble("roody", "This browser can't listen — but you can always type to me.");
+      return;
+    }
+    if (!sr) {
+      sr = new SR();
+      sr.lang = "en-US";
+      sr.interimResults = false;
+      sr.maxAlternatives = 1;
+      sr.addEventListener("result", (e) => send(e.results[0][0].transcript));
+      sr.addEventListener("end", () => {
+        srListening = false;
+        mic.classList.remove("roody-listening");
+      });
+    }
+    if (srListening) return sr.stop();
+    try {
+      sr.start();
+      srListening = true;
+      mic.classList.add("roody-listening");
+    } catch (_) {}
+  }
+
+  // One handler, decides Gemini vs browser at click time (after settings load).
+  mic.addEventListener("click", () => {
+    const canRecord = window.MediaRecorder && navigator.mediaDevices;
+    if (geminiVoice && canRecord) {
+      if (recording) {
+        recording = false;
+        try { recorder && recorder.stop(); } catch (_) {}
+      } else {
+        startGeminiRecording();
+      }
+    } else {
+      browserListenToggle();
+    }
+  });
+
   // ---- Boot -----------------------------------------------------------------
-  chrome.storage.local.get(["roodyAutoChime"]).then((s) => {
+  chrome.storage.local.get(["roodyAutoChime", "roodyGeminiKey"]).then((s) => {
     if (typeof s.roodyAutoChime === "boolean") autoChime = s.roodyAutoChime;
+    geminiVoice = !!s.roodyGeminiKey; // warm voice on if a Gemini key is saved
     reflectListenState();
     // Don't react to whatever is already on the page when we load —
     // only to answers that appear from now on.
