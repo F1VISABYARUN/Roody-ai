@@ -15,14 +15,13 @@
   const GATHER_TTL_MS = 60000; // re-scroll-and-read the full thread at most this often
   const MAX_CONTEXT = 30000; // cap how much text we send to Claude
 
-  let autoChime = true; // react automatically to new answers
+  let autoChime = false; // OFF by default — Roody stays quiet unless tapped
   let lastAnswerSig = ""; // fingerprint of the latest answer we've seen
   let reacting = false; // lock so we don't react on top of a reaction
   let lastReactTime = 0;
   let fullHistoryCache = "";
   let lastGatherTime = 0;
   let geminiVoice = false; // use Gemini for voice? (set at boot if a key exists)
-  let voiceMode = false; // hands-free back-and-forth conversation
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -169,17 +168,14 @@
     <div id="roody-header">
       <div id="roody-headtext">
         <span id="roody-title">Roody</span>
-        <span id="roody-sub">read-only · here to think with you</span>
+        <span id="roody-sub">read-only · tap the mic to talk</span>
       </div>
-      <button id="roody-voicemode" title="Hands-free voice chat">🎧</button>
-      <button id="roody-listen" title="Auto-react to new answers">👂</button>
       <button id="roody-close" title="Close">×</button>
     </div>
     <div id="roody-log"></div>
     <div id="roody-inputrow">
-      <button id="roody-mic" title="Tap to talk">🎤</button>
-      <button id="roody-stop" title="Stop Roody talking">⏹</button>
-      <input id="roody-text" type="text" placeholder="Talk to Roody…" autocomplete="off" />
+      <button id="roody-mic" title="Tap to talk to Roody">🎤</button>
+      <input id="roody-text" type="text" placeholder="…or type to Roody" autocomplete="off" />
       <button id="roody-send" title="Send">➤</button>
     </div>
   `;
@@ -242,12 +238,15 @@
 
   const log = panel.querySelector("#roody-log");
   const input = panel.querySelector("#roody-text");
-  const listenBtn = panel.querySelector("#roody-listen");
 
+  let openerSent = false; // guarantees Roody only greets you once per page
   orb.addEventListener("click", () => {
     const open = panel.style.display === "none";
     panel.style.display = open ? "flex" : "none";
-    if (open && log.childElementCount === 0) openingHello();
+    if (open && !openerSent) {
+      openerSent = true;
+      openingHello();
+    }
   });
 
   // Roody talks first: looks at JUST the latest task on the page and opens up.
@@ -269,17 +268,9 @@
     panel.style.display = "none";
   });
 
-  function reflectListenState() {
-    listenBtn.classList.toggle("roody-on", autoChime);
-    listenBtn.title = autoChime
-      ? "Auto-reacting to new answers (click to mute)"
-      : "Muted — Roody won't chime in (click to enable)";
-  }
-  listenBtn.addEventListener("click", () => {
-    autoChime = !autoChime;
-    chrome.storage.local.set({ roodyAutoChime: autoChime });
-    reflectListenState();
-  });
+  // Auto-chime is now a settings checkbox (off by default). The header has no
+  // toggle for it — keeps the UI dead simple.
+  function reflectListenState() {}
 
   function addBubble(who, text) {
     const b = document.createElement("div");
@@ -303,13 +294,16 @@
       synth.cancel();
       const u = new SpeechSynthesisUtterance(text);
       setOrbState("speaking");
+      setMic("speaking");
       u.onend = () => {
         setOrbState("idle");
+        if (micState === "speaking") setMic("idle");
         if (onDone) onDone();
       };
       synth.speak(u);
     } catch (_) {
       setOrbState("idle");
+      if (micState === "speaking") setMic("idle");
       if (onDone) onDone();
     }
   }
@@ -370,12 +364,15 @@
           done = true;
           URL.revokeObjectURL(url);
           setOrbState("idle");
+          if (micState === "speaking") setMic("idle");
           if (onDone) onDone();
         };
         audio.onended = finish;
         setOrbState("speaking");
+        setMic("speaking");
         audio.play().catch(() => {
           setOrbState("idle");
+          if (micState === "speaking") setMic("idle");
           browserSpeak(text, onDone);
         });
       } catch (_) {
@@ -417,22 +414,19 @@
     addBubble("you", userText);
     input.value = "";
     const thinking = addBubble("roody", "…");
+    setMic("thinking");
     const ctx = await buildContext();
-    callRoody(userText, ctx, (t) => (thinking.textContent = t));
+    callRoody(
+      userText,
+      ctx,
+      (t) => (thinking.textContent = t),
+      () => setMic("idle") // back to a tap-to-talk mic when Roody's done speaking
+    );
   }
 
   panel.querySelector("#roody-send").addEventListener("click", () => send(input.value));
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") send(input.value);
-  });
-  // Stop Roody talking instantly.
-  panel.querySelector("#roody-stop").addEventListener("click", () => {
-    stopSpeaking();
-    if (voiceMode) stopVoiceMode();
-    if (recording) {
-      recording = false;
-      try { recorder && recorder.stop(); } catch (_) {}
-    }
   });
 
   // ---- Live watching: react when a new answer lands ------------------------
@@ -456,7 +450,6 @@
   }
 
   function onSettled() {
-    if (voiceMode) return; // don't chime in the middle of a hands-free call
     if (!autoChime || reacting) return;
     if (Date.now() - lastReactTime < REACT_COOLDOWN_MS) return;
     const sig = readPage().slice(-600); // fingerprint of the latest content
@@ -476,11 +469,36 @@
     obs.observe(main, { childList: true, subtree: true, characterData: true });
   }
 
-  // ---- Voice in -------------------------------------------------------------
-  // Gemini STT (record the mic, send to Gemini) when a key exists; otherwise the
-  // free browser speech recognition. Either way the mic button is press-to-talk.
+  // ---- THE one button: mic ------------------------------------------------
+  // It plays four roles, never more than one at a time:
+  //   IDLE      🎤  tap to talk
+  //   RECORDING 🔴  recording your voice (tap again to send what you've said)
+  //   THINKING  …   Roody is thinking
+  //   SPEAKING  ⏹  Roody is talking — tap to shut up instantly
+  // No other audio buttons. No headset. No ear.
   const mic = panel.querySelector("#roody-mic");
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  let micState = "idle";
+  function setMic(state) {
+    micState = state;
+    mic.classList.remove("roody-rec", "roody-stop", "roody-think");
+    if (state === "recording") { mic.textContent = "🔴"; mic.classList.add("roody-rec"); mic.title = "Listening — tap to send"; }
+    else if (state === "thinking") { mic.textContent = "…"; mic.classList.add("roody-think"); mic.title = "Thinking…"; }
+    else if (state === "speaking") { mic.textContent = "⏹"; mic.classList.add("roody-stop"); mic.title = "STOP Roody talking"; }
+    else { mic.textContent = "🎤"; mic.title = "Tap to talk to Roody"; }
+  }
+  setMic("idle");
+
+  // Hard stop everything: cancels Roody's voice, mic recording, browser STT.
+  function stopEverything() {
+    stopSpeaking();
+    try { if (recorder && recording) recorder.stop(); } catch (_) {}
+    recording = false;
+    try { if (sr && srListening) sr.stop(); } catch (_) {}
+    srListening = false;
+    setMic("idle");
+  }
 
   function pickRecMime() {
     const types = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm"];
@@ -503,35 +521,35 @@
       recorder.ondataavailable = (e) => e.data.size && recChunks.push(e.data);
       recorder.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
-        mic.classList.remove("roody-listening");
         const blob = new Blob(recChunks, { type: recorder.mimeType || "audio/webm" });
         const audioBase64 = await blobToBase64(blob);
         const mime = (recorder.mimeType || "audio/webm").split(";")[0];
-        const thinking = addBubble("you", "🎤 …");
+        setMic("thinking");
         chrome.runtime.sendMessage(
           { type: "roody:stt", payload: { audioBase64, mime } },
           (res) => {
-            thinking.remove();
             if (chrome.runtime.lastError || !res || !res.ok || !res.text) {
               addBubble("roody", "I couldn't quite catch that — mind typing it?");
+              setMic("idle");
               return;
             }
-            send(res.text);
+            send(res.text); // this will speak the reply and reset mic state
           }
         );
       };
       recorder.start();
       recording = true;
-      mic.classList.add("roody-listening");
+      setMic("recording");
     } catch (_) {
       addBubble("roody", "I couldn't reach your microphone. You can still type to me.");
+      setMic("idle");
     }
   }
 
   // Lazily-built browser speech-recognition fallback.
   let sr = null;
   let srListening = false;
-  function browserListenToggle() {
+  function browserListenStart() {
     if (!SR) {
       addBubble("roody", "This browser can't listen — but you can always type to me.");
       return;
@@ -541,120 +559,38 @@
       sr.lang = "en-US";
       sr.interimResults = false;
       sr.maxAlternatives = 1;
-      sr.addEventListener("result", (e) => send(e.results[0][0].transcript));
+      sr.addEventListener("result", (e) => {
+        srListening = false;
+        send(e.results[0][0].transcript); // mic state managed by send()
+      });
       sr.addEventListener("end", () => {
         srListening = false;
-        mic.classList.remove("roody-listening");
+        if (micState === "recording") setMic("idle");
       });
     }
-    if (srListening) return sr.stop();
     try {
       sr.start();
       srListening = true;
-      mic.classList.add("roody-listening");
+      setMic("recording");
     } catch (_) {}
   }
 
-  // One handler, decides Gemini vs browser at click time (after settings load).
+  // THE one mic button. Its job depends on what Roody is doing right now.
   mic.addEventListener("click", () => {
+    // Roody is talking? Tapping the button means STOP, full stop.
+    if (micState === "speaking") return stopEverything();
+    // Mid-thought? Tapping also stops everything (escape hatch).
+    if (micState === "thinking") return stopEverything();
+    // Already recording? Tapping ends the recording = "send what I just said".
+    if (micState === "recording") {
+      if (recording) { try { recorder.stop(); } catch (_) {} recording = false; }
+      else if (sr && srListening) { try { sr.stop(); } catch (_) {} srListening = false; }
+      return;
+    }
+    // Idle → start listening to the user. Gemini if a key is set, else browser.
     const canRecord = window.MediaRecorder && navigator.mediaDevices;
-    if (geminiVoice && canRecord) {
-      if (recording) {
-        recording = false;
-        try { recorder && recorder.stop(); } catch (_) {}
-      } else {
-        startGeminiRecording();
-      }
-    } else {
-      browserListenToggle();
-    }
-  });
-
-  // ---- Hands-free voice mode -----------------------------------------------
-  // Roody speaks, then auto-listens for your reply, back and forth — like a
-  // phone call. Listening uses the browser's speech recognition (it detects
-  // when you stop talking); Roody's voice is still Gemini. Say "stop" to end.
-  const voiceBtn = panel.querySelector("#roody-voicemode");
-  let vsr = null;
-
-  function buildVSR() {
-    if (!SR) return null;
-    const r = new SR();
-    r.lang = "en-US";
-    r.interimResults = false;
-    r.maxAlternatives = 1;
-    r.continuous = false;
-    r.addEventListener("result", (e) => onVoiceHeard(e.results[0][0].transcript));
-    r.addEventListener("end", () => mic.classList.remove("roody-listening"));
-    return r;
-  }
-
-  function vListen() {
-    if (!voiceMode) return;
-    if (!vsr) vsr = buildVSR();
-    if (!vsr) {
-      addBubble("roody", "This browser can't listen hands-free — tap the mic instead.");
-      stopVoiceMode();
-      return;
-    }
-    try {
-      vsr.start();
-      mic.classList.add("roody-listening");
-    } catch (_) {}
-  }
-
-  function onVoiceHeard(text) {
-    if (!voiceMode) return;
-    mic.classList.remove("roody-listening");
-    text = (text || "").trim();
-    const words = text.split(/\s+/);
-    if (words.length <= 3 && /\bstop\b/i.test(text)) {
-      const bye = "Okay, I'll stop. I'm right here when you want me.";
-      addBubble("roody", bye);
-      speak(bye, stopVoiceMode);
-      return;
-    }
-    if (!text) return vListen();
-    addBubble("you", text);
-    const thinking = addBubble("roody", "…");
-    callRoody(
-      text,
-      recentTask(),
-      (t) => (thinking.textContent = t),
-      () => {
-        if (voiceMode) setTimeout(vListen, 250); // listen again after Roody speaks
-      }
-    );
-  }
-
-  function startVoiceMode() {
-    if (voiceMode) return;
-    if (!SR) {
-      addBubble("roody", "Hands-free needs browser speech support — tap the mic to talk instead.");
-      return;
-    }
-    voiceMode = true;
-    if (panel.style.display === "none") panel.style.display = "flex";
-    voiceBtn.classList.add("roody-on");
-    orb.classList.add("roody-voice");
-    const opener = "Okay, I'm listening. What's on your mind?";
-    addBubble("roody", opener);
-    speak(opener, () => {
-      if (voiceMode) vListen();
-    });
-  }
-
-  function stopVoiceMode() {
-    voiceMode = false;
-    voiceBtn.classList.remove("roody-on");
-    orb.classList.remove("roody-voice");
-    mic.classList.remove("roody-listening");
-    try { vsr && vsr.stop(); } catch (_) {}
-  }
-
-  voiceBtn.addEventListener("click", () => {
-    if (voiceMode) stopVoiceMode();
-    else startVoiceMode();
+    if (geminiVoice && canRecord) startGeminiRecording();
+    else browserListenStart();
   });
 
   // ---- Boot -----------------------------------------------------------------

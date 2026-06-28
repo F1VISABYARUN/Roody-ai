@@ -85,31 +85,6 @@
   font-size: 11px;
   opacity: 0.9;
 }
-#roody-listen,
-#roody-voicemode {
-  background: rgba(255, 255, 255, 0.25);
-  border: none;
-  border-radius: 8px;
-  color: #fff;
-  font-size: 15px;
-  cursor: pointer;
-  padding: 4px 7px;
-  line-height: 1;
-  opacity: 0.55;
-}
-#roody-listen.roody-on,
-#roody-voicemode.roody-on {
-  opacity: 1;
-  background: rgba(255, 255, 255, 0.45);
-}
-/* Orb pulses green-ish while a hands-free call is live. */
-#roody-orb.roody-voice {
-  animation: roody-call 1.4s infinite ease-in-out;
-}
-@keyframes roody-call {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.5); }
-  50% { box-shadow: 0 0 0 10px rgba(76, 175, 80, 0); }
-}
 #roody-close {
   background: transparent;
   border: none;
@@ -170,27 +145,33 @@
   border-color: #e98a3c;
 }
 #roody-mic,
-#roody-stop,
 #roody-send {
   border: none;
   border-radius: 10px;
-  width: 38px;
+  width: 44px;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 18px;
   background: #fbe9d6;
-}
-#roody-stop {
-  background: #f3d2cf;
-  color: #b03a2e;
+  transition: background 0.15s ease;
 }
 #roody-send {
   background: #e98a3c;
   color: #fff;
 }
-#roody-mic.roody-listening {
+/* States for the one mic button. */
+#roody-mic.roody-rec {
   background: #e98a3c;
   color: #fff;
   animation: roody-pulse 1s infinite;
+}
+#roody-mic.roody-think {
+  background: #f6e6c8;
+  color: #8a7560;
+}
+#roody-mic.roody-stop {
+  background: #d9534f;
+  color: #fff;
+  animation: roody-pulse 0.9s infinite;
 }
 @keyframes roody-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(233, 138, 60, 0.6); }
