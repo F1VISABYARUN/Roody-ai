@@ -433,26 +433,53 @@
   // "voice" when this comes from the voice loop (triggers speed-tuned settings
   // in the background: no web search, smaller context, shorter reply, etc).
   function callRoody(userText, pageContext, onText, onSpoken, mode) {
-    chrome.runtime.sendMessage(
-      { type: "roody:ask", payload: { userText, pageContext, history, mode } },
-      (res) => {
-        if (chrome.runtime.lastError) {
-          onText("I lost the connection to my brain for a second. Try again?");
-          if (onSpoken) onSpoken();
-          return;
-        }
-        if (!res || !res.ok) {
-          onText((res && res.error) || "Something went wrong.");
-          if (onSpoken) onSpoken();
-          return;
-        }
-        onText(res.text);
+    let settled = false;
+    // One place that ends the turn — fills the bubble, optionally speaks, and
+    // guarantees the "…" placeholder NEVER hangs forever.
+    const finish = (text, speakIt) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdog);
+      onText(text);
+      if (speakIt) {
         history.push({ role: "user", content: userText });
-        history.push({ role: "assistant", content: res.text });
+        history.push({ role: "assistant", content: text });
         if (history.length > 20) history.splice(0, history.length - 20);
-        speak(res.text, onSpoken);
+        speak(text, onSpoken);
+      } else if (onSpoken) {
+        onSpoken();
       }
-    );
+    };
+
+    // Safety net: if the brain doesn't answer in 30s (asleep service worker,
+    // dead network, lost message channel) — say so instead of spinning on "…".
+    const watchdog = setTimeout(() => {
+      rlog("⏱ brain timed out (no reply in 30s)");
+      finish("That took too long and I didn't hear back — try once more?", false);
+    }, 30000);
+
+    try {
+      chrome.runtime.sendMessage(
+        { type: "roody:ask", payload: { userText, pageContext, history, mode } },
+        (res) => {
+          if (chrome.runtime.lastError) {
+            rlog(`⚠ ask failed: ${chrome.runtime.lastError.message}`);
+            finish("I lost the connection to my brain — refresh this page and try again?", false);
+            return;
+          }
+          if (!res || !res.ok) {
+            finish((res && res.error) || "Something went wrong.", false);
+            return;
+          }
+          finish(res.text, true);
+        }
+      );
+    } catch (e) {
+      // Thrown synchronously when the extension was reloaded/updated while this
+      // page stayed open ("Extension context invalidated"). A refresh fixes it.
+      rlog(`⚠ ask threw: ${e.message}`);
+      finish("Roody just updated — please refresh this page so I can reconnect.", false);
+    }
   }
 
   // You asked Roody something.
@@ -549,22 +576,36 @@
     if (!SR) { rlog("❌ SpeechRecognition unavailable in this browser"); return null; }
     const r = new SR();
     r.lang = "en-US";
-    r.continuous = false;
-    r.interimResults = false;
+    // continuous + interim = the recognition stays alive and streams partials,
+    // which is far more reliable than the stop-after-one-phrase mode that was
+    // silently dropping whole utterances.
+    r.continuous = true;
+    r.interimResults = true;
     r.maxAlternatives = 1;
+    let gotResult = false;
     r.onstart = () => rlog("🎤 SR start (listening)");
     r.onaudiostart = () => rlog("🎤 audio capture began");
     r.onspeechstart = () => rlog("🎤 speech detected — you started talking");
     r.onspeechend = () => rlog("🎤 speech ended");
     r.onresult = (e) => {
-      const heard = e.results[0][0].transcript || "";
-      const conf = (e.results[0][0].confidence || 0).toFixed(2);
-      rlog(`🎤 HEARD: "${heard}" (conf=${conf})`);
-      onUserSpoke(heard);
+      // Walk results from resultIndex; act only on a FINAL transcript.
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (!res.isFinal) continue;
+        const heard = res[0].transcript || "";
+        const conf = (res[0].confidence || 0).toFixed(2);
+        if (!heard.trim()) continue;
+        gotResult = true;
+        rlog(`🎤 HEARD: "${heard}" (conf=${conf})`);
+        onUserSpoke(heard);
+        return; // onUserSpoke stops the mic; ignore the rest of this batch
+      }
     };
+    r.onnomatch = () => rlog("🎤 no match — heard sound but couldn't make out words");
     r.onerror = (e) => rlog(`⚠ SR error: ${e.error || "unknown"}`);
     r.onend = () => {
-      rlog("🎤 SR ended");
+      if (!gotResult) rlog("🎤 SR ended (no transcript — speech backend returned nothing)");
+      else rlog("🎤 SR ended");
       // Don't restart while Roody is talking — that's how echo gets in.
       // When speak() finishes, it'll call startListening() itself.
       if (!voiceOn || isRoodySpeaking) {
@@ -573,9 +614,13 @@
       }
       setTimeout(() => {
         if (!voiceOn || isRoodySpeaking) return;
-        try { sr && sr.start(); rlog("🎤 SR restart"); }
+        // Build a FRESH recognition each cycle. Reusing one object across many
+        // start/stop cycles makes Chrome's speech backend silently stop
+        // returning results (exactly the "speech detected, no HEARD" symptom).
+        sr = buildSR();
+        try { sr && sr.start(); rlog("🎤 SR restart (fresh)"); }
         catch (e) { rlog(`⚠ SR restart failed: ${e.message}`); }
-      }, 250);
+      }, 300);
     };
     return r;
   }
