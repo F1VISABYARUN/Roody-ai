@@ -82,6 +82,69 @@ autoSaveKey(keyEl, "roodyApiKey", $("keystatus"));
 autoSaveKey(gkeyEl, "roodyGeminiKey", $("gstatus"));
 autoSaveKey(ekeyEl, "roodyElevenKey", $("estatus"));
 
+// "Load voices my key can use" — calls ElevenLabs /v2/voices with the saved
+// key and replaces the dropdown with whatever the account can actually use
+// via API. Library voices on the free plan return 402 at TTS time even though
+// they show up in the picker, which is what caused the original confusion.
+$("evoicefetch").addEventListener("click", async () => {
+  const key = ekeyEl.value.trim();
+  const status = $("evoicefetchstatus");
+  if (!key) {
+    status.textContent = "Paste your ElevenLabs key above first.";
+    return;
+  }
+  status.textContent = "Loading…";
+  try {
+    const resp = await fetch("https://api.elevenlabs.io/v2/voices?page_size=100", {
+      headers: { "xi-api-key": key },
+    });
+    if (!resp.ok) {
+      const body = (await resp.text()).slice(0, 160);
+      status.textContent = `Failed (${resp.status}): ${body}`;
+      return;
+    }
+    const data = await resp.json();
+    const voices = data.voices || [];
+    if (!voices.length) {
+      status.textContent = "No voices found on this account.";
+      return;
+    }
+    // Replace the dropdown with the user's actual voices. Default voices and
+    // personal/cloned voices both work on the free plan via API.
+    evoiceEl.innerHTML = "";
+    for (const v of voices) {
+      const opt = document.createElement("option");
+      opt.value = v.voice_id;
+      const tag = v.category ? ` · ${v.category}` : "";
+      opt.textContent = `${v.name}${tag}`;
+      evoiceEl.appendChild(opt);
+    }
+    const customOpt = document.createElement("option");
+    customOpt.value = "custom";
+    customOpt.textContent = "Other → paste a custom voice ID below";
+    evoiceEl.appendChild(customOpt);
+    // Save whatever's now selected so the background picks it up immediately.
+    chrome.storage.local.set({ roodyElevenVoice: evoiceEl.value });
+    status.textContent = `✓ Loaded ${voices.length} voices — pick one.`;
+  } catch (e) {
+    status.textContent = `Network error: ${e.message}`;
+  }
+});
+
+// Auto-save the picked ElevenLabs voice immediately so the user doesn't have
+// to click Save before testing it.
+evoiceEl.addEventListener("change", () => {
+  const v = evoiceEl.value === "custom"
+    ? (evoiceCustomEl.value || "").trim()
+    : evoiceEl.value;
+  if (v) chrome.storage.local.set({ roodyElevenVoice: v });
+});
+evoiceCustomEl.addEventListener("blur", () => {
+  if (evoiceEl.value !== "custom") return;
+  const v = (evoiceCustomEl.value || "").trim();
+  if (v) chrome.storage.local.set({ roodyElevenVoice: v });
+});
+
 // Master ON/OFF — flip live, no save button needed.
 enabledEl.addEventListener("change", () => {
   chrome.storage.local.set({ roodyEnabled: enabledEl.checked });

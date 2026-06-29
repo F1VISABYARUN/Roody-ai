@@ -113,15 +113,26 @@
 
     <label for="evoice">ElevenLabs voice</label>
     <select id="evoice">
-      <option value="21m00Tcm4TlvDq8ikWAM">Rachel — calm, warm ⭐ (default)</option>
-      <option value="EXAVITQu4vr4xnSDxMaL">Sarah — soft, friendly</option>
-      <option value="AZnzlk1XvdvUeBnXmlld">Domi — strong, confident</option>
-      <option value="MF3mGyEYCl7XYWbV9V6O">Elli — youthful, bright</option>
-      <option value="XB0fDUnXU5powFXDhCwa">Charlotte — gentle, expressive</option>
-      <option value="9BWtsMINqrJLrRacOk9x">Aria — natural, conversational</option>
+      <option value="21m00Tcm4TlvDq8ikWAM">Rachel — calm, warm ⭐ (paid plan only)</option>
+      <option value="EXAVITQu4vr4xnSDxMaL">Sarah — soft, friendly (paid plan only)</option>
+      <option value="AZnzlk1XvdvUeBnXmlld">Domi — strong, confident (paid plan only)</option>
+      <option value="MF3mGyEYCl7XYWbV9V6O">Elli — youthful, bright (paid plan only)</option>
+      <option value="XB0fDUnXU5powFXDhCwa">Charlotte — gentle, expressive (paid plan only)</option>
+      <option value="9BWtsMINqrJLrRacOk9x">Aria — natural, conversational (paid plan only)</option>
       <option value="custom">Other → paste a custom voice ID below</option>
     </select>
     <input id="evoicecustom" type="text" placeholder="Custom voice ID (only if 'Other' selected)" style="margin-top:6px" />
+    <div style="display:flex; gap:8px; margin-top:8px; align-items:center">
+      <button id="evoicefetch" class="small">↻ Load voices my key can use</button>
+      <span id="evoicefetchstatus" style="font-size:12px;color:#8a7560"></span>
+    </div>
+    <div class="note warn" style="margin-top:6px; font-size:12px">
+      <strong>Free ElevenLabs plan?</strong> The 6 library voices above only
+      work via API on paid plans. Click "Load voices my key can use" — Roody
+      will fetch the voices actually available on your account and let you pick
+      from those. (Free accounts always have access to "Default" voices like
+      Adam, Rachel-clone, etc. via personal voice slots.)
+    </div>
 
     <label for="gkey">Google Gemini API key <span style="font-weight:400;color:#8a7560">(optional — fallback voice; also powers Gemini brain if selected above)</span></label>
     <div class="row">
