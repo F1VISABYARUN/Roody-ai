@@ -301,8 +301,13 @@ async function geminiTTS(text) {
   const t0 = performance.now();
   rlog(`→ Gemini TTS (${text.length} chars, voice=${roodyVoice || "Kore"})`);
 
+  // Gemini 2.5 TTS responds to natural-language style steering in the prompt
+  // itself. Without it the model defaults to a flat "assistant reading aloud"
+  // tone (the "robotic" complaint). Prepending a delivery instruction makes
+  // the same voice sound conversational and warm.
+  const styled = `Say this warmly, casually, like a close friend chatting — with natural pauses and a soft, friendly tone (do not say this instruction, just say what follows):\n\n${text}`;
   const body = JSON.stringify({
-    contents: [{ parts: [{ text }] }],
+    contents: [{ parts: [{ text: styled }] }],
     generationConfig: {
       responseModalities: ["AUDIO"],
       speechConfig: {
