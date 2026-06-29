@@ -10,6 +10,7 @@ const evoiceEl = $("evoice");
 const evoiceCustomEl = $("evoicecustom");
 const webEl = $("websearch");
 const chimeEl = $("autochime");
+const cheapVoiceEl = $("cheapvoice");
 const enabledEl = $("enabled");
 const statusEl = $("status");
 
@@ -22,7 +23,7 @@ function showKeyStatus(el, hasIt) {
 chrome.storage.local
   .get([
     "roodyApiKey", "roodyModel", "roodyGeminiKey", "roodyElevenKey", "roodyElevenVoice",
-    "roodyVoice", "roodyWebSearch", "roodyEnabled", "roodyAutoChime",
+    "roodyVoice", "roodyWebSearch", "roodyEnabled", "roodyAutoChime", "roodyVoiceCheapBrain",
   ])
   .then((s) => {
     if (s.roodyApiKey) keyEl.value = s.roodyApiKey;
@@ -46,6 +47,7 @@ chrome.storage.local
     }
     webEl.checked = s.roodyWebSearch !== false;
     chimeEl.checked = s.roodyAutoChime === true; // off by default
+    cheapVoiceEl.checked = s.roodyVoiceCheapBrain !== false; // ON by default — save $
     enabledEl.checked = s.roodyEnabled !== false;
     showKeyStatus($("keystatus"), !!s.roodyApiKey);
     showKeyStatus($("gstatus"), !!s.roodyGeminiKey);
@@ -133,6 +135,7 @@ $("save").addEventListener("click", async () => {
     roodyVoice: voiceEl.value,
     roodyWebSearch: webEl.checked,
     roodyAutoChime: chimeEl.checked,
+    roodyVoiceCheapBrain: cheapVoiceEl.checked,
     roodyEnabled: enabledEl.checked,
   });
   showKeyStatus($("keystatus"), !!keyEl.value.trim());

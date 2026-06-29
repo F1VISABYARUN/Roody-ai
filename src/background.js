@@ -59,7 +59,14 @@ async function rlog(line) {
 // `mode === "voice"` triggers speed-tuned settings: no web search, fewer tokens,
 // shorter history, stricter "one spoken sentence" instruction.
 async function askRoody({ userText, pageContext, history, mode }) {
-  const { apiKey, model } = await getSettings();
+  const { apiKey, model: settingsModel } = await getSettings();
+  // Voice mode can opt-in to a cheaper/faster brain (Haiku) regardless of
+  // what's selected for text mode. ~3x cheaper, similar quality for the short
+  // spoken replies voice mode produces.
+  const { roodyVoiceCheapBrain } = await chrome.storage.local.get(["roodyVoiceCheapBrain"]);
+  const useCheap = mode === "voice" && roodyVoiceCheapBrain !== false;
+  const model = useCheap ? "claude-haiku-4-5" : settingsModel;
+
   if (model && model.startsWith("gemini-")) {
     return askGeminiBrain({ userText, pageContext, history, model, mode });
   }
@@ -143,7 +150,9 @@ async function askRoody({ userText, pageContext, history, mode }) {
     const ms = Math.round(performance.now() - t0);
     const inTok = data.usage?.input_tokens || 0;
     const outTok = data.usage?.output_tokens || 0;
-    rlog(`✓ Claude ${ms}ms · in=${inTok} out=${outTok} · ${data.stop_reason}`);
+    const p = PRICES[model] || { in: 0, out: 0 };
+    const turnCost = ((inTok * p.in + outTok * p.out) / 1e6).toFixed(4);
+    rlog(`✓ Claude ${ms}ms · in=${inTok} out=${outTok} · $${turnCost} · ${data.stop_reason}`);
     if (data.usage) addUsage(model, inTok, outTok);
     const txt = (data.content || [])
       .filter((b) => b.type === "text")
