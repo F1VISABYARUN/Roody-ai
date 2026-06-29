@@ -62,6 +62,26 @@ $("cleare").addEventListener("click", () => {
   showKeyStatus($("estatus"), false);
 });
 
+// Auto-save keys the moment the user tabs/clicks away from the field. Most
+// people paste a key and expect it to be saved — requiring an extra "Save"
+// click is a foot-gun that caused real "voice still robotic" reports.
+function autoSaveKey(input, storageKey, statusEl) {
+  let lastSaved = input.value.trim();
+  input.addEventListener("blur", () => {
+    const v = input.value.trim();
+    if (v === lastSaved) return;
+    lastSaved = v;
+    chrome.storage.local.set({ [storageKey]: v });
+    showKeyStatus(statusEl, !!v);
+    statusEl.textContent = v ? "✓ Saved" : "Not set";
+    statusEl.classList.toggle("has", !!v);
+    setTimeout(() => showKeyStatus(statusEl, !!v), 1200);
+  });
+}
+autoSaveKey(keyEl, "roodyApiKey", $("keystatus"));
+autoSaveKey(gkeyEl, "roodyGeminiKey", $("gstatus"));
+autoSaveKey(ekeyEl, "roodyElevenKey", $("estatus"));
+
 // Master ON/OFF — flip live, no save button needed.
 enabledEl.addEventListener("change", () => {
   chrome.storage.local.set({ roodyEnabled: enabledEl.checked });
