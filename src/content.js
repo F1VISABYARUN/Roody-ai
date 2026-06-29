@@ -429,10 +429,12 @@
 
   // ---- Talking to Roody's brain --------------------------------------------
   // onText fills the bubble; onSpoken (optional) fires after Roody finishes
-  // speaking — used by hands-free voice mode to auto-listen next.
-  function callRoody(userText, pageContext, onText, onSpoken) {
+  // speaking — used by hands-free voice mode to auto-listen next. `mode` is
+  // "voice" when this comes from the voice loop (triggers speed-tuned settings
+  // in the background: no web search, smaller context, shorter reply, etc).
+  function callRoody(userText, pageContext, onText, onSpoken, mode) {
     chrome.runtime.sendMessage(
-      { type: "roody:ask", payload: { userText, pageContext, history } },
+      { type: "roody:ask", payload: { userText, pageContext, history, mode } },
       (res) => {
         if (chrome.runtime.lastError) {
           onText("I lost the connection to my brain for a second. Try again?");
@@ -642,7 +644,8 @@
         rlog("🔊 Roody finished speaking → resume listening");
         setMic("idle");
         if (voiceOn) startListening();
-      }
+      },
+      "voice" // speed-tuned: no web search, short reply, trimmed history
     );
   }
 
@@ -692,7 +695,8 @@
         isRoodySpeaking = false;
         if (mySession !== turnSession) return;
         if (voiceOn) startListening();
-      }
+      },
+      "voice"
     );
   }
 

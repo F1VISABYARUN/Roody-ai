@@ -56,10 +56,12 @@ async function rlog(line) {
 // Ask Roody's brain. Routes to Claude or Gemini depending on which model is
 // selected in settings. `pageContext` is the read-only text Roody scraped from
 // the page; `history` is the running chat between the human and Roody.
-async function askRoody({ userText, pageContext, history }) {
+// `mode === "voice"` triggers speed-tuned settings: no web search, fewer tokens,
+// shorter history, stricter "one spoken sentence" instruction.
+async function askRoody({ userText, pageContext, history, mode }) {
   const { apiKey, model } = await getSettings();
   if (model && model.startsWith("gemini-")) {
-    return askGeminiBrain({ userText, pageContext, history, model });
+    return askGeminiBrain({ userText, pageContext, history, model, mode });
   }
   if (!apiKey) {
     return {
@@ -69,22 +71,32 @@ async function askRoody({ userText, pageContext, history }) {
     };
   }
 
-  // The page context rides in the user turn (not the cached system prompt),
-  // so it can change every turn without breaking anything.
+  const isVoice = mode === "voice";
+
+  // Voice turns get a much smaller page context (1500 chars vs 14000) — the
+  // recent task is what matters when talking. Text turns can keep more.
+  const ctxCap = isVoice ? 1500 : 14000;
   const contextBlock = pageContext
-    ? `Here is what I can currently see on the page (read-only — the conversation and any code in view):\n\n"""\n${pageContext.slice(0, 14000)}\n"""\n\n`
+    ? `Here is what I can currently see on the page (read-only — the conversation and any code in view):\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
     : "";
+  // Voice turns: explicit "speak briefly" instruction prefixed to the message.
+  const voiceInstr = isVoice
+    ? "Reply in ONE short spoken sentence (ideally under 25 words). No lists, no headings, no markdown — this will be read aloud.\n\n"
+    : "";
+  // Voice turns: keep only the last 4 messages of history (2 turns). Text
+  // turns keep the full history.
+  const trimmedHistory = isVoice ? history.slice(-4) : history;
 
   const messages = [
-    ...history,
-    { role: "user", content: `${contextBlock}${userText}` },
+    ...trimmedHistory,
+    { role: "user", content: `${voiceInstr}${contextBlock}${userText}` },
   ];
 
-  // Web search lets Roody look things up when the page isn't enough. Each
-  // search hop adds ~1-3s though — skip if voice mode wants speed.
+  // Web search is great for text mode but tanks voice-mode latency (~1-3s per
+  // hop) AND can balloon input tokens to 20k+. Always off in voice mode.
   const { roodyWebSearch } = await chrome.storage.local.get(["roodyWebSearch"]);
   const tools =
-    roodyWebSearch !== false
+    !isVoice && roodyWebSearch !== false
       ? [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }]
       : undefined;
 
@@ -106,8 +118,10 @@ async function askRoody({ userText, pageContext, history }) {
         },
         body: JSON.stringify({
           model,
-          max_tokens: 400, // short spoken replies — keeps latency + cost low
-          temperature: 0.4, // focused, less rambly
+          // Voice mode = 150 tokens (≈80 words). Text mode = 400.
+          // Less text → much faster TTS (Gemini scales at ~50ms/char).
+          max_tokens: isVoice ? 150 : 400,
+          temperature: 0.4,
           system: self.ROODY_SYSTEM,
           messages,
           ...(tools ? { tools } : {}),
@@ -198,7 +212,7 @@ const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 // Alternate brain — Gemini Flash, ~10x cheaper than Sonnet. Same persona,
 // same page context, same chat history shape.
-async function askGeminiBrain({ userText, pageContext, history, model }) {
+async function askGeminiBrain({ userText, pageContext, history, model, mode }) {
   const { roodyGeminiKey } = await chrome.storage.local.get(["roodyGeminiKey"]);
   if (!roodyGeminiKey) {
     return {
@@ -207,17 +221,23 @@ async function askGeminiBrain({ userText, pageContext, history, model }) {
         "Gemini brain selected but no Gemini key — open Roody's settings and paste one (free at aistudio.google.com/apikey).",
     };
   }
+  const isVoice = mode === "voice";
+  const ctxCap = isVoice ? 1500 : 14000;
   const contextBlock = pageContext
-    ? `Here is what I can currently see on the page (read-only):\n\n"""\n${pageContext.slice(0, 14000)}\n"""\n\n`
+    ? `Here is what I can currently see on the page (read-only):\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
     : "";
+  const voiceInstr = isVoice
+    ? "Reply in ONE short spoken sentence (under 25 words). No lists, no markdown — read aloud.\n\n"
+    : "";
+  const trimmedHistory = isVoice ? history.slice(-4) : history;
 
   // Gemini's chat shape: roles are "user" and "model".
   const contents = [
-    ...history.map((m) => ({
+    ...trimmedHistory.map((m) => ({
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
     })),
-    { role: "user", parts: [{ text: contextBlock + userText }] },
+    { role: "user", parts: [{ text: voiceInstr + contextBlock + userText }] },
   ];
 
   let resp;
@@ -231,7 +251,7 @@ async function askGeminiBrain({ userText, pageContext, history, model }) {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: self.ROODY_SYSTEM }] },
         contents,
-        generationConfig: { temperature: 0.4, maxOutputTokens: 400 },
+        generationConfig: { temperature: 0.4, maxOutputTokens: isVoice ? 150 : 400 },
       }),
     });
   } catch (e) {
