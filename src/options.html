@@ -122,8 +122,9 @@
       <option value="custom">Other → paste a custom voice ID below</option>
     </select>
     <input id="evoicecustom" type="text" placeholder="Custom voice ID (only if 'Other' selected)" style="margin-top:6px" />
-    <div style="display:flex; gap:8px; margin-top:8px; align-items:center">
+    <div style="display:flex; gap:8px; margin-top:8px; align-items:center; flex-wrap:wrap">
       <button id="evoicefetch" class="small">↻ Load voices my key can use</button>
+      <button id="evoicepreview" class="small" style="background:#6b4a2b">🔊 Preview this voice</button>
       <span id="evoicefetchstatus" style="font-size:12px;color:#8a7560"></span>
     </div>
     <div class="note warn" style="margin-top:6px; font-size:12px">

@@ -139,6 +139,53 @@ evoiceEl.addEventListener("change", () => {
     : evoiceEl.value;
   if (v) chrome.storage.local.set({ roodyElevenVoice: v });
 });
+
+// "Preview this voice" — TTS a short sample sentence with whichever voice is
+// currently selected, so the user can hear it BEFORE running a real
+// conversation and burning quota. Plays inline on the options page.
+$("evoicepreview").addEventListener("click", async () => {
+  const key = ekeyEl.value.trim();
+  const status = $("evoicefetchstatus");
+  if (!key) {
+    status.textContent = "Paste your ElevenLabs key first.";
+    return;
+  }
+  const voiceId = evoiceEl.value === "custom"
+    ? (evoiceCustomEl.value || "").trim()
+    : evoiceEl.value;
+  if (!voiceId) {
+    status.textContent = "Pick a voice first.";
+    return;
+  }
+  status.textContent = "Generating preview…";
+  try {
+    const resp = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_64`,
+      {
+        method: "POST",
+        headers: { "xi-api-key": key, "content-type": "application/json" },
+        body: JSON.stringify({
+          text: "Hi, I'm Roody. This is how I'll sound when we chat — does this voice feel right to you?",
+          model_id: "eleven_turbo_v2_5",
+          voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.35, use_speaker_boost: true },
+        }),
+      }
+    );
+    if (!resp.ok) {
+      const body = (await resp.text()).slice(0, 200);
+      status.textContent = `Preview failed (${resp.status}): ${body}`;
+      return;
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.onended = () => URL.revokeObjectURL(url);
+    audio.play();
+    status.textContent = `✓ Playing preview (${Math.round(blob.size / 1024)}KB)`;
+  } catch (e) {
+    status.textContent = `Preview error: ${e.message}`;
+  }
+});
 evoiceCustomEl.addEventListener("blur", () => {
   if (evoiceEl.value !== "custom") return;
   const v = (evoiceCustomEl.value || "").trim();
