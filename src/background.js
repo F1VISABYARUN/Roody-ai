@@ -186,8 +186,16 @@ async function elevenLabsTTS(text) {
   const t0 = performance.now();
   rlog(`→ ElevenLabs TTS (${text.length} chars, voice=${voiceId.slice(0, 8)}…)`);
   try {
+    // Quality knobs:
+    //   output_format mp3_44100_64 — 44.1kHz @ 64kbps. The highest quality free
+    //     accounts can request; massive jump from the previous mp3_22050_32
+    //     (which sounded tinny/robotic on any voice).
+    //   model_id eleven_turbo_v2_5 — balanced model: ~30% slower than Flash but
+    //     dramatically more natural delivery. Still sub-second on short replies.
+    //   voice_settings — slightly higher stability + similarity for a warmer
+    //     read; style boost gives it more personality.
     const resp = await fetch(
-      `${ELEVEN_BASE}/text-to-speech/${voiceId}?output_format=mp3_22050_32`,
+      `${ELEVEN_BASE}/text-to-speech/${voiceId}?output_format=mp3_44100_64`,
       {
         method: "POST",
         headers: {
@@ -196,7 +204,13 @@ async function elevenLabsTTS(text) {
         },
         body: JSON.stringify({
           text,
-          model_id: "eleven_flash_v2_5", // fastest model
+          model_id: "eleven_turbo_v2_5",
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+            style: 0.35,
+            use_speaker_boost: true,
+          },
         }),
       }
     );
