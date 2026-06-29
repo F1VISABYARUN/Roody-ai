@@ -81,12 +81,15 @@ $("clearg").addEventListener("click", () => {
   showKeyStatus($("gstatus"), false);
 });
 
-// Live cost.
+// Live cost — shows both USD and INR (approximate ₹85/$).
+const USD_TO_INR = 85;
 function showSpend() {
   chrome.storage.local.get(["roodyUsage"]).then(({ roodyUsage }) => {
     const u = roodyUsage || { costUSD: 0, calls: 0 };
-    $("spend").textContent = "$" + (u.costUSD || 0).toFixed(4);
-    $("spendcalls").textContent = u.calls ? ` · ${u.calls} calls` : "";
+    const usd = u.costUSD || 0;
+    $("spendusd").textContent = "$" + usd.toFixed(4);
+    $("spendinr").textContent = "₹" + (usd * USD_TO_INR).toFixed(2);
+    $("spendcalls").textContent = u.calls ? `${u.calls} calls so far` : "";
   });
 }
 showSpend();

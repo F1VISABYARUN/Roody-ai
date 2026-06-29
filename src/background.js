@@ -16,6 +16,9 @@ async function getSettings() {
 }
 
 // ---- Cost meter -----------------------------------------------------------
+// USD → INR conversion. Approximate; refresh manually when needed.
+const USD_TO_INR = 85;
+const fmtMoney = (usd) => `$${usd.toFixed(4)} · ₹${(usd * USD_TO_INR).toFixed(2)}`;
 // Rough $/1M tokens. Gemini TTS/STT billed approximately by tokens.
 const PRICES = {
   "claude-opus-4-8": { in: 5, out: 25 },
@@ -151,8 +154,8 @@ async function askRoody({ userText, pageContext, history, mode }) {
     const inTok = data.usage?.input_tokens || 0;
     const outTok = data.usage?.output_tokens || 0;
     const p = PRICES[model] || { in: 0, out: 0 };
-    const turnCost = ((inTok * p.in + outTok * p.out) / 1e6).toFixed(4);
-    rlog(`✓ Claude ${ms}ms · in=${inTok} out=${outTok} · $${turnCost} · ${data.stop_reason}`);
+    const turnCost = (inTok * p.in + outTok * p.out) / 1e6;
+    rlog(`✓ Claude ${ms}ms · in=${inTok} out=${outTok} · ${fmtMoney(turnCost)} · ${data.stop_reason}`);
     if (data.usage) addUsage(model, inTok, outTok);
     const txt = (data.content || [])
       .filter((b) => b.type === "text")

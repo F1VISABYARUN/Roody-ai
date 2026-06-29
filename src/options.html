@@ -169,9 +169,15 @@
     <!-- SPEND -->
     <h2>💰 Spend</h2>
     <div class="note ok">
-      <strong>Estimated:</strong> <span id="spend">$0.0000</span>
-      <span id="spendcalls" style="color:#6a8560"></span>
-      <br /><button id="resetspend" class="small" style="margin-top:8px;background:#8a7560">Reset counter</button>
+      <strong>Estimated total spend:</strong>
+      <div style="font-size:18px;font-weight:700;margin-top:6px">
+        <span id="spendusd">$0.0000</span>
+        <span style="color:#6a8560">·</span>
+        <span id="spendinr">₹0.00</span>
+      </div>
+      <div id="spendcalls" style="color:#6a8560;font-size:13px;margin-top:2px"></div>
+      <div style="font-size:11px;color:#8a7560;margin-top:6px">INR shown at ~₹85 / $1 (approximate)</div>
+      <button id="resetspend" class="small" style="margin-top:8px;background:#8a7560">Reset counter</button>
     </div>
 
     <!-- LOGS / DIAGNOSTICS -->
