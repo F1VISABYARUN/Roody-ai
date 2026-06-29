@@ -375,24 +375,26 @@
       if (onDone) onDone();
       return;
     }
-    if (!geminiVoice) { rlog("🔈 ROBOTIC voice (no Gemini key set)"); return browserSpeak(text, onDone); }
+    if (!geminiVoice) { rlog("🔈 ROBOTIC voice (no premium key set — add ElevenLabs or Gemini key in Settings)"); return browserSpeak(text, onDone); }
+    rlog("→ requesting warm voice from background");
     const myToken = speakToken;
     chrome.runtime.sendMessage({ type: "roody:tts", payload: { text } }, (res) => {
       if (myToken !== speakToken) return; // user pressed stop while we waited
       if (chrome.runtime.lastError || !res || !res.ok || !res.audioBase64) {
-        rlog("🔈 ROBOTIC voice (Gemini TTS failed, falling back to browser)");
-        if (!ttsWarned && res && res.error) {
+        const why = (chrome.runtime.lastError && chrome.runtime.lastError.message) ||
+                    (res && res.error) || "no response";
+        rlog(`🔈 ROBOTIC voice (warm TTS failed: ${String(why).slice(0, 120)})`);
+        if (!ttsWarned) {
           ttsWarned = true;
           addBubble(
             "roody",
-            "🔈 (my warm voice isn't connecting — using the plain browser voice. Gemini said: " +
-              String(res.error).slice(0, 90) +
-              ". Check your Gemini key in settings.)"
+            "🔈 (warm voice didn't connect: " + String(why).slice(0, 120) +
+              ". Open Settings, check your ElevenLabs/Gemini key, then refresh this tab.)"
           );
         }
         return browserSpeak(text, onDone); // graceful fallback
       }
-      rlog(`🔊 Roody warm voice playing (${res.mime})`);
+      rlog(`🔊 Roody warm voice playing (${res.mime}, ${Math.round((res.audioBase64.length * 3) / 4 / 1024)}KB)`);
       try {
         // ElevenLabs returns MP3 (audio/mpeg) — play as-is.
         // Gemini returns raw PCM with rate hint in mime — wrap in WAV header.
@@ -783,8 +785,23 @@
     startWatching();
 
     // React to the master switch flipping in settings without a refresh.
+    // Also live-update the warm-voice flag when either TTS key is added/cleared
+    // — otherwise pages opened BEFORE the key was set stay stuck on robotic
+    // voice forever (the boot-time read of geminiVoice never re-runs).
     chrome.storage.onChanged.addListener((changes) => {
       if (changes.roodyEnabled) applyEnabled(changes.roodyEnabled.newValue !== false);
+      if (changes.roodyElevenKey || changes.roodyGeminiKey) {
+        chrome.storage.local
+          .get(["roodyElevenKey", "roodyGeminiKey"])
+          .then(({ roodyElevenKey, roodyGeminiKey }) => {
+            const before = geminiVoice;
+            geminiVoice = !!(roodyElevenKey || roodyGeminiKey);
+            ttsWarned = false; // let the next failure re-surface, if any
+            if (before !== geminiVoice) {
+              rlog(`🔈 warm voice ${geminiVoice ? "ENABLED" : "DISABLED"} (key change picked up live)`);
+            }
+          });
+      }
     });
   });
 })();

@@ -419,17 +419,27 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg?.type === "roody:tts") {
     // Prefer ElevenLabs (premium, sub-second, human) when its key is set.
-    // Fall through to Gemini TTS otherwise. Each function handles its own
-    // "no key" early-return, so this works in any combination.
+    // Fall through to Gemini TTS only if it could plausibly succeed (a Gemini
+    // key is set). Otherwise surface the ElevenLabs error so the user can see
+    // what's wrong instead of silently getting the robotic browser voice.
     (async () => {
-      const { roodyElevenKey } = await chrome.storage.local.get(["roodyElevenKey"]);
+      const { roodyElevenKey, roodyGeminiKey } = await chrome.storage.local.get([
+        "roodyElevenKey",
+        "roodyGeminiKey",
+      ]);
+      rlog(`TTS request: eleven=${roodyElevenKey ? "yes" : "no"} gemini=${roodyGeminiKey ? "yes" : "no"}`);
       if (roodyElevenKey) {
         const r = await elevenLabsTTS(msg.payload.text);
         if (r.ok) {
           addUsage("elevenlabs", 0, msg.payload.text.length);
           return sendResponse(r);
         }
-        // If ElevenLabs failed, try Gemini as a backup so we don't fall to robot.
+        if (!roodyGeminiKey) {
+          // No backup possible — return the real ElevenLabs error so the user
+          // sees it in the bubble instead of silently getting robotic voice.
+          rlog(`⚠ ElevenLabs failed and no Gemini backup: ${r.error}`);
+          return sendResponse({ ok: false, error: `ElevenLabs: ${r.error}` });
+        }
         rlog("↻ ElevenLabs failed, trying Gemini TTS as backup");
       }
       sendResponse(await geminiTTS(msg.payload.text));
