@@ -10,11 +10,23 @@ const langEl = $("lang");
 const ekeyEl = $("ekey");
 const evoiceEl = $("evoice");
 const evoiceCustomEl = $("evoicecustom");
+const vibeEl = $("vibe");
 const webEl = $("websearch");
 const chimeEl = $("autochime");
 const cheapVoiceEl = $("cheapvoice");
 const enabledEl = $("enabled");
 const statusEl = $("status");
+
+const VIBE_PREVIEWS = {
+  normal: "Warm, witty, a little sarcastic — like a clever best friend.",
+  minion: "\"Bello! Dis code... banana? No banana. WHYYY?!\" *confused Minion noises*",
+  yoda: "\"Buggy, this function is. Fix it, you must. Patience, young padawan.\"",
+  pirate: "\"Arrr! That be a memory leak, captain! Plug the hole before we sink!\"",
+  narrator: "\"And then... the developer stared at line 47... not knowing the semicolon would change everything.\"",
+  hype: "\"BRO YOU FIXED THE BUG!! LETS GOOOOO!! YOU'RE A CODING MACHINE!! 🔥🔥🔥\"",
+  drill: "\"WHAT IS THIS SPAGHETTI CODE, PRIVATE?! DROP AND GIVE ME 20 UNIT TESTS!\"",
+  shakespeare: "\"What light through yonder function breaks? 'Tis a null pointer, and Juliet is undefined.\"",
+};
 
 function showKeyStatus(el, hasIt) {
   el.textContent = hasIt ? "✓ Key saved on this computer" : "Not set";
@@ -25,7 +37,7 @@ function showKeyStatus(el, hasIt) {
 chrome.storage.local
   .get([
     "roodyApiKey", "roodyModel", "roodyGeminiKey", "roodyXaiKey", "roodyElevenKey", "roodyElevenVoice",
-    "roodyVoice", "roodyLang", "roodyWebSearch", "roodyEnabled", "roodyAutoChime", "roodyVoiceCheapBrain",
+    "roodyVoice", "roodyLang", "roodyVibe", "roodyWebSearch", "roodyEnabled", "roodyAutoChime", "roodyVoiceCheapBrain",
   ])
   .then((s) => {
     if (s.roodyApiKey) keyEl.value = s.roodyApiKey;
@@ -33,6 +45,8 @@ chrome.storage.local
     if (s.roodyGeminiKey) gkeyEl.value = s.roodyGeminiKey;
     if (s.roodyXaiKey) xkeyEl.value = s.roodyXaiKey;
     if (s.roodyLang) langEl.value = s.roodyLang;
+    if (s.roodyVibe) vibeEl.value = s.roodyVibe;
+    $("vibepreview").textContent = VIBE_PREVIEWS[vibeEl.value] || "";
     if (s.roodyElevenKey) ekeyEl.value = s.roodyElevenKey;
     // If saved voice is one of the known ones, select it; else show as Custom.
     const knownVoices = ["21m00Tcm4TlvDq8ikWAM","EXAVITQu4vr4xnSDxMaL","AZnzlk1XvdvUeBnXmlld","MF3mGyEYCl7XYWbV9V6O","XB0fDUnXU5powFXDhCwa","9BWtsMINqrJLrRacOk9x"];
@@ -91,6 +105,12 @@ function autoSaveKey(input, storageKey, statusEl) {
     setTimeout(() => showKeyStatus(statusEl, !!v), 1200);
   });
 }
+// Live vibe preview + auto-save
+vibeEl.addEventListener("change", () => {
+  $("vibepreview").textContent = VIBE_PREVIEWS[vibeEl.value] || "";
+  chrome.storage.local.set({ roodyVibe: vibeEl.value });
+});
+
 autoSaveKey(keyEl, "roodyApiKey", $("keystatus"));
 autoSaveKey(gkeyEl, "roodyGeminiKey", $("gstatus"));
 autoSaveKey(xkeyEl, "roodyXaiKey", $("xstatus"));
@@ -282,6 +302,7 @@ $("save").addEventListener("click", async () => {
     roodyElevenVoice: elevenVoice,
     roodyVoice: voiceEl.value,
     roodyLang: langEl.value,
+    roodyVibe: vibeEl.value,
     roodyWebSearch: webEl.checked,
     roodyAutoChime: chimeEl.checked,
     roodyVoiceCheapBrain: cheapVoiceEl.checked,

@@ -65,19 +65,26 @@ async function rlog(line) {
 // the page; `history` is the running chat between the human and Roody.
 // `mode === "voice"` triggers speed-tuned settings: no web search, fewer tokens,
 // shorter history, stricter "one spoken sentence" instruction.
+// Build the full system prompt: base persona + active vibe overlay.
+function getSystemPrompt(vibe) {
+  const overlay = (self.ROODY_VIBES && self.ROODY_VIBES[vibe]) || "";
+  return overlay ? self.ROODY_SYSTEM + "\n" + overlay : self.ROODY_SYSTEM;
+}
+
 async function askRoody({ userText, pageContext, history, mode }) {
   const { apiKey, xaiKey, model: settingsModel } = await getSettings();
-  const { roodyVoiceCheapBrain, roodyLang } = await chrome.storage.local.get(["roodyVoiceCheapBrain", "roodyLang"]);
+  const { roodyVoiceCheapBrain, roodyLang, roodyVibe } = await chrome.storage.local.get(["roodyVoiceCheapBrain", "roodyLang", "roodyVibe"]);
   const useCheap = mode === "voice" && roodyVoiceCheapBrain !== false;
   const model = useCheap ? "claude-haiku-4-5" : settingsModel;
+  const systemPrompt = getSystemPrompt(roodyVibe || "normal");
 
   // Gemini brain
   if (model && model.startsWith("gemini-")) {
-    return askGeminiBrain({ userText, pageContext, history, model, mode, lang: roodyLang });
+    return askGeminiBrain({ userText, pageContext, history, model, mode, lang: roodyLang, systemPrompt });
   }
   // Grok brain
   if (model && model.startsWith("grok-")) {
-    return askGrokBrain({ userText, pageContext, history, model, mode, lang: roodyLang, xaiKey });
+    return askGrokBrain({ userText, pageContext, history, model, mode, lang: roodyLang, xaiKey, systemPrompt });
   }
   if (!apiKey) {
     return {
@@ -140,7 +147,7 @@ async function askRoody({ userText, pageContext, history, mode }) {
           // Less text → much faster TTS (Gemini scales at ~50ms/char).
           max_tokens: isVoice ? 150 : 400,
           temperature: 0.4,
-          system: self.ROODY_SYSTEM,
+          system: systemPrompt,
           messages,
           ...(tools ? { tools } : {}),
         }),
@@ -246,7 +253,7 @@ const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 // Alternate brain — Gemini Flash, ~10x cheaper than Sonnet. Same persona,
 // same page context, same chat history shape.
-async function askGeminiBrain({ userText, pageContext, history, model, mode, lang }) {
+async function askGeminiBrain({ userText, pageContext, history, model, mode, lang, systemPrompt }) {
   const { roodyGeminiKey } = await chrome.storage.local.get(["roodyGeminiKey"]);
   if (!roodyGeminiKey) {
     return {
@@ -285,7 +292,7 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
         "x-goog-api-key": roodyGeminiKey,
       },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: self.ROODY_SYSTEM }] },
+        systemInstruction: { parts: [{ text: systemPrompt || self.ROODY_SYSTEM }] },
         contents,
         generationConfig: { temperature: 0.4, maxOutputTokens: isVoice ? 150 : 400 },
       }),
@@ -318,7 +325,7 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
 // ---- Grok brain (xAI) — OpenAI-compatible chat API -----------------------
 const GROK_URL = "https://api.x.ai/v1/chat/completions";
 
-async function askGrokBrain({ userText, pageContext, history, model, mode, lang, xaiKey }) {
+async function askGrokBrain({ userText, pageContext, history, model, mode, lang, xaiKey, systemPrompt }) {
   if (!xaiKey) {
     return {
       ok: false,
@@ -339,7 +346,7 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
   const trimmedHistory = isVoice ? history.slice(-4) : history;
 
   const messages = [
-    { role: "system", content: self.ROODY_SYSTEM },
+    { role: "system", content: systemPrompt || self.ROODY_SYSTEM },
     ...trimmedHistory,
     { role: "user", content: `${langInstr}${voiceInstr}${contextBlock}${userText}` },
   ];
