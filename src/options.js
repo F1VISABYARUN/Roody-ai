@@ -4,7 +4,9 @@ const $ = (id) => document.getElementById(id);
 const keyEl = $("key");
 const modelEl = $("model");
 const gkeyEl = $("gkey");
+const xkeyEl = $("xkey");
 const voiceEl = $("voice");
+const langEl = $("lang");
 const ekeyEl = $("ekey");
 const evoiceEl = $("evoice");
 const evoiceCustomEl = $("evoicecustom");
@@ -22,13 +24,15 @@ function showKeyStatus(el, hasIt) {
 // Load everything saved.
 chrome.storage.local
   .get([
-    "roodyApiKey", "roodyModel", "roodyGeminiKey", "roodyElevenKey", "roodyElevenVoice",
-    "roodyVoice", "roodyWebSearch", "roodyEnabled", "roodyAutoChime", "roodyVoiceCheapBrain",
+    "roodyApiKey", "roodyModel", "roodyGeminiKey", "roodyXaiKey", "roodyElevenKey", "roodyElevenVoice",
+    "roodyVoice", "roodyLang", "roodyWebSearch", "roodyEnabled", "roodyAutoChime", "roodyVoiceCheapBrain",
   ])
   .then((s) => {
     if (s.roodyApiKey) keyEl.value = s.roodyApiKey;
     if (s.roodyModel) modelEl.value = s.roodyModel;
     if (s.roodyGeminiKey) gkeyEl.value = s.roodyGeminiKey;
+    if (s.roodyXaiKey) xkeyEl.value = s.roodyXaiKey;
+    if (s.roodyLang) langEl.value = s.roodyLang;
     if (s.roodyElevenKey) ekeyEl.value = s.roodyElevenKey;
     // If saved voice is one of the known ones, select it; else show as Custom.
     const knownVoices = ["21m00Tcm4TlvDq8ikWAM","EXAVITQu4vr4xnSDxMaL","AZnzlk1XvdvUeBnXmlld","MF3mGyEYCl7XYWbV9V6O","XB0fDUnXU5powFXDhCwa","9BWtsMINqrJLrRacOk9x"];
@@ -51,8 +55,17 @@ chrome.storage.local
     enabledEl.checked = s.roodyEnabled !== false;
     showKeyStatus($("keystatus"), !!s.roodyApiKey);
     showKeyStatus($("gstatus"), !!s.roodyGeminiKey);
+    showKeyStatus($("xstatus"), !!s.roodyXaiKey);
     showKeyStatus($("estatus"), !!s.roodyElevenKey);
   });
+
+// Clear xAI/Grok key
+$("clearx").addEventListener("click", () => {
+  if (!confirm("Remove the xAI (Grok) key from this browser?")) return;
+  xkeyEl.value = "";
+  chrome.storage.local.set({ roodyXaiKey: "" });
+  showKeyStatus($("xstatus"), false);
+});
 
 // Clear ElevenLabs key
 $("cleare").addEventListener("click", () => {
@@ -80,6 +93,7 @@ function autoSaveKey(input, storageKey, statusEl) {
 }
 autoSaveKey(keyEl, "roodyApiKey", $("keystatus"));
 autoSaveKey(gkeyEl, "roodyGeminiKey", $("gstatus"));
+autoSaveKey(xkeyEl, "roodyXaiKey", $("xstatus"));
 autoSaveKey(ekeyEl, "roodyElevenKey", $("estatus"));
 
 // "Load voices my key can use" — calls ElevenLabs /v2/voices with the saved
@@ -263,9 +277,11 @@ $("save").addEventListener("click", async () => {
     roodyApiKey: keyEl.value.trim(),
     roodyModel: modelEl.value,
     roodyGeminiKey: gkeyEl.value.trim(),
+    roodyXaiKey: xkeyEl.value.trim(),
     roodyElevenKey: ekeyEl.value.trim(),
     roodyElevenVoice: elevenVoice,
     roodyVoice: voiceEl.value,
+    roodyLang: langEl.value,
     roodyWebSearch: webEl.checked,
     roodyAutoChime: chimeEl.checked,
     roodyVoiceCheapBrain: cheapVoiceEl.checked,
@@ -273,6 +289,7 @@ $("save").addEventListener("click", async () => {
   });
   showKeyStatus($("keystatus"), !!keyEl.value.trim());
   showKeyStatus($("gstatus"), !!gkeyEl.value.trim());
+  showKeyStatus($("xstatus"), !!xkeyEl.value.trim());
   showKeyStatus($("estatus"), !!ekeyEl.value.trim());
   statusEl.textContent = "Saved ✓";
   setTimeout(() => (statusEl.textContent = ""), 2000);

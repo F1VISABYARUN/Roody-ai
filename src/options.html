@@ -84,6 +84,9 @@
       <option value="claude-haiku-4-5">Claude Haiku 4.5 — fast &amp; cheap Claude</option>
       <option value="claude-opus-4-8">Claude Opus 4.8 — heaviest reasoning, costs more</option>
       <option value="gemini-2.5-flash">Gemini 2.5 Flash — ~10× cheaper, still good</option>
+      <option value="grok-3-mini-fast">Grok 3 Mini Fast — funny, edgy, fast ($5/$10 per M)</option>
+      <option value="grok-3-mini">Grok 3 Mini — funnier, deeper thinking ($5/$10 per M)</option>
+      <option value="grok-3">Grok 3 — full Grok, sharpest xAI brain ($3/$15 per M)</option>
     </select>
 
     <label for="key">Anthropic API key <span style="font-weight:400;color:#8a7560">(needed for Claude brains)</span></label>
@@ -92,6 +95,13 @@
       <button id="clearkey" class="ghost small" title="Remove this key">✕</button>
     </div>
     <p id="keystatus" class="keystatus"></p>
+
+    <label for="xkey">xAI (Grok) API key <span style="font-weight:400;color:#8a7560">(needed for Grok brains — get one at <a href="https://console.x.ai" target="_blank">console.x.ai</a>)</span></label>
+    <div class="row">
+      <input id="xkey" type="password" placeholder="xai-..." />
+      <button id="clearx" class="ghost small" title="Remove this key">✕</button>
+    </div>
+    <p id="xstatus" class="keystatus"></p>
 
     <!-- VOICE -->
     <h2>🎙️ Voice (the talking &amp; listening)</h2>
@@ -103,6 +113,25 @@
       indistinguishable from a real person. If both keys are set, Roody uses
       ElevenLabs and only falls back to Gemini if it fails.
     </div>
+
+    <label for="lang">🌍 Language (mic + replies)</label>
+    <select id="lang">
+      <option value="en-US">English (US)</option>
+      <option value="en-GB">English (UK)</option>
+      <option value="en-IN">English (India)</option>
+      <option value="te-IN">తెలుగు (Telugu)</option>
+      <option value="hi-IN">हिन्दी (Hindi)</option>
+      <option value="ta-IN">தமிழ் (Tamil)</option>
+      <option value="kn-IN">ಕನ್ನಡ (Kannada)</option>
+      <option value="ml-IN">മലയാളം (Malayalam)</option>
+      <option value="es-ES">Español (Spanish)</option>
+      <option value="fr-FR">Français (French)</option>
+      <option value="de-DE">Deutsch (German)</option>
+      <option value="ja-JP">日本語 (Japanese)</option>
+      <option value="ko-KR">한국어 (Korean)</option>
+      <option value="zh-CN">中文 (Chinese)</option>
+    </select>
+    <p style="font-size:12px;color:#8a7560;margin:4px 0 12px">Sets the mic language AND tells the brain to reply in this language. Telugu/Hindi/Tamil work best with Gemini TTS (ElevenLabs needs Multilingual v2 model for non-English).</p>
 
     <label for="ekey">ElevenLabs API key <span style="font-weight:400;color:#8a7560">(optional — premium, sub-second human voice)</span></label>
     <div class="row">

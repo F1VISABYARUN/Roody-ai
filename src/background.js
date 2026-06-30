@@ -8,11 +8,12 @@ const MODEL = "claude-sonnet-4-6";
 
 // Pull the user's settings (API key + chosen model) from extension storage.
 async function getSettings() {
-  const { roodyApiKey, roodyModel } = await chrome.storage.local.get([
+  const { roodyApiKey, roodyModel, roodyXaiKey } = await chrome.storage.local.get([
     "roodyApiKey",
     "roodyModel",
+    "roodyXaiKey",
   ]);
-  return { apiKey: roodyApiKey, model: roodyModel || MODEL };
+  return { apiKey: roodyApiKey, xaiKey: roodyXaiKey, model: roodyModel || MODEL };
 }
 
 // ---- Cost meter -----------------------------------------------------------
@@ -30,6 +31,9 @@ const PRICES = {
   // ElevenLabs charges per character, not per token. We track chars in "out"
   // slot (input chars are 0) at ~$0.30/1k chars = $300/1M for the Creator tier.
   "elevenlabs": { in: 0, out: 300 },
+  "grok-3": { in: 3, out: 15 },
+  "grok-3-mini": { in: 5, out: 10 },
+  "grok-3-mini-fast": { in: 5, out: 10 },
 };
 async function addUsage(model, inTok, outTok) {
   const p = PRICES[model] || { in: 0, out: 0 };
@@ -62,16 +66,18 @@ async function rlog(line) {
 // `mode === "voice"` triggers speed-tuned settings: no web search, fewer tokens,
 // shorter history, stricter "one spoken sentence" instruction.
 async function askRoody({ userText, pageContext, history, mode }) {
-  const { apiKey, model: settingsModel } = await getSettings();
-  // Voice mode can opt-in to a cheaper/faster brain (Haiku) regardless of
-  // what's selected for text mode. ~3x cheaper, similar quality for the short
-  // spoken replies voice mode produces.
-  const { roodyVoiceCheapBrain } = await chrome.storage.local.get(["roodyVoiceCheapBrain"]);
+  const { apiKey, xaiKey, model: settingsModel } = await getSettings();
+  const { roodyVoiceCheapBrain, roodyLang } = await chrome.storage.local.get(["roodyVoiceCheapBrain", "roodyLang"]);
   const useCheap = mode === "voice" && roodyVoiceCheapBrain !== false;
   const model = useCheap ? "claude-haiku-4-5" : settingsModel;
 
+  // Gemini brain
   if (model && model.startsWith("gemini-")) {
-    return askGeminiBrain({ userText, pageContext, history, model, mode });
+    return askGeminiBrain({ userText, pageContext, history, model, mode, lang: roodyLang });
+  }
+  // Grok brain
+  if (model && model.startsWith("grok-")) {
+    return askGrokBrain({ userText, pageContext, history, model, mode, lang: roodyLang, xaiKey });
   }
   if (!apiKey) {
     return {
@@ -93,13 +99,15 @@ async function askRoody({ userText, pageContext, history, mode }) {
   const voiceInstr = isVoice
     ? "Reply in ONE short spoken sentence (ideally under 25 words). No lists, no headings, no markdown — this will be read aloud.\n\n"
     : "";
-  // Voice turns: keep only the last 4 messages of history (2 turns). Text
-  // turns keep the full history.
+  // Language instruction: if non-English, tell the brain to reply in that language.
+  const langInstr = roodyLang && !roodyLang.startsWith("en")
+    ? `IMPORTANT: Reply in ${roodyLang.split("-")[0]} language. The user is speaking ${roodyLang}.\n\n`
+    : "";
   const trimmedHistory = isVoice ? history.slice(-4) : history;
 
   const messages = [
     ...trimmedHistory,
-    { role: "user", content: `${voiceInstr}${contextBlock}${userText}` },
+    { role: "user", content: `${langInstr}${voiceInstr}${contextBlock}${userText}` },
   ];
 
   // Web search is great for text mode but tanks voice-mode latency (~1-3s per
@@ -238,7 +246,7 @@ const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 // Alternate brain — Gemini Flash, ~10x cheaper than Sonnet. Same persona,
 // same page context, same chat history shape.
-async function askGeminiBrain({ userText, pageContext, history, model, mode }) {
+async function askGeminiBrain({ userText, pageContext, history, model, mode, lang }) {
   const { roodyGeminiKey } = await chrome.storage.local.get(["roodyGeminiKey"]);
   if (!roodyGeminiKey) {
     return {
@@ -255,15 +263,17 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode }) {
   const voiceInstr = isVoice
     ? "Reply in ONE short spoken sentence (under 25 words). No lists, no markdown — read aloud.\n\n"
     : "";
+  const langInstr = lang && !lang.startsWith("en")
+    ? `IMPORTANT: Reply in ${lang.split("-")[0]} language.\n\n`
+    : "";
   const trimmedHistory = isVoice ? history.slice(-4) : history;
 
-  // Gemini's chat shape: roles are "user" and "model".
   const contents = [
     ...trimmedHistory.map((m) => ({
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
     })),
-    { role: "user", parts: [{ text: voiceInstr + contextBlock + userText }] },
+    { role: "user", parts: [{ text: langInstr + voiceInstr + contextBlock + userText }] },
   ];
 
   let resp;
@@ -302,6 +312,73 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode }) {
     .filter(Boolean)
     .join("")
     .trim();
+  return { ok: true, text: text || "…" };
+}
+
+// ---- Grok brain (xAI) — OpenAI-compatible chat API -----------------------
+const GROK_URL = "https://api.x.ai/v1/chat/completions";
+
+async function askGrokBrain({ userText, pageContext, history, model, mode, lang, xaiKey }) {
+  if (!xaiKey) {
+    return {
+      ok: false,
+      error: "Grok brain selected but no xAI key — open Roody's settings and paste one from console.x.ai.",
+    };
+  }
+  const isVoice = mode === "voice";
+  const ctxCap = isVoice ? 1500 : 14000;
+  const contextBlock = pageContext
+    ? `Here is what I can currently see on the page (read-only):\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
+    : "";
+  const voiceInstr = isVoice
+    ? "Reply in ONE short spoken sentence (under 25 words). No lists, no markdown — read aloud.\n\n"
+    : "";
+  const langInstr = lang && !lang.startsWith("en")
+    ? `IMPORTANT: Reply in ${lang.split("-")[0]} language.\n\n`
+    : "";
+  const trimmedHistory = isVoice ? history.slice(-4) : history;
+
+  const messages = [
+    { role: "system", content: self.ROODY_SYSTEM },
+    ...trimmedHistory,
+    { role: "user", content: `${langInstr}${voiceInstr}${contextBlock}${userText}` },
+  ];
+
+  const t0 = performance.now();
+  rlog(`→ Grok ${model} (msgs=${messages.length})`);
+  let resp;
+  try {
+    resp = await fetch(GROK_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "authorization": `Bearer ${xaiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        max_tokens: isVoice ? 150 : 400,
+        temperature: 0.5,
+      }),
+    });
+  } catch (e) {
+    rlog(`❌ Grok network: ${e.message}`);
+    return { ok: false, error: `Couldn't reach Grok. (${e.message})` };
+  }
+  if (!resp.ok) {
+    const body = await resp.text();
+    rlog(`❌ Grok ${resp.status}: ${body.slice(0, 120)}`);
+    return { ok: false, error: `Grok error ${resp.status}: ${body.slice(0, 200)}` };
+  }
+  const data = await resp.json();
+  const ms = Math.round(performance.now() - t0);
+  const inTok = data.usage?.prompt_tokens || 0;
+  const outTok = data.usage?.completion_tokens || 0;
+  const p = PRICES[model] || { in: 5, out: 10 };
+  const turnCost = (inTok * p.in + outTok * p.out) / 1e6;
+  rlog(`✓ Grok ${ms}ms · in=${inTok} out=${outTok} · ${fmtMoney(turnCost)}`);
+  if (data.usage) addUsage(model, inTok, outTok);
+  const text = (data.choices?.[0]?.message?.content || "").trim();
   return { ok: true, text: text || "…" };
 }
 

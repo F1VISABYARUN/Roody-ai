@@ -589,10 +589,12 @@
   let isRoodySpeaking = false; // gates SR auto-restart
   let turnSession = 0; // bumped on Voice OFF — late Claude/TTS replies bail
 
+  let srLang = "en-US"; // updated from settings at boot + on change
+
   function buildSR() {
     if (!SR) { rlog("❌ SpeechRecognition unavailable in this browser"); return null; }
     const r = new SR();
-    r.lang = "en-US";
+    r.lang = srLang;
     // continuous + interim = the recognition stays alive and streams partials,
     // which is far more reliable than the stop-after-one-phrase mode that was
     // silently dropping whole utterances.
@@ -819,10 +821,10 @@
 
   // ---- Boot -----------------------------------------------------------------
   chrome.storage.local
-    .get(["roodyAutoChime", "roodyGeminiKey", "roodyElevenKey", "roodyEnabled"])
+    .get(["roodyAutoChime", "roodyGeminiKey", "roodyElevenKey", "roodyEnabled", "roodyLang"])
     .then((s) => {
       if (typeof s.roodyAutoChime === "boolean") autoChime = s.roodyAutoChime;
-      // Warm voice is ON if ANY premium TTS key is set (ElevenLabs OR Gemini).
+      if (s.roodyLang) srLang = s.roodyLang;
       geminiVoice = !!(s.roodyElevenKey || s.roodyGeminiKey);
       applyEnabled(s.roodyEnabled !== false); // default on
       reflectListenState();
@@ -848,6 +850,10 @@
               rlog(`🔈 warm voice ${geminiVoice ? "ENABLED" : "DISABLED"} (key change picked up live)`);
             }
           });
+      }
+      if (changes.roodyLang) {
+        srLang = changes.roodyLang.newValue || "en-US";
+        rlog(`🌍 language changed to ${srLang}`);
       }
     });
   });
