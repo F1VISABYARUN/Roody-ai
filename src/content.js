@@ -187,6 +187,9 @@
         <span id="roody-toggle-label">Voice OFF — tap to start</span>
       </button>
     </div>
+    <div id="roody-hearing" style="display:none;padding:4px 12px;font-size:12px;color:#8a7560;background:#fff7ec;border-top:1px solid #f0e2cf;font-style:italic;min-height:18px">
+      <span id="roody-hearing-text"></span>
+    </div>
     <div id="roody-inputrow">
       <input id="roody-text" type="text" placeholder="…or just type to Roody" autocomplete="off" />
       <button id="roody-send" title="Send">➤</button>
@@ -597,29 +600,59 @@
     r.interimResults = true;
     r.maxAlternatives = 1;
     let gotResult = false;
-    r.onstart = () => rlog("🎤 SR start (listening)");
+    r.onstart = () => {
+      rlog("🎤 SR start (listening)");
+      const h = document.getElementById("roody-hearing");
+      const ht = document.getElementById("roody-hearing-text");
+      if (h) { h.style.display = "block"; ht.textContent = "🎤 listening…"; }
+    };
     r.onaudiostart = () => rlog("🎤 audio capture began");
-    r.onspeechstart = () => rlog("🎤 speech detected — you started talking");
+    r.onspeechstart = () => {
+      rlog("🎤 speech detected — you started talking");
+      const ht = document.getElementById("roody-hearing-text");
+      if (ht) ht.textContent = "🎤 hearing you…";
+    };
     r.onspeechend = () => rlog("🎤 speech ended");
     r.onresult = (e) => {
-      // Walk results from resultIndex; act only on a FINAL transcript.
+      const hearingEl = document.getElementById("roody-hearing");
+      const hearingText = document.getElementById("roody-hearing-text");
+      // Walk results from resultIndex; show interims live, act on finals.
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const res = e.results[i];
-        if (!res.isFinal) continue;
-        const heard = res[0].transcript || "";
+        const transcript = (res[0].transcript || "").trim();
+        if (!res.isFinal) {
+          // Show interim (partial) transcript so user can see what mic hears
+          if (transcript && hearingEl) {
+            hearingEl.style.display = "block";
+            hearingText.textContent = `🎤 hearing: "${transcript}"`;
+          }
+          continue;
+        }
         const conf = (res[0].confidence || 0).toFixed(2);
-        if (!heard.trim()) continue;
+        if (!transcript) continue;
         gotResult = true;
-        rlog(`🎤 HEARD: "${heard}" (conf=${conf})`);
-        onUserSpoke(heard);
-        return; // onUserSpoke stops the mic; ignore the rest of this batch
+        // Show final transcript briefly, then hide
+        if (hearingEl) {
+          hearingEl.style.display = "block";
+          hearingText.textContent = `✓ heard: "${transcript}" (${conf})`;
+          setTimeout(() => { hearingEl.style.display = "none"; }, 3000);
+        }
+        rlog(`🎤 HEARD: "${transcript}" (conf=${conf})`);
+        onUserSpoke(transcript);
+        return;
       }
     };
     r.onnomatch = () => rlog("🎤 no match — heard sound but couldn't make out words");
     r.onerror = (e) => rlog(`⚠ SR error: ${e.error || "unknown"}`);
     r.onend = () => {
-      if (!gotResult) rlog("🎤 SR ended (no transcript — speech backend returned nothing)");
-      else rlog("🎤 SR ended");
+      const h = document.getElementById("roody-hearing");
+      const ht = document.getElementById("roody-hearing-text");
+      if (!gotResult) {
+        rlog("🎤 SR ended (no transcript — speech backend returned nothing)");
+        if (h) { h.style.display = "block"; ht.textContent = "🎤 didn't catch that — try again"; setTimeout(() => { h.style.display = "none"; }, 2500); }
+      } else {
+        rlog("🎤 SR ended");
+      }
       // Don't restart while Roody is talking — that's how echo gets in.
       // When speak() finishes, it'll call startListening() itself.
       if (!voiceOn || isRoodySpeaking) {
@@ -768,6 +801,8 @@
     stopSpeaking();
     stopListening();
     setMic("idle");
+    const h = document.getElementById("roody-hearing");
+    if (h) h.style.display = "none";
   }
 
   toggleBtn.addEventListener("click", () => {
