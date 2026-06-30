@@ -353,8 +353,13 @@
     try { if (synth) synth.cancel(); } catch (_) {}
     try {
       if (currentAudio) {
-        currentAudio.pause();
-        currentAudio.currentTime = 0;
+        // currentAudio can be an AudioContext (new path) or an Audio element (legacy).
+        if (typeof currentAudio.close === "function") {
+          currentAudio.close(); // AudioContext
+        } else {
+          currentAudio.pause();
+          currentAudio.currentTime = 0;
+        }
         currentAudio = null;
       }
     } catch (_) {}
@@ -378,7 +383,7 @@
     if (!geminiVoice) { rlog("🔈 ROBOTIC voice (no premium key set — add ElevenLabs or Gemini key in Settings)"); return browserSpeak(text, onDone); }
     rlog("→ requesting warm voice from background");
     const myToken = speakToken;
-    chrome.runtime.sendMessage({ type: "roody:tts", payload: { text } }, (res) => {
+    chrome.runtime.sendMessage({ type: "roody:tts", payload: { text } }, async (res) => {
       if (myToken !== speakToken) return; // user pressed stop while we waited
       if (chrome.runtime.lastError || !res || !res.ok || !res.audioBase64) {
         const why = (chrome.runtime.lastError && chrome.runtime.lastError.message) ||
@@ -394,36 +399,43 @@
         }
         return browserSpeak(text, onDone); // graceful fallback
       }
-      rlog(`🔊 Roody warm voice playing (${res.mime}, ${Math.round((res.audioBase64.length * 3) / 4 / 1024)}KB)`);
+      const sizeKB = Math.round((res.audioBase64.length * 3) / 4 / 1024);
+      rlog(`🔊 Roody warm voice playing (${res.mime}, ${sizeKB}KB)`);
       try {
         // ElevenLabs returns MP3 (audio/mpeg) — play as-is.
         // Gemini returns raw PCM with rate hint in mime — wrap in WAV header.
         const isPcm = /pcm|L16/i.test(res.mime || "");
+        const rawBytes = base64ToBytes(res.audioBase64);
         const blob = isPcm
-          ? pcm16ToWav(base64ToBytes(res.audioBase64), rateFromMime(res.mime))
-          : new Blob([base64ToBytes(res.audioBase64)], { type: res.mime || "audio/mpeg" });
-        const url = URL.createObjectURL(blob);
+          ? pcm16ToWav(rawBytes, rateFromMime(res.mime))
+          : new Blob([rawBytes], { type: res.mime || "audio/mpeg" });
+
         stopSpeaking(); // clear anything currently playing first
-        const audio = new Audio(url);
-        currentAudio = audio;
-        let done = false;
-        const finish = () => {
-          if (done) return;
-          done = true;
-          URL.revokeObjectURL(url);
+        setOrbState("speaking");
+        setMic("speaking");
+
+        // Use AudioContext.decodeAudioData for playback. The standard
+        // new Audio(blobURL) path silently fails on some sites (claude.ai)
+        // due to CSP or autoplay restrictions, causing a hidden fallback to
+        // the robotic browser voice with no log entry.
+        const arrayBuf = await blob.arrayBuffer();
+        const actx = new (window.AudioContext || window.webkitAudioContext)();
+        currentAudio = actx; // so stopSpeaking() can close it
+        const audioBuf = await actx.decodeAudioData(arrayBuf);
+        const src = actx.createBufferSource();
+        src.buffer = audioBuf;
+        src.connect(actx.destination);
+        src.onended = () => {
+          try { actx.close(); } catch (_) {}
+          currentAudio = null;
           setOrbState("idle");
           if (micState === "speaking") setMic("idle");
           if (onDone) onDone();
         };
-        audio.onended = finish;
-        setOrbState("speaking");
-        setMic("speaking");
-        audio.play().catch(() => {
-          setOrbState("idle");
-          if (micState === "speaking") setMic("idle");
-          browserSpeak(text, onDone);
-        });
-      } catch (_) {
+        src.start(0);
+        rlog(`▶ AudioContext playback started (${(audioBuf.duration).toFixed(1)}s)`);
+      } catch (e) {
+        rlog(`⚠ AudioContext failed (${e.message}) → robotic fallback`);
         browserSpeak(text, onDone);
       }
     });
