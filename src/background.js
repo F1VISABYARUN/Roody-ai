@@ -192,23 +192,18 @@ async function askRoody({ userText, pageContext, history, mode }) {
 // Flash v2.5 model = lowest latency (~75-300 ms) at solid quality.
 const ELEVEN_BASE = "https://api.elevenlabs.io/v1";
 async function elevenLabsTTS(text) {
-  const { roodyElevenKey, roodyElevenVoice } = await chrome.storage.local.get([
+  const { roodyElevenKey, roodyElevenVoice, roodyVibe } = await chrome.storage.local.get([
     "roodyElevenKey",
     "roodyElevenVoice",
+    "roodyVibe",
   ]);
   if (!roodyElevenKey) return { ok: false, error: "no-eleven-key" };
   const voiceId = roodyElevenVoice || "21m00Tcm4TlvDq8ikWAM"; // Rachel
+  const vibe = roodyVibe || "normal";
+  const voiceSettings = SIDEKICK_ELEVEN_SETTINGS[vibe] || SIDEKICK_ELEVEN_SETTINGS.normal;
   const t0 = performance.now();
-  rlog(`→ ElevenLabs TTS (${text.length} chars, voice=${voiceId.slice(0, 8)}…)`);
+  rlog(`→ ElevenLabs TTS (${text.length} chars, voice=${voiceId.slice(0, 8)}…, vibe=${vibe})`);
   try {
-    // Quality knobs:
-    //   output_format mp3_44100_64 — 44.1kHz @ 64kbps. The highest quality free
-    //     accounts can request; massive jump from the previous mp3_22050_32
-    //     (which sounded tinny/robotic on any voice).
-    //   model_id eleven_turbo_v2_5 — balanced model: ~30% slower than Flash but
-    //     dramatically more natural delivery. Still sub-second on short replies.
-    //   voice_settings — slightly higher stability + similarity for a warmer
-    //     read; style boost gives it more personality.
     const resp = await fetch(
       `${ELEVEN_BASE}/text-to-speech/${voiceId}?output_format=mp3_44100_64`,
       {
@@ -220,12 +215,7 @@ async function elevenLabsTTS(text) {
         body: JSON.stringify({
           text,
           model_id: "eleven_turbo_v2_5",
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
-            style: 0.35,
-            use_speaker_boost: true,
-          },
+          voice_settings: voiceSettings,
         }),
       }
     );
@@ -389,21 +379,51 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
   return { ok: true, text: text || "…" };
 }
 
+// Character voice styles — Gemini TTS responds to acting direction in the
+// prompt. Each sidekick gets a distinct voice personality so the same TTS
+// voice actually SOUNDS different when the character is "speaking."
+const SIDEKICK_TTS_STYLES = {
+  normal: "Say this warmly, casually, like a close friend chatting — with natural pauses and a soft, friendly tone",
+  minion: "Perform this like a small, silly, hyperactive creature. Use a HIGH-PITCHED, squeaky, excited voice. Speed up on the silly gibberish words. Sound goofy, chaotic, and adorable — like a tiny yellow creature who doesn't fully understand what's happening but is VERY enthusiastic about it",
+  roadrunner: "Perform this with bursts of extreme speed and energy. The 'MEEP MEEP' parts should be sharp, quick, and high-pitched. Normal parts are calm, then suddenly ZOOM — fast and energetic. Big contrast between calm narration and explosive speed moments",
+  coyote: "Perform this like a dramatic narrator telling a tragic comedy. Sound sophisticated and scheming during the planning parts — then shift to deadpan disappointment when things fail. Think of a genius whose plans always backfire. Dry humor, dramatic pauses before the disaster",
+  pinkpanther: "Perform this in a smooth, cool, suave voice — like a secret agent. Slow, deliberate, dripping with style. The 'dun dun dun dun' theme parts should be musical and sly. Everything sounds effortlessly cool and mysterious",
+  woody: "Perform this like a cheerful, bold cowboy. Warm, friendly, but COMMANDING when rallying the team. The catchphrases like 'there's a snake in my boot' should be enthusiastic and slightly startled. Overall: loyal, brave, heart-of-gold cowboy energy",
+  rapunzel: "Perform this with OVERWHELMING excitement and wonder. High energy, breathless amazement at everything. Like someone seeing the world for the first time and finding it MAGICAL. Genuine, bright, can't-contain-the-joy enthusiasm. Sing-songy on the musical parts",
+  snowwhite: "Perform this in a sweet, gentle, melodic voice — almost singing. Soft and kind, like talking to forest animals. The singing parts should actually sound musical and lilting. Warm, motherly, impossibly gentle and caring",
+  tom: "Perform this with big dramatic physical comedy energy. The crash and slapstick moments should be loud and startled — WHAM! OOF! Scheming parts are whispered and sneaky. Big contrast: sneaky quiet... then LOUD crash. Think cartoon cat energy",
+  jerry: "Perform this with clever, smug, mischievous energy. Quick and nimble — short sharp sounds. The victory moments should be tiny and triumphant. Overall: small but brilliant, self-satisfied, the smartest one in the room and knows it",
+};
+
+// ElevenLabs voice_settings tweaks per sidekick — makes the same voice
+// more expressive/chaotic for character moments.
+const SIDEKICK_ELEVEN_SETTINGS = {
+  normal:      { stability: 0.5,  similarity_boost: 0.75, style: 0.35, use_speaker_boost: true },
+  minion:      { stability: 0.2,  similarity_boost: 0.5,  style: 0.9,  use_speaker_boost: true },
+  roadrunner:  { stability: 0.25, similarity_boost: 0.6,  style: 0.85, use_speaker_boost: true },
+  coyote:      { stability: 0.4,  similarity_boost: 0.7,  style: 0.6,  use_speaker_boost: true },
+  pinkpanther: { stability: 0.6,  similarity_boost: 0.8,  style: 0.5,  use_speaker_boost: true },
+  woody:       { stability: 0.35, similarity_boost: 0.7,  style: 0.7,  use_speaker_boost: true },
+  rapunzel:    { stability: 0.2,  similarity_boost: 0.6,  style: 0.9,  use_speaker_boost: true },
+  snowwhite:   { stability: 0.55, similarity_boost: 0.8,  style: 0.5,  use_speaker_boost: true },
+  tom:         { stability: 0.15, similarity_boost: 0.5,  style: 0.95, use_speaker_boost: true },
+  jerry:       { stability: 0.3,  similarity_boost: 0.6,  style: 0.8,  use_speaker_boost: true },
+};
+
 // Text -> speech. Returns base64 PCM (signed 16-bit, mono) + its mime.
 async function geminiTTS(text) {
-  const { roodyGeminiKey, roodyVoice } = await chrome.storage.local.get([
+  const { roodyGeminiKey, roodyVoice, roodyVibe } = await chrome.storage.local.get([
     "roodyGeminiKey",
     "roodyVoice",
+    "roodyVibe",
   ]);
   if (!roodyGeminiKey) { rlog("⚠ TTS skipped: no Gemini key → robotic browser voice"); return { ok: false, error: "no-gemini-key" }; }
+  const vibe = roodyVibe || "normal";
   const t0 = performance.now();
-  rlog(`→ Gemini TTS (${text.length} chars, voice=${roodyVoice || "Kore"})`);
+  rlog(`→ Gemini TTS (${text.length} chars, voice=${roodyVoice || "Kore"}, vibe=${vibe})`);
 
-  // Gemini 2.5 TTS responds to natural-language style steering in the prompt
-  // itself. Without it the model defaults to a flat "assistant reading aloud"
-  // tone (the "robotic" complaint). Prepending a delivery instruction makes
-  // the same voice sound conversational and warm.
-  const styled = `Say this warmly, casually, like a close friend chatting — with natural pauses and a soft, friendly tone (do not say this instruction, just say what follows):\n\n${text}`;
+  const styleDirective = SIDEKICK_TTS_STYLES[vibe] || SIDEKICK_TTS_STYLES.normal;
+  const styled = `${styleDirective} (do not say this instruction, just perform what follows):\n\n${text}`;
   const body = JSON.stringify({
     contents: [{ parts: [{ text: styled }] }],
     generationConfig: {
