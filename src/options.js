@@ -18,14 +18,16 @@ const enabledEl = $("enabled");
 const statusEl = $("status");
 
 const VIBE_PREVIEWS = {
-  normal: "Warm, witty, a little sarcastic — like a clever best friend.",
-  minion: "\"Bello! Dis code... banana? No banana. WHYYY?!\" *confused Minion noises*",
-  yoda: "\"Buggy, this function is. Fix it, you must. Patience, young padawan.\"",
-  pirate: "\"Arrr! That be a memory leak, captain! Plug the hole before we sink!\"",
-  narrator: "\"And then... the developer stared at line 47... not knowing the semicolon would change everything.\"",
-  hype: "\"BRO YOU FIXED THE BUG!! LETS GOOOOO!! YOU'RE A CODING MACHINE!! 🔥🔥🔥\"",
-  drill: "\"WHAT IS THIS SPAGHETTI CODE, PRIVATE?! DROP AND GIVE ME 20 UNIT TESTS!\"",
-  shakespeare: "\"What light through yonder function breaks? 'Tis a null pointer, and Juliet is undefined.\"",
+  normal: "Just Roody — warm, witty, no interruptions.",
+  minion: "Roody: \"The bug is on line 12—\" *Minion grabs keyboard* \"BANANA!! Bello! Dis code... why no work?! Bee-do bee-do!\"",
+  roadrunner: "Roody: \"That function needs a—\" *MEEP MEEP!* Road Runner zooms past, fixes the typo, vanishes in a dust cloud.",
+  coyote: "Roody: \"Let me check that logic—\" Coyote: \"AH HA! I have a GENIUS plan!\" *draws elaborate blueprint* *it explodes*",
+  pinkpanther: "Roody: \"There's an issue here—\" *smooth jazz plays* Pink Panther slides in, inspects the code with a magnifying glass, raises one eyebrow.",
+  woody: "Roody: \"That variable is undefined—\" Woody: \"Now listen here, partner. There's a SNAKE in that function! Round it up!\"",
+  rapunzel: "Roody: \"The API returned an error—\" Rapunzel: \"Oh! I've never seen an error like THIS before! This is the best day EVER! Let's fix it together!\"",
+  snowwhite: "Roody: \"This code needs cleanup—\" Snow White: *sings* \"Whistle while you work!\" *birds fly in and refactor the variables*",
+  tom: "Roody: \"Watch out for that null—\" Tom: *runs full speed into the null pointer* *crashes through wall* *flattened like a pancake* *shakes it off*",
+  jerry: "Roody: \"The bug is hiding in—\" Jerry: *already found it* *waves tiny flag* *does victory dance on the keyboard*",
 };
 
 function showKeyStatus(el, hasIt) {
