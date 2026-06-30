@@ -65,6 +65,16 @@ async function rlog(line) {
 // the page; `history` is the running chat between the human and Roody.
 // `mode === "voice"` triggers speed-tuned settings: no web search, fewer tokens,
 // shorter history, stricter "one spoken sentence" instruction.
+const LANG_NAMES = {
+  "te": "Telugu", "hi": "Hindi", "ta": "Tamil", "kn": "Kannada", "ml": "Malayalam",
+  "es": "Spanish", "fr": "French", "de": "German", "ja": "Japanese", "ko": "Korean", "zh": "Chinese",
+};
+function langName(code) {
+  if (!code) return null;
+  const short = code.split("-")[0];
+  return LANG_NAMES[short] || null;
+}
+
 // Build the full system prompt: base persona + active vibe overlay.
 function getSystemPrompt(vibe) {
   const overlay = (self.ROODY_VIBES && self.ROODY_VIBES[vibe]) || "";
@@ -107,8 +117,9 @@ async function askRoody({ userText, pageContext, history, mode }) {
     ? "Reply in ONE short spoken sentence (ideally under 25 words). No lists, no headings, no markdown — this will be read aloud.\n\n"
     : "";
   // Language instruction: if non-English, tell the brain to reply in that language.
-  const langInstr = roodyLang && !roodyLang.startsWith("en")
-    ? `IMPORTANT: Reply in ${roodyLang.split("-")[0]} language. The user is speaking ${roodyLang}.\n\n`
+  const lName = langName(roodyLang);
+  const langInstr = lName
+    ? `IMPORTANT: Reply in ${lName}. The user is speaking ${lName}.\n\n`
     : "";
   const trimmedHistory = isVoice ? history.slice(-4) : history;
 
@@ -260,8 +271,9 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
   const voiceInstr = isVoice
     ? "Reply in ONE short spoken sentence (under 25 words). No lists, no markdown — read aloud.\n\n"
     : "";
-  const langInstr = lang && !lang.startsWith("en")
-    ? `IMPORTANT: Reply in ${lang.split("-")[0]} language.\n\n`
+  const lName = langName(lang);
+  const langInstr = lName
+    ? `IMPORTANT: Reply in ${lName}. The user is speaking ${lName}.\n\n`
     : "";
   const trimmedHistory = isVoice ? history.slice(-4) : history;
 
@@ -330,8 +342,9 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
   const voiceInstr = isVoice
     ? "Reply in ONE short spoken sentence (under 25 words). No lists, no markdown — read aloud.\n\n"
     : "";
-  const langInstr = lang && !lang.startsWith("en")
-    ? `IMPORTANT: Reply in ${lang.split("-")[0]} language.\n\n`
+  const lName = langName(lang);
+  const langInstr = lName
+    ? `IMPORTANT: Reply in ${lName}. The user is speaking ${lName}.\n\n`
     : "";
   const trimmedHistory = isVoice ? history.slice(-4) : history;
 
