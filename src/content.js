@@ -12,15 +12,15 @@
   // Tuning knobs.
   const REACT_DEBOUNCE_MS = 1800; // how long the page must be quiet = answer finished
   const REACT_COOLDOWN_MS = 7000; // min gap between auto-reactions
-  const GATHER_TTL_MS = 60000; // re-scroll-and-read the full thread at most this often
   const MAX_CONTEXT = 30000; // cap how much text we send to Claude
+  const PROACTIVE_INTERVAL_MS = 45000; // how often proactive Roody checks in
 
   let autoChime = false; // OFF by default — Roody stays quiet unless tapped
   let lastAnswerSig = ""; // fingerprint of the latest answer we've seen
   let reacting = false; // lock so we don't react on top of a reaction
   let lastReactTime = 0;
-  let fullHistoryCache = "";
-  let lastGatherTime = 0;
+  let pageCache = ""; // incrementally built — NO scrolling ever
+  let lastCacheSnapshot = ""; // detect meaningful changes
   let geminiVoice = false; // use Gemini for voice? (set at boot if a key exists)
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -80,8 +80,8 @@
     });
   }
 
-  // ---- Read the page (read-only) -------------------------------------------
-  // The text currently rendered on screen — what you can see right now.
+  // ---- Read the page (read-only, ZERO scrolling) ---------------------------
+  // Reads whatever is currently rendered — never moves the scroll position.
   function readPage() {
     const main = document.querySelector("main") || document.body;
     let text = (main.innerText || "").trim();
@@ -89,78 +89,28 @@
     return text;
   }
 
-  // Just the most recent task — the tail of what's on screen. Cheaper and
-  // focused, so Roody talks about what you're doing right now, not the whole day.
+  // The most recent task — tail of what's on screen. Cheap, focused.
   function recentTask() {
     const t = readPage();
     return t ? t.slice(-2500) : "";
   }
 
-  // Find the scrollable container holding the conversation (best effort —
-  // the biggest element on the page that actually scrolls).
-  function findScrollContainer() {
-    const root = document.querySelector("main") || document.body;
-    let best = null;
-    let bestH = 0;
-    for (const el of root.querySelectorAll("*")) {
-      const st = getComputedStyle(el);
-      if (
-        /(auto|scroll)/.test(st.overflowY) &&
-        el.scrollHeight > el.clientHeight + 200 &&
-        el.scrollHeight > bestH
-      ) {
-        best = el;
-        bestH = el.scrollHeight;
-      }
+  // Incrementally capture new content as it appears — called by
+  // MutationObserver. Merges new lines into pageCache without scrolling.
+  function captureIncremental() {
+    const fresh = readPage();
+    if (!pageCache) { pageCache = fresh; return; }
+    const newLines = fresh.split("\n").filter((l) => l.trim() && !pageCache.includes(l.trim()));
+    if (newLines.length > 0) {
+      pageCache += "\n" + newLines.join("\n");
     }
-    return best;
+    if (pageCache.length > MAX_CONTEXT) pageCache = pageCache.slice(-MAX_CONTEXT);
   }
 
-  // Auto-scroll the thread to load older messages, collecting every line we
-  // see along the way, then put the scroll position back where it was.
-  async function gatherFullConversation() {
-    const main = document.querySelector("main") || document.body;
-    const sc = findScrollContainer();
-    if (!sc) return readPage();
-
-    const saved = sc.scrollTop;
-    const lines = new Set();
-    const capture = () => {
-      (main.innerText || "").split("\n").forEach((l) => {
-        l = l.trim();
-        if (l) lines.add(l);
-      });
-    };
-
-    sc.scrollTop = 0; // jump to the top to wake up the oldest messages
-    await sleep(350);
-    capture();
-
-    const step = Math.max(300, sc.clientHeight - 100);
-    for (let y = 0; y <= sc.scrollHeight; y += step) {
-      sc.scrollTop = y;
-      await sleep(220);
-      capture();
-    }
-
-    sc.scrollTop = saved; // restore — don't disturb the reader
-    let text = Array.from(lines).join("\n");
-    if (text.length > MAX_CONTEXT) text = text.slice(-MAX_CONTEXT);
-    return text;
-  }
-
-  // Get the best context to send Claude: the full thread (re-gathered if stale)
-  // plus whatever is currently on screen.
-  async function buildContext() {
-    const now = Date.now();
-    if (now - lastGatherTime > GATHER_TTL_MS) {
-      fullHistoryCache = await gatherFullConversation();
-      lastGatherTime = now;
-      return fullHistoryCache;
-    }
-    let ctx = (fullHistoryCache ? fullHistoryCache + "\n" : "") + readPage();
-    if (ctx.length > MAX_CONTEXT) ctx = ctx.slice(-MAX_CONTEXT);
-    return ctx;
+  // Best context to send the brain — cached history + current screen.
+  function buildContext() {
+    captureIncremental();
+    return pageCache;
   }
 
   // ---- UI -------------------------------------------------------------------
@@ -500,14 +450,14 @@
   }
 
   // You asked Roody something.
-  async function send(userText) {
+  function send(userText) {
     userText = (userText || "").trim();
     if (!userText) return;
     addBubble("you", userText);
     input.value = "";
     const thinking = addBubble("roody", "…");
     setMic("thinking");
-    const ctx = await buildContext();
+    const ctx = buildContext();
     callRoody(
       userText,
       ctx,
@@ -521,19 +471,48 @@
     if (e.key === "Enter") send(input.value);
   });
 
-  // ---- Live watching: react when a new answer lands ------------------------
+  // ---- Live watching: react when new content appears -----------------------
   const REACTION_PROMPT =
-    "(A new answer just landed. React to it in ONE short spoken sentence, like a friend reading along. If it's code and something looks wrong, point to it; otherwise a quick thought or a question. Keep it tiny.)";
+    "(A new answer just appeared on the page. You're reading along with the user. React naturally in ONE short spoken sentence — like a friend looking over their shoulder. Be helpful: if something looks wrong, point it out. If it's interesting, say so. If you spot a bug, warn them. If it's a good answer, celebrate. Make a joke if the moment calls for it. Keep it to one or two sentences, spoken aloud.)";
 
-  async function reactToNewAnswer() {
+  const PROACTIVE_PROMPTS = [
+    "(Check what the user is working on right now. Give them ONE useful observation — a tip, a suggestion, a heads-up about something you noticed, or just a warm check-in. Be specific to what's on screen. Don't repeat yourself. One sentence, spoken.)",
+    "(Look at what's on screen. If you see anything the user might want to know — a potential issue, a better approach, an interesting detail — mention it casually. If nothing stands out, crack a quick joke about what they're doing. One sentence, spoken.)",
+    "(You're sitting with the user. Glance at what they're doing and say something useful or encouraging. Maybe suggest something, point out a pattern, or just be supportive. Keep it natural and short — one sentence.)",
+  ];
+
+  function reactToNewAnswer() {
     if (reacting) return;
     reacting = true;
     orb.classList.add("roody-thinking");
     if (panel.style.display === "none") panel.style.display = "flex";
 
     const thinking = addBubble("roody", "…");
-    const ctx = recentTask(); // just the latest task, not the whole chat
+    const ctx = recentTask();
     callRoody(REACTION_PROMPT, ctx, (t) => {
+      thinking.textContent = t;
+      orb.classList.remove("roody-thinking");
+      reacting = false;
+      lastReactTime = Date.now();
+    });
+  }
+
+  // Proactive check-in: Roody glances at what you're doing and says something
+  // useful without being asked. Only fires when auto-chime is on and the page
+  // has changed since the last check.
+  function proactiveCheckIn() {
+    if (!autoChime || reacting || voiceOn) return;
+    if (Date.now() - lastReactTime < REACT_COOLDOWN_MS) return;
+    const current = readPage().slice(-800);
+    if (current === lastCacheSnapshot) return;
+    lastCacheSnapshot = current;
+
+    reacting = true;
+    orb.classList.add("roody-thinking");
+    if (panel.style.display === "none") panel.style.display = "flex";
+    const thinking = addBubble("roody", "…");
+    const prompt = PROACTIVE_PROMPTS[Math.floor(Math.random() * PROACTIVE_PROMPTS.length)];
+    callRoody(prompt, recentTask(), (t) => {
       thinking.textContent = t;
       orb.classList.remove("roody-thinking");
       reacting = false;
@@ -543,10 +522,11 @@
 
   function onSettled() {
     if (!autoChime || reacting) return;
-    if (voiceOn) return; // don't chime during a live voice conversation
+    if (voiceOn) return;
     if (Date.now() - lastReactTime < REACT_COOLDOWN_MS) return;
-    const sig = readPage().slice(-600); // fingerprint of the latest content
-    if (sig === lastAnswerSig) return; // nothing actually new
+    captureIncremental();
+    const sig = readPage().slice(-600);
+    if (sig === lastAnswerSig) return;
     lastAnswerSig = sig;
     reactToNewAnswer();
   }
@@ -555,11 +535,16 @@
     const main = document.querySelector("main") || document.body;
     let timer = null;
     const obs = new MutationObserver(() => {
+      captureIncremental();
       if (!autoChime) return;
       clearTimeout(timer);
-      timer = setTimeout(onSettled, REACT_DEBOUNCE_MS); // wait for streaming to stop
+      timer = setTimeout(onSettled, REACT_DEBOUNCE_MS);
     });
     obs.observe(main, { childList: true, subtree: true, characterData: true });
+
+    // Proactive check-in timer — Roody periodically glances at what you're
+    // doing and says something useful. Only when auto-chime is ON.
+    setInterval(proactiveCheckIn, PROACTIVE_INTERVAL_MS);
   }
 
   // ---- THE one switch: Voice ON / OFF -------------------------------------
