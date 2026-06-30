@@ -118,6 +118,14 @@ autoSaveKey(gkeyEl, "roodyGeminiKey", $("gstatus"));
 autoSaveKey(xkeyEl, "roodyXaiKey", $("xstatus"));
 autoSaveKey(ekeyEl, "roodyElevenKey", $("estatus"));
 
+// Auto-save all dropdowns and checkboxes on change — no Save button needed.
+modelEl.addEventListener("change", () => chrome.storage.local.set({ roodyModel: modelEl.value }));
+voiceEl.addEventListener("change", () => chrome.storage.local.set({ roodyVoice: voiceEl.value }));
+langEl.addEventListener("change", () => chrome.storage.local.set({ roodyLang: langEl.value }));
+webEl.addEventListener("change", () => chrome.storage.local.set({ roodyWebSearch: webEl.checked }));
+chimeEl.addEventListener("change", () => chrome.storage.local.set({ roodyAutoChime: chimeEl.checked }));
+cheapVoiceEl.addEventListener("change", () => chrome.storage.local.set({ roodyVoiceCheapBrain: cheapVoiceEl.checked }));
+
 // "Load voices my key can use" — calls ElevenLabs /v2/voices with the saved
 // key and replaces the dropdown with whatever the account can actually use
 // via API. Library voices on the free plan return 402 at TTS time even though

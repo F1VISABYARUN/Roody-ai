@@ -20,6 +20,7 @@
   let reacting = false; // lock so we don't react on top of a reaction
   let lastReactTime = 0;
   let pageCache = ""; // incrementally built — NO scrolling ever
+  const seenLines = new Set(); // dedup by exact line, not substring
   let lastCacheSnapshot = ""; // detect meaningful changes
   let geminiVoice = false; // use Gemini for voice? (set at boot if a key exists)
 
@@ -97,14 +98,30 @@
 
   // Incrementally capture new content as it appears — called by
   // MutationObserver. Merges new lines into pageCache without scrolling.
+  let captureTimer = null;
   function captureIncremental() {
     const fresh = readPage();
-    if (!pageCache) { pageCache = fresh; return; }
-    const newLines = fresh.split("\n").filter((l) => l.trim() && !pageCache.includes(l.trim()));
-    if (newLines.length > 0) {
-      pageCache += "\n" + newLines.join("\n");
+    if (!pageCache) {
+      pageCache = fresh;
+      fresh.split("\n").forEach((l) => { const t = l.trim(); if (t) seenLines.add(t); });
+      return;
     }
+    const newLines = [];
+    for (const l of fresh.split("\n")) {
+      const t = l.trim();
+      if (t && !seenLines.has(t)) { seenLines.add(t); newLines.push(t); }
+    }
+    if (newLines.length > 0) pageCache += "\n" + newLines.join("\n");
     if (pageCache.length > MAX_CONTEXT) pageCache = pageCache.slice(-MAX_CONTEXT);
+    // Keep Set from growing unbounded
+    if (seenLines.size > 5000) {
+      seenLines.clear();
+      pageCache.split("\n").forEach((l) => { const t = l.trim(); if (t) seenLines.add(t); });
+    }
+  }
+  function debouncedCapture() {
+    if (captureTimer) return;
+    captureTimer = setTimeout(() => { captureTimer = null; captureIncremental(); }, 800);
   }
 
   // Best context to send the brain — cached history + current screen.
@@ -302,13 +319,13 @@
 
   // Stop Roody talking, right now.
   function stopSpeaking() {
-    speakToken++; // any in-flight TTS reply is now stale
+    speakToken++;
+    isRoodySpeaking = false;
     try { if (synth) synth.cancel(); } catch (_) {}
     try {
       if (currentAudio) {
-        // currentAudio can be an AudioContext (new path) or an Audio element (legacy).
         if (typeof currentAudio.close === "function") {
-          currentAudio.close(); // AudioContext
+          currentAudio.close();
         } else {
           currentAudio.pause();
           currentAudio.currentTime = 0;
@@ -323,7 +340,7 @@
   function setOrbState(state) {
     orb.classList.remove("roody-speaking", "roody-stopped");
     if (state === "speaking") orb.classList.add("roody-speaking");
-    else if (state === "idle") orb.classList.add("roody-stopped");
+    // idle = back to default orange (no class), not red
   }
 
   // Roody's warm voice: Gemini TTS if available, else the free browser voice.
@@ -373,14 +390,21 @@
         // the robotic browser voice with no log entry.
         const arrayBuf = await blob.arrayBuffer();
         const actx = new (window.AudioContext || window.webkitAudioContext)();
-        currentAudio = actx; // so stopSpeaking() can close it
-        const audioBuf = await actx.decodeAudioData(arrayBuf);
+        currentAudio = actx;
+        let audioBuf;
+        try {
+          audioBuf = await actx.decodeAudioData(arrayBuf);
+        } catch (decodeErr) {
+          try { actx.close(); } catch (_) {}
+          if (currentAudio === actx) currentAudio = null;
+          throw decodeErr;
+        }
         const src = actx.createBufferSource();
         src.buffer = audioBuf;
         src.connect(actx.destination);
         src.onended = () => {
           try { actx.close(); } catch (_) {}
-          currentAudio = null;
+          if (currentAudio === actx) currentAudio = null;
           setOrbState("idle");
           if (micState === "speaking") setMic("idle");
           if (onDone) onDone();
@@ -399,19 +423,20 @@
   // speaking — used by hands-free voice mode to auto-listen next. `mode` is
   // "voice" when this comes from the voice loop (triggers speed-tuned settings
   // in the background: no web search, smaller context, shorter reply, etc).
-  function callRoody(userText, pageContext, onText, onSpoken, mode) {
+  function callRoody(userText, pageContext, onText, onSpoken, mode, opts) {
+    const skipHistory = opts && opts.skipHistory;
     let settled = false;
-    // One place that ends the turn — fills the bubble, optionally speaks, and
-    // guarantees the "…" placeholder NEVER hangs forever.
     const finish = (text, speakIt) => {
       if (settled) return;
       settled = true;
       clearTimeout(watchdog);
       onText(text);
       if (speakIt) {
-        history.push({ role: "user", content: userText });
-        history.push({ role: "assistant", content: text });
-        if (history.length > 20) history.splice(0, history.length - 20);
+        if (!skipHistory) {
+          history.push({ role: "user", content: userText });
+          history.push({ role: "assistant", content: text });
+          if (history.length > 20) history.splice(0, history.length - 20);
+        }
         speak(text, onSpoken);
       } else if (onSpoken) {
         onSpoken();
@@ -494,7 +519,7 @@
       orb.classList.remove("roody-thinking");
       reacting = false;
       lastReactTime = Date.now();
-    });
+    }, undefined, undefined, { skipHistory: true });
   }
 
   // Proactive check-in: Roody glances at what you're doing and says something
@@ -517,7 +542,7 @@
       orb.classList.remove("roody-thinking");
       reacting = false;
       lastReactTime = Date.now();
-    });
+    }, undefined, undefined, { skipHistory: true });
   }
 
   function onSettled() {
@@ -535,7 +560,7 @@
     const main = document.querySelector("main") || document.body;
     let timer = null;
     const obs = new MutationObserver(() => {
-      captureIncremental();
+      debouncedCapture();
       if (!autoChime) return;
       clearTimeout(timer);
       timer = setTimeout(onSettled, REACT_DEBOUNCE_MS);
@@ -840,6 +865,10 @@
         srLang = changes.roodyLang.newValue || "en-US";
         rlog(`🌍 language changed to ${srLang}`);
       }
+      if (changes.roodyAutoChime) {
+        autoChime = changes.roodyAutoChime.newValue === true;
+        rlog(`🔔 auto-chime ${autoChime ? "ON" : "OFF"} (picked up live)`);
+      }
     });
-  });
+  }).catch((e) => { rlog(`⚠ boot failed: ${e.message}`); });
 })();

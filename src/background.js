@@ -1,5 +1,5 @@
 // Roody's brain-stem: receives messages from the orb, calls Claude, sends the reply back.
-importScripts("persona.js");
+try { importScripts("persona.js"); } catch (_) { importScripts("src/persona.js"); }
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 // Roody just reads and chats — Sonnet is the sweet spot (smart + ~40% cheaper
@@ -32,8 +32,8 @@ const PRICES = {
   // slot (input chars are 0) at ~$0.30/1k chars = $300/1M for the Creator tier.
   "elevenlabs": { in: 0, out: 300 },
   "grok-3": { in: 3, out: 15 },
-  "grok-3-mini": { in: 5, out: 10 },
-  "grok-3-mini-fast": { in: 5, out: 10 },
+  "grok-3-mini": { in: 0.3, out: 0.5 },
+  "grok-3-mini-fast": { in: 0.3, out: 0.5 },
 };
 async function addUsage(model, inTok, outTok) {
   const p = PRICES[model] || { in: 0, out: 0 };
@@ -85,7 +85,14 @@ async function askRoody({ userText, pageContext, history, mode }) {
   const { apiKey, xaiKey, model: settingsModel } = await getSettings();
   const { roodyVoiceCheapBrain, roodyLang, roodyVibe } = await chrome.storage.local.get(["roodyVoiceCheapBrain", "roodyLang", "roodyVibe"]);
   const useCheap = mode === "voice" && roodyVoiceCheapBrain !== false;
-  const model = useCheap ? "claude-haiku-4-5" : settingsModel;
+  // Cheap voice brain only applies within the same provider — don't override
+  // Gemini/Grok to Claude Haiku (user might not have a Claude key).
+  let model = settingsModel;
+  if (useCheap) {
+    if (settingsModel.startsWith("gemini-")) model = "gemini-2.5-flash";
+    else if (settingsModel.startsWith("grok-")) model = "grok-3-mini-fast";
+    else model = "claude-haiku-4-5";
+  }
   const systemPrompt = getSystemPrompt(roodyVibe || "normal");
 
   // Gemini brain
@@ -191,6 +198,7 @@ async function askRoody({ userText, pageContext, history, mode }) {
     if (txt) finalText = txt;
     if (data.stop_reason === "pause_turn") {
       messages.push({ role: "assistant", content: data.content });
+      messages.push({ role: "user", content: "Continue." });
       continue;
     }
     break;
