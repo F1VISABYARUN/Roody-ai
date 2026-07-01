@@ -16,6 +16,9 @@ const chimeEl = $("autochime");
 const cheapVoiceEl = $("cheapvoice");
 const enabledEl = $("enabled");
 const statusEl = $("status");
+const profileEl = $("profile");
+const profileCountEl = $("profilecount");
+const memoryBoxEl = $("memorybox");
 
 const VIBE_PREVIEWS = {
   normal: "Just Roody — warm, witty, no interruptions.",
@@ -40,6 +43,7 @@ chrome.storage.local
   .get([
     "roodyApiKey", "roodyModel", "roodyGeminiKey", "roodyXaiKey", "roodyElevenKey", "roodyElevenVoice",
     "roodyVoice", "roodyLang", "roodyVibe", "roodyWebSearch", "roodyEnabled", "roodyAutoChime", "roodyVoiceCheapBrain",
+    "roodyProfile",
   ])
   .then((s) => {
     if (s.roodyApiKey) keyEl.value = s.roodyApiKey;
@@ -73,7 +77,47 @@ chrome.storage.local
     showKeyStatus($("gstatus"), !!s.roodyGeminiKey);
     showKeyStatus($("xstatus"), !!s.roodyXaiKey);
     showKeyStatus($("estatus"), !!s.roodyElevenKey);
+    if (s.roodyProfile) profileEl.value = s.roodyProfile;
+    profileCountEl.textContent = (profileEl.value || "").length;
   });
+
+// Auto-save profile as user types (debounced 400ms)
+let profileSaveTimer = null;
+profileEl.addEventListener("input", () => {
+  profileCountEl.textContent = profileEl.value.length;
+  clearTimeout(profileSaveTimer);
+  profileSaveTimer = setTimeout(() => {
+    chrome.storage.local.set({ roodyProfile: profileEl.value.trim() });
+  }, 400);
+});
+
+// Render Roody's notebook memory
+function renderMemory() {
+  chrome.storage.local.get(["roodyMemory"]).then(({ roodyMemory }) => {
+    const mem = Array.isArray(roodyMemory) ? roodyMemory : [];
+    if (mem.length === 0) {
+      memoryBoxEl.innerHTML = "<em style='color:#8a7560'>Empty — Roody will start remembering pages when you talk to it.</em>";
+      return;
+    }
+    memoryBoxEl.innerHTML = mem.slice().reverse().map((m) => {
+      const when = m.ts ? new Date(m.ts).toLocaleString() : "";
+      return `<div style="padding:6px 0;border-bottom:1px solid #f0e2cf">
+        <div style="font-weight:600">${escapeHtml(m.site)} · <span style="color:#8a7560;font-weight:400">${escapeHtml((m.title || "").slice(0, 60))}</span></div>
+        <div style="color:#6b4a2b;font-size:12px;margin-top:2px">${escapeHtml((m.snippet || "").slice(0, 150))}</div>
+        <div style="color:#a89880;font-size:11px;margin-top:2px">${when}</div>
+      </div>`;
+    }).join("");
+  });
+}
+function escapeHtml(s) { return String(s || "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+renderMemory();
+setInterval(renderMemory, 3000); // refresh live
+
+$("clearmem").addEventListener("click", async () => {
+  if (!confirm("Clear Roody's notebook of remembered pages?")) return;
+  await chrome.storage.local.set({ roodyMemory: [] });
+  renderMemory();
+});
 
 // Clear xAI/Grok key
 $("clearx").addEventListener("click", () => {
@@ -317,6 +361,7 @@ $("save").addEventListener("click", async () => {
     roodyAutoChime: chimeEl.checked,
     roodyVoiceCheapBrain: cheapVoiceEl.checked,
     roodyEnabled: enabledEl.checked,
+    roodyProfile: (profileEl.value || "").trim(),
   });
   showKeyStatus($("keystatus"), !!keyEl.value.trim());
   showKeyStatus($("gstatus"), !!gkeyEl.value.trim());

@@ -81,9 +81,29 @@ function getSystemPrompt(vibe) {
   return overlay ? self.ROODY_SYSTEM + "\n" + overlay : self.ROODY_SYSTEM;
 }
 
+// Build a short "notebook" of the user's recent Roody-engaged pages.
+// Only the last 5 fit in the prompt. Format: site · title · snippet.
+function buildMemoryBlock(memory) {
+  if (!Array.isArray(memory) || memory.length === 0) return "";
+  const recent = memory.slice(-5);
+  const lines = recent.map((m) => {
+    const when = m.ts ? new Date(m.ts).toLocaleTimeString() : "";
+    return `- [${when}] ${m.site} · "${m.title}" — ${(m.snippet || "").slice(0, 120)}`;
+  });
+  return `\nYour running notebook of the user's recent activity (only pages where they engaged with you):\n${lines.join("\n")}\n\n`;
+}
+
+// User's own "about me" — a small text they can set in Settings so Roody
+// actually knows who they are. Prepended to the system prompt.
+function buildProfileBlock(profile) {
+  const p = (profile || "").trim();
+  if (!p) return "";
+  return `About the user (what they told you about themselves):\n"${p.slice(0, 500)}"\n\n`;
+}
+
 async function askRoody({ userText, pageContext, history, mode, site, title }) {
   const { apiKey, xaiKey, model: settingsModel } = await getSettings();
-  const { roodyVoiceCheapBrain, roodyLang, roodyVibe } = await chrome.storage.local.get(["roodyVoiceCheapBrain", "roodyLang", "roodyVibe"]);
+  const { roodyVoiceCheapBrain, roodyLang, roodyVibe, roodyMemory, roodyProfile } = await chrome.storage.local.get(["roodyVoiceCheapBrain", "roodyLang", "roodyVibe", "roodyMemory", "roodyProfile"]);
   const useCheap = mode === "voice" && roodyVoiceCheapBrain !== false;
   // Cheap voice brain only applies within the same provider — don't override
   // Gemini/Grok to Claude Haiku (user might not have a Claude key).
@@ -93,7 +113,10 @@ async function askRoody({ userText, pageContext, history, mode, site, title }) {
     else if (settingsModel.startsWith("grok-")) model = "grok-3-mini-fast";
     else model = "claude-haiku-4-5";
   }
-  const systemPrompt = getSystemPrompt(roodyVibe || "normal");
+  const baseSystem = getSystemPrompt(roodyVibe || "normal");
+  const profileBlock = buildProfileBlock(roodyProfile);
+  const memoryBlock = buildMemoryBlock(roodyMemory);
+  const systemPrompt = profileBlock + memoryBlock + baseSystem;
 
   // Gemini brain
   if (model && model.startsWith("gemini-")) {

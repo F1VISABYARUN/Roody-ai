@@ -187,6 +187,18 @@
       <option value="Sulafat">Sulafat — warm</option>
     </select>
 
+    <!-- ABOUT ME (user profile) -->
+    <h2>👤 About You</h2>
+    <p style="font-size:13px;color:#8a7560;margin:0 0 8px">Tell Roody who you are, what you're working on, what matters to you. Roody will remember this across every page and conversation. Keep it short (max 500 chars). Example: <em>"I'm Rohan, prepping for my US F1 visa interview next week. I'm a software engineer, I speak English and Telugu."</em></p>
+    <textarea id="profile" rows="4" placeholder="Tell Roody about yourself…" style="width:100%;padding:10px;border:1px solid #e7d4ba;border-radius:10px;font-size:14px;box-sizing:border-box;font-family:inherit;resize:vertical;" maxlength="500"></textarea>
+    <div style="font-size:12px;color:#8a7560;margin-top:4px"><span id="profilecount">0</span>/500 characters · saves automatically</div>
+
+    <!-- MEMORY / notebook -->
+    <h2>📓 Roody's Notebook</h2>
+    <p style="font-size:13px;color:#8a7560;margin:0 0 8px">Pages where you've talked to Roody. This is what Roody remembers across tabs so it can connect things up.</p>
+    <div id="memorybox" style="background:#fff;border:1px solid #e7d4ba;border-radius:10px;padding:10px;font-size:13px;max-height:200px;overflow-y:auto;color:#3a2c1e"></div>
+    <div style="margin-top:8px"><button id="clearmem" class="ghost small">🗑 Clear Notebook</button></div>
+
     <!-- SIDEKICK -->
     <h2>🎭 Character Sidekick</h2>
     <p style="font-size:13px;color:#8a7560;margin:0 0 8px">Roody stays Roody — but your sidekick character jumps in every few replies with their signature chaos. Pick one!</p>

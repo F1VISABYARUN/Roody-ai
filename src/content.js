@@ -119,13 +119,95 @@
     });
   }
 
-  // ---- Read the page (read-only, ZERO scrolling) ---------------------------
-  // Reads whatever is currently rendered — never moves the scroll position.
+  // ---- Read the page (SMART extraction, ZERO scrolling) --------------------
+  // Different strategy per site type:
+  //   - AI chat sites: find the chat container, extract user/AI turns only
+  //   - Regular pages: find the article/main content, skip menus & UI chrome
+  //   - Fallback: main.innerText tail (old behavior)
+
+  // Site-specific chat container selectors — where the actual conversation
+  // lives on each supported AI chat site. Falls through to generic if none hit.
+  const CHAT_CONTAINERS = [
+    { host: "chatgpt.com", sel: 'main [role="presentation"], main div[class*="conversation"]' },
+    { host: "chat.openai.com", sel: 'main [role="presentation"]' },
+    { host: "claude.ai", sel: 'main div[data-testid*="conversation"], main div[class*="conversation"]' },
+    { host: "gemini.google.com", sel: 'main #chat-history, main [class*="conversation"]' },
+    { host: "perplexity.ai", sel: 'main [class*="thread"]' },
+    { host: "www.perplexity.ai", sel: 'main [class*="thread"]' },
+    { host: "grok.com", sel: 'main [class*="conversation"], main [class*="thread"]' },
+    { host: "x.com", sel: 'main [aria-label*="conversation"]' },
+    { host: "www.kimi.com", sel: 'main [class*="chat"], main [class*="conversation"]' },
+    { host: "kimi.com", sel: 'main [class*="chat"]' },
+    { host: "chat.deepseek.com", sel: 'main [class*="conversation"], main [class*="chat"]' },
+  ];
+
+  // Find the biggest article-like block on a regular page — biggest <article>,
+  // <main>, or content-heavy <div>. Skips nav/header/footer/aside/menus.
+  function findArticle() {
+    // Try semantic tags first
+    const article = document.querySelector("article");
+    if (article && article.innerText && article.innerText.length > 300) return article;
+    const main = document.querySelector("main");
+    if (main && main.innerText && main.innerText.length > 300) {
+      // Strip common UI noise inside main
+      const clone = main.cloneNode(true);
+      clone.querySelectorAll("nav, header, footer, aside, [role='navigation'], [role='banner'], [role='complementary'], .menu, .sidebar, button").forEach((el) => el.remove());
+      return clone;
+    }
+    // Last resort — body
+    return document.body;
+  }
+
   function readPage() {
-    const main = document.querySelector("main") || document.body;
-    let text = (main.innerText || "").trim();
-    if (text.length > 16000) text = text.slice(-16000);
-    return text;
+    try {
+      const host = location.hostname;
+      const chatSite = CHAT_CONTAINERS.find((c) => c.host === host);
+      let text = "";
+      if (chatSite) {
+        const container = document.querySelector(chatSite.sel);
+        if (container && container.innerText) {
+          text = container.innerText.trim();
+        }
+      }
+      if (!text) {
+        // Regular page: find the article, strip UI chrome
+        const el = findArticle();
+        text = (el.innerText || "").trim();
+      }
+      if (!text) text = (document.body.innerText || "").trim();
+      // Collapse blank lines — Readability's cheap trick that helps a lot
+      text = text.replace(/\n\s*\n+/g, "\n\n").replace(/[ \t]+/g, " ");
+      if (text.length > 16000) text = text.slice(-16000);
+      return text;
+    } catch (_) {
+      return (document.body.innerText || "").trim().slice(-16000);
+    }
+  }
+
+  // Save a lightweight memory of the current page — only called when the user
+  // actually engages with Roody (voice or text). No LLM cost, just a heuristic
+  // summary: site + title + first 200 chars of extracted content.
+  async function rememberPage() {
+    try {
+      const snippet = readPage().slice(0, 200).replace(/\s+/g, " ").trim();
+      const entry = {
+        site: location.hostname,
+        title: (document.title || "").slice(0, 100),
+        snippet,
+        ts: Date.now(),
+      };
+      const { roodyMemory } = await chrome.storage.local.get(["roodyMemory"]);
+      const mem = Array.isArray(roodyMemory) ? roodyMemory : [];
+      // If we already remember this URL+title recently, just update ts
+      const dupIdx = mem.findIndex((m) => m.site === entry.site && m.title === entry.title);
+      if (dupIdx >= 0) {
+        mem[dupIdx] = entry;
+      } else {
+        mem.push(entry);
+      }
+      while (mem.length > 20) mem.shift(); // keep last 20 only
+      await chrome.storage.local.set({ roodyMemory: mem });
+    } catch (_) {}
   }
 
   // The most recent task — tail of what's on screen. Cheap, focused.
@@ -516,6 +598,7 @@
   function send(userText) {
     userText = (userText || "").trim();
     if (!userText) return;
+    rememberPage(); // engagement: user talked to Roody on this page
     addBubble("you", userText);
     input.value = "";
     const thinking = addBubble("roody", "…");
@@ -781,6 +864,7 @@
       return;
     }
     rlog(`→ sending to brain: "${text}"`);
+    rememberPage(); // engagement: user spoke to Roody on this page
     stopListening();
     stopSpeaking();
     addBubble("you", text);
