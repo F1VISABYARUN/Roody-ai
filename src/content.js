@@ -490,7 +490,7 @@
 
     try {
       chrome.runtime.sendMessage(
-        { type: "roody:ask", payload: { userText, pageContext, history, mode } },
+        { type: "roody:ask", payload: { userText, pageContext, history, mode, site: location.hostname, title: document.title } },
         (res) => {
           if (chrome.runtime.lastError) {
             rlog(`⚠ ask failed: ${chrome.runtime.lastError.message}`);
@@ -643,6 +643,9 @@
   let recentRoodyWords = ""; // for echo filter (second line of defense)
   let isRoodySpeaking = false; // gates SR auto-restart
   let turnSession = 0; // bumped on Voice OFF — late Claude/TTS replies bail
+  // Short interrupt words the user can say to CUT ROODY OFF while it's talking.
+  // Only these trigger barge-in — regular speech is ignored during Roody's turn.
+  const INTERRUPT_PATTERN = /^(stop|wait|pause|shush|hush|hold on|hang on|shut up|quiet|nope|no wait|cancel|nevermind)[\s.,!?]*$/i;
 
   let srLang = "en-US"; // updated from settings at boot + on change
 
@@ -678,10 +681,17 @@
         const res = e.results[i];
         const transcript = (res[0].transcript || "").trim();
         if (!res.isFinal) {
-          // Show interim (partial) transcript so user can see what mic hears
           if (transcript && hearingEl) {
             hearingEl.style.display = "block";
             hearingText.textContent = `🎤 hearing: "${transcript}"`;
+          }
+          // BARGE-IN: if Roody is speaking and user says a short interrupt
+          // word, cut Roody off immediately — don't wait for final transcript.
+          if (isRoodySpeaking && INTERRUPT_PATTERN.test(transcript)) {
+            rlog(`⚡ INTERRUPT detected: "${transcript}" — cutting Roody off`);
+            stopSpeaking();
+            if (hearingEl) hearingText.textContent = "⚡ stopped";
+            return;
           }
           continue;
         }
@@ -710,17 +720,12 @@
       } else {
         rlog("🎤 SR ended");
       }
-      // Don't restart while Roody is talking — that's how echo gets in.
-      // When speak() finishes, it'll call startListening() itself.
-      if (!voiceOn || isRoodySpeaking) {
-        if (isRoodySpeaking) rlog("⏸ SR paused (Roody is speaking)");
-        return;
-      }
+      // Keep the mic active even during Roody's speech so we can hear
+      // barge-in interrupts ("stop", "wait"). Echo cancellation + the
+      // INTERRUPT_PATTERN filter keep it from picking up Roody's own voice.
+      if (!voiceOn) return;
       setTimeout(() => {
-        if (!voiceOn || isRoodySpeaking) return;
-        // Build a FRESH recognition each cycle. Reusing one object across many
-        // start/stop cycles makes Chrome's speech backend silently stop
-        // returning results (exactly the "speech detected, no HEARD" symptom).
+        if (!voiceOn) return;
         sr = buildSR();
         try { sr && sr.start(); rlog("🎤 SR restart (fresh)"); }
         catch (e) { rlog(`⚠ SR restart failed: ${e.message}`); }
@@ -767,8 +772,16 @@
     if (!voiceOn) { rlog("…ignored (voiceOn=false)"); return; }
     if (!text) { rlog("…ignored (empty)"); return; }
     if (isProbablyEcho(text)) { rlog(`…ignored as ECHO of Roody's last reply: "${text}"`); return; }
+    // If Roody is currently speaking, only interrupt-words are actioned
+    // (already handled at the interim level). Full sentences during Roody's
+    // turn are ignored so we don't queue up a new brain call while the old
+    // one is playing.
+    if (isRoodySpeaking && !INTERRUPT_PATTERN.test(text)) {
+      rlog(`…ignored (Roody is speaking, not an interrupt word): "${text}"`);
+      return;
+    }
     rlog(`→ sending to brain: "${text}"`);
-    stopListening(); // we won't listen again until Roody is done speaking
+    stopListening();
     stopSpeaking();
     addBubble("you", text);
     const thinking = addBubble("roody", "…");

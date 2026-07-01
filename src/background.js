@@ -81,7 +81,7 @@ function getSystemPrompt(vibe) {
   return overlay ? self.ROODY_SYSTEM + "\n" + overlay : self.ROODY_SYSTEM;
 }
 
-async function askRoody({ userText, pageContext, history, mode }) {
+async function askRoody({ userText, pageContext, history, mode, site, title }) {
   const { apiKey, xaiKey, model: settingsModel } = await getSettings();
   const { roodyVoiceCheapBrain, roodyLang, roodyVibe } = await chrome.storage.local.get(["roodyVoiceCheapBrain", "roodyLang", "roodyVibe"]);
   const useCheap = mode === "voice" && roodyVoiceCheapBrain !== false;
@@ -97,11 +97,11 @@ async function askRoody({ userText, pageContext, history, mode }) {
 
   // Gemini brain
   if (model && model.startsWith("gemini-")) {
-    return askGeminiBrain({ userText, pageContext, history, model, mode, lang: roodyLang, systemPrompt });
+    return askGeminiBrain({ userText, pageContext, history, model, mode, lang: roodyLang, systemPrompt, site, title });
   }
   // Grok brain
   if (model && model.startsWith("grok-")) {
-    return askGrokBrain({ userText, pageContext, history, model, mode, lang: roodyLang, xaiKey, systemPrompt });
+    return askGrokBrain({ userText, pageContext, history, model, mode, lang: roodyLang, xaiKey, systemPrompt, site, title });
   }
   if (!apiKey) {
     return {
@@ -116,12 +116,13 @@ async function askRoody({ userText, pageContext, history, mode }) {
   // Voice turns get a much smaller page context (1500 chars vs 14000) — the
   // recent task is what matters when talking. Text turns can keep more.
   const ctxCap = isVoice ? 1500 : 14000;
+  const siteHint = site ? `You are watching the user on ${site}${title ? ` (page title: "${title.slice(0, 80)}")` : ""}. The text in quotes below is what they can see right now — it is NOT a message from them, it is the page they are looking at.\n\n` : "";
   const contextBlock = pageContext
-    ? `Here is what I can currently see on the page (read-only — the conversation and any code in view):\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
-    : "";
+    ? `${siteHint}Here is what is on the page (read-only, may include the user's other AI chat):\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
+    : siteHint;
   // Voice turns: explicit "speak briefly" instruction prefixed to the message.
   const voiceInstr = isVoice
-    ? "Reply in 1-2 COMPLETE spoken sentences. Always finish your thought — never leave a sentence hanging mid-word. End with punctuation. No lists, no markdown — this will be read aloud.\n\n"
+    ? "Reply in ONE complete short sentence (max 15 words). Snappy and finished — end with punctuation, never trail off. No lists, no markdown — read aloud.\n\n"
     : "";
   // Language instruction: if non-English, tell the brain to reply in that language.
   const lName = langName(roodyLang);
@@ -163,7 +164,7 @@ async function askRoody({ userText, pageContext, history, mode }) {
           model,
           // Voice mode = 150 tokens (≈80 words). Text mode = 400.
           // Less text → much faster TTS (Gemini scales at ~50ms/char).
-          max_tokens: isVoice ? 150 : 400,
+          max_tokens: isVoice ? 60 : 400,
           temperature: 0.4,
           system: systemPrompt,
           messages,
@@ -278,7 +279,7 @@ const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 // Alternate brain — Gemini Flash, ~10x cheaper than Sonnet. Same persona,
 // same page context, same chat history shape.
-async function askGeminiBrain({ userText, pageContext, history, model, mode, lang, systemPrompt }) {
+async function askGeminiBrain({ userText, pageContext, history, model, mode, lang, systemPrompt, site, title }) {
   const { roodyGeminiKey } = await chrome.storage.local.get(["roodyGeminiKey"]);
   if (!roodyGeminiKey) {
     return {
@@ -289,11 +290,12 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
   }
   const isVoice = mode === "voice";
   const ctxCap = isVoice ? 1500 : 14000;
+  const siteHint = site ? `You are watching the user on ${site}${title ? ` (page title: "${title.slice(0, 80)}")` : ""}. The text below in quotes is what they see — NOT their message.\n\n` : "";
   const contextBlock = pageContext
-    ? `Here is what I can currently see on the page (read-only):\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
-    : "";
+    ? `${siteHint}Here is what is on the page:\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
+    : siteHint;
   const voiceInstr = isVoice
-    ? "Reply in 1-2 COMPLETE spoken sentences. Always finish your thought — never trail off mid-word. End with proper punctuation. No lists, no markdown — read aloud.\n\n"
+    ? "Reply in ONE complete short sentence (max 15 words). Snappy and finished — end with punctuation, never trail off. No lists, no markdown — read aloud.\n\n"
     : "";
   const lName = langName(lang);
   const langInstr = lName
@@ -320,7 +322,7 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemPrompt || self.ROODY_SYSTEM }] },
         contents,
-        generationConfig: { temperature: 0.4, maxOutputTokens: isVoice ? 150 : 400 },
+        generationConfig: { temperature: 0.4, maxOutputTokens: isVoice ? 60 : 400 },
       }),
     });
   } catch (e) {
@@ -351,7 +353,7 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
 // ---- Grok brain (xAI) — OpenAI-compatible chat API -----------------------
 const GROK_URL = "https://api.x.ai/v1/chat/completions";
 
-async function askGrokBrain({ userText, pageContext, history, model, mode, lang, xaiKey, systemPrompt }) {
+async function askGrokBrain({ userText, pageContext, history, model, mode, lang, xaiKey, systemPrompt, site, title }) {
   if (!xaiKey) {
     return {
       ok: false,
@@ -360,11 +362,12 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
   }
   const isVoice = mode === "voice";
   const ctxCap = isVoice ? 1500 : 14000;
+  const siteHint = site ? `You are watching the user on ${site}${title ? ` (page title: "${title.slice(0, 80)}")` : ""}. The text below in quotes is what they see — NOT their message.\n\n` : "";
   const contextBlock = pageContext
-    ? `Here is what I can currently see on the page (read-only):\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
-    : "";
+    ? `${siteHint}Here is what is on the page:\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
+    : siteHint;
   const voiceInstr = isVoice
-    ? "Reply in 1-2 COMPLETE spoken sentences. Always finish your thought — never trail off mid-word. End with proper punctuation. No lists, no markdown — read aloud.\n\n"
+    ? "Reply in ONE complete short sentence (max 15 words). Snappy and finished — end with punctuation, never trail off. No lists, no markdown — read aloud.\n\n"
     : "";
   const lName = langName(lang);
   const langInstr = lName
@@ -391,7 +394,7 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
       body: JSON.stringify({
         model,
         messages,
-        max_tokens: isVoice ? 150 : 400,
+        max_tokens: isVoice ? 60 : 400,
         temperature: 0.5,
       }),
     });
