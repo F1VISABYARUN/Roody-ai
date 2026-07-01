@@ -116,6 +116,13 @@ async function askRoody({ userText, pageContext, history, mode, site, title }) {
   const baseSystem = getSystemPrompt(roodyVibe || "normal");
   const profileBlock = buildProfileBlock(roodyProfile);
   const memoryBlock = buildMemoryBlock(roodyMemory);
+  // Prompt-caching split:
+  //   stable part = persona + vibe + profile (rarely changes → gets cached
+  //     at 90% off for 5 min after the first call)
+  //   dynamic part = memory (updates every turn → NOT cached)
+  // The full string is still assembled for Gemini/Grok which don't cache the
+  // same way.
+  const stableSystem = profileBlock + baseSystem;
   const systemPrompt = profileBlock + memoryBlock + baseSystem;
 
   // Gemini brain
@@ -135,17 +142,24 @@ async function askRoody({ userText, pageContext, history, mode, site, title }) {
   }
 
   const isVoice = mode === "voice";
+  // "Analyze mode" — user explicitly asked for deeper thinking. Unlocks a
+  // longer format (3-4 sentences) and bigger page context. Regular voice
+  // chatter stays snappy.
+  const wantsAnalysis = /\b(analy[sz]e|analysis|what do you think|what's your take|break (this|it) down|review|explain (this|it|the (page|article))|deep dive|dive in(to)?|insight|thoughts on|look (at|closer))\b/i.test(userText || "");
 
   // Voice turns get a much smaller page context (1500 chars vs 14000) — the
   // recent task is what matters when talking. Text turns can keep more.
-  const ctxCap = isVoice ? 1500 : 14000;
+  const ctxCap = isVoice ? (wantsAnalysis ? 6000 : 1500) : 14000;
   const siteHint = site ? `You are watching the user on ${site}${title ? ` (page title: "${title.slice(0, 80)}")` : ""}. The text in quotes below is what they can see right now — it is NOT a message from them, it is the page they are looking at.\n\n` : "";
   const contextBlock = pageContext
     ? `${siteHint}Here is what is on the page (read-only, may include the user's other AI chat):\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
     : siteHint;
-  // Voice turns: explicit "speak briefly" instruction prefixed to the message.
+  // Voice turns: explicit "speak briefly" instruction. Analyze mode unlocks
+  // 3-4 sentences of real insight instead of a one-liner summary.
   const voiceInstr = isVoice
-    ? "Reply in ONE complete short sentence (max 15 words). Snappy and finished — end with punctuation, never trail off. No lists, no markdown — read aloud.\n\n"
+    ? (wantsAnalysis
+        ? "The user asked you to analyze/think about the page. Reply in 3-4 spoken sentences with a REAL take — insights, connections, opinions, or what stands out. Don't just describe what's on the page; give your view. End with proper punctuation. No lists, no markdown — read aloud.\n\n"
+        : "Reply in ONE complete short sentence (max 15 words). Snappy and finished — end with punctuation, never trail off. No lists, no markdown — read aloud.\n\n")
     : "";
   // Language instruction: if non-English, tell the brain to reply in that language.
   const lName = langName(roodyLang);
@@ -185,11 +199,19 @@ async function askRoody({ userText, pageContext, history, mode, site, title }) {
         },
         body: JSON.stringify({
           model,
-          // Voice mode = 150 tokens (≈80 words). Text mode = 400.
-          // Less text → much faster TTS (Gemini scales at ~50ms/char).
-          max_tokens: isVoice ? 60 : 400,
+          max_tokens: isVoice ? (wantsAnalysis ? 220 : 60) : 400,
           temperature: 0.4,
-          system: systemPrompt,
+          // Prompt caching: mark the stable persona+profile as ephemeral so
+          // Anthropic caches it for 5 min. Memory (dynamic) stays uncached in
+          // a second block. 90% discount on the cached read after call #1.
+          system: memoryBlock
+            ? [
+                { type: "text", text: stableSystem, cache_control: { type: "ephemeral" } },
+                { type: "text", text: memoryBlock },
+              ]
+            : [
+                { type: "text", text: stableSystem, cache_control: { type: "ephemeral" } },
+              ],
           messages,
           ...(tools ? { tools } : {}),
         }),
@@ -210,10 +232,14 @@ async function askRoody({ userText, pageContext, history, mode, site, title }) {
     const ms = Math.round(performance.now() - t0);
     const inTok = data.usage?.input_tokens || 0;
     const outTok = data.usage?.output_tokens || 0;
+    const cacheRead = data.usage?.cache_read_input_tokens || 0;
+    const cacheWrite = data.usage?.cache_creation_input_tokens || 0;
     const p = PRICES[model] || { in: 0, out: 0 };
-    const turnCost = (inTok * p.in + outTok * p.out) / 1e6;
-    rlog(`✓ Claude ${ms}ms · in=${inTok} out=${outTok} · ${fmtMoney(turnCost)} · ${data.stop_reason}`);
-    if (data.usage) addUsage(model, inTok, outTok);
+    // Cache math: reads = 10% of input price, writes = 125% of input price
+    const turnCost = (inTok * p.in + cacheRead * p.in * 0.1 + cacheWrite * p.in * 1.25 + outTok * p.out) / 1e6;
+    const cacheTag = cacheRead > 0 ? ` · 💾 cache HIT ${cacheRead}` : (cacheWrite > 0 ? ` · 💾 cache WRITE ${cacheWrite}` : "");
+    rlog(`✓ Claude ${ms}ms · in=${inTok} out=${outTok}${cacheTag} · ${fmtMoney(turnCost)} · ${data.stop_reason}`);
+    if (data.usage) addUsage(model, inTok + cacheRead + cacheWrite, outTok);
     const txt = (data.content || [])
       .filter((b) => b.type === "text")
       .map((b) => b.text)
@@ -312,13 +338,16 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
     };
   }
   const isVoice = mode === "voice";
-  const ctxCap = isVoice ? 1500 : 14000;
+  const wantsAnalysis = /\b(analy[sz]e|analysis|what do you think|what's your take|break (this|it) down|review|explain (this|it|the (page|article))|deep dive|dive in(to)?|insight|thoughts on|look (at|closer))\b/i.test(userText || "");
+  const ctxCap = isVoice ? (wantsAnalysis ? 6000 : 1500) : 14000;
   const siteHint = site ? `You are watching the user on ${site}${title ? ` (page title: "${title.slice(0, 80)}")` : ""}. The text below in quotes is what they see — NOT their message.\n\n` : "";
   const contextBlock = pageContext
     ? `${siteHint}Here is what is on the page:\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
     : siteHint;
   const voiceInstr = isVoice
-    ? "Reply in ONE complete short sentence (max 15 words). Snappy and finished — end with punctuation, never trail off. No lists, no markdown — read aloud.\n\n"
+    ? (wantsAnalysis
+        ? "The user asked you to analyze the page. Reply in 3-4 spoken sentences with a REAL take — insights, opinions, or connections. Don't just describe. Read aloud, no lists/markdown.\n\n"
+        : "Reply in ONE complete short sentence (max 15 words). Snappy and finished — end with punctuation, never trail off. No lists, no markdown — read aloud.\n\n")
     : "";
   const lName = langName(lang);
   const langInstr = lName
@@ -345,7 +374,7 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemPrompt || self.ROODY_SYSTEM }] },
         contents,
-        generationConfig: { temperature: 0.4, maxOutputTokens: isVoice ? 60 : 400 },
+        generationConfig: { temperature: 0.4, maxOutputTokens: isVoice ? (wantsAnalysis ? 220 : 60) : 400 },
       }),
     });
   } catch (e) {
@@ -384,13 +413,16 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
     };
   }
   const isVoice = mode === "voice";
-  const ctxCap = isVoice ? 1500 : 14000;
+  const wantsAnalysis = /\b(analy[sz]e|analysis|what do you think|what's your take|break (this|it) down|review|explain (this|it|the (page|article))|deep dive|dive in(to)?|insight|thoughts on|look (at|closer))\b/i.test(userText || "");
+  const ctxCap = isVoice ? (wantsAnalysis ? 6000 : 1500) : 14000;
   const siteHint = site ? `You are watching the user on ${site}${title ? ` (page title: "${title.slice(0, 80)}")` : ""}. The text below in quotes is what they see — NOT their message.\n\n` : "";
   const contextBlock = pageContext
     ? `${siteHint}Here is what is on the page:\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
     : siteHint;
   const voiceInstr = isVoice
-    ? "Reply in ONE complete short sentence (max 15 words). Snappy and finished — end with punctuation, never trail off. No lists, no markdown — read aloud.\n\n"
+    ? (wantsAnalysis
+        ? "The user asked you to analyze the page. Reply in 3-4 spoken sentences with a REAL take. Read aloud, no lists.\n\n"
+        : "Reply in ONE complete short sentence (max 15 words). Snappy and finished — end with punctuation, never trail off. No lists, no markdown — read aloud.\n\n")
     : "";
   const lName = langName(lang);
   const langInstr = lName
@@ -417,7 +449,7 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
       body: JSON.stringify({
         model,
         messages,
-        max_tokens: isVoice ? 60 : 400,
+        max_tokens: isVoice ? (wantsAnalysis ? 220 : 60) : 400,
         temperature: 0.5,
       }),
     });
