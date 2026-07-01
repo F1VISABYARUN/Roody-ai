@@ -11,9 +11,10 @@
 
   // Tuning knobs.
   const REACT_DEBOUNCE_MS = 1800; // how long the page must be quiet = answer finished
-  const REACT_COOLDOWN_MS = 7000; // min gap between auto-reactions
+  const REACT_COOLDOWN_MS = 15000; // min gap between auto-reactions (was 7s, too spammy)
   const MAX_CONTEXT = 30000; // cap how much text we send to Claude
-  const PROACTIVE_INTERVAL_MS = 45000; // how often proactive Roody checks in
+  const PROACTIVE_INTERVAL_MS = 180000; // 3 min — voice-first users hated 45s spam
+  const TAB_LEADER_TTL_MS = 8000; // how long a tab claims the "active speaker" role
 
   let autoChime = false; // OFF by default — Roody stays quiet unless tapped
   let lastAnswerSig = ""; // fingerprint of the latest answer we've seen
@@ -33,6 +34,43 @@
     try { console.log("[Roody]", line); } catch (_) {}
   }
   rlog(`page=${location.hostname} ua=${navigator.userAgent.slice(0, 60)}`);
+
+  // ---- Tab leader election ------------------------------------------------
+  // Only ONE tab across the whole browser can speak/react at a time. Without
+  // this, every open AI tab runs its own Roody, and they all speak on top of
+  // each other every 45s. Uses chrome.storage.local as a shared lock.
+  const TAB_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  async function canISpeak() {
+    // Only the visible/focused tab is even eligible. Background tabs stay silent.
+    if (document.hidden || document.visibilityState !== "visible") return false;
+    try {
+      const { roodyActiveTab } = await chrome.storage.local.get(["roodyActiveTab"]);
+      const now = Date.now();
+      // No active tab or stale lock → claim it
+      if (!roodyActiveTab || !roodyActiveTab.ts || now - roodyActiveTab.ts > TAB_LEADER_TTL_MS) {
+        await chrome.storage.local.set({ roodyActiveTab: { id: TAB_ID, ts: now } });
+        return true;
+      }
+      // Already the active tab → refresh the lock
+      if (roodyActiveTab.id === TAB_ID) {
+        await chrome.storage.local.set({ roodyActiveTab: { id: TAB_ID, ts: now } });
+        return true;
+      }
+      // Someone else is the leader
+      return false;
+    } catch (_) { return true; } // storage errors → be permissive
+  }
+  async function releaseLeadership() {
+    try {
+      const { roodyActiveTab } = await chrome.storage.local.get(["roodyActiveTab"]);
+      if (roodyActiveTab && roodyActiveTab.id === TAB_ID) {
+        await chrome.storage.local.set({ roodyActiveTab: null });
+      }
+    } catch (_) {}
+  }
+  // Release the lock when this tab hides or closes so others can take over.
+  document.addEventListener("visibilitychange", () => { if (document.hidden) releaseLeadership(); });
+  window.addEventListener("beforeunload", releaseLeadership);
 
   // ---- Audio helpers (turn Gemini's raw PCM into something playable) --------
   function base64ToBytes(b64) {
@@ -506,8 +544,9 @@
     "(You're sitting with the user. Glance at what they're doing and say something useful or encouraging. Maybe suggest something, point out a pattern, or just be supportive. Keep it natural and short — one sentence.)",
   ];
 
-  function reactToNewAnswer() {
+  async function reactToNewAnswer() {
     if (reacting) return;
+    if (!(await canISpeak())) return; // another tab is the active speaker
     reacting = true;
     orb.classList.add("roody-thinking");
     if (panel.style.display === "none") panel.style.display = "flex";
@@ -523,13 +562,19 @@
   }
 
   // Proactive check-in: Roody glances at what you're doing and says something
-  // useful without being asked. Only fires when auto-chime is on and the page
-  // has changed since the last check.
-  function proactiveCheckIn() {
+  // useful without being asked. Only fires when auto-chime is on, tab is visible,
+  // this tab is the leader, and the page has changed significantly.
+  async function proactiveCheckIn() {
     if (!autoChime || reacting || voiceOn) return;
     if (Date.now() - lastReactTime < REACT_COOLDOWN_MS) return;
-    const current = readPage().slice(-800);
-    if (current === lastCacheSnapshot) return;
+    if (document.hidden) return; // don't speak from background tabs
+    // Require a meaningful change — 800 chars can differ by a cursor blink
+    const current = readPage().slice(-1200);
+    if (!lastCacheSnapshot) { lastCacheSnapshot = current; return; }
+    const diffLen = Math.abs(current.length - lastCacheSnapshot.length);
+    const changedALot = diffLen > 200 || current.slice(-200) !== lastCacheSnapshot.slice(-200);
+    if (!changedALot) return;
+    if (!(await canISpeak())) return; // another tab is the active speaker
     lastCacheSnapshot = current;
 
     reacting = true;
@@ -809,17 +854,28 @@
     voiceOn = false;
     turnSession++; // any in-flight Claude/TTS callbacks will now bail
     isRoodySpeaking = false;
+    reacting = false; // release the reaction lock too
     setToggleVisual(false);
     stopSpeaking();
     stopListening();
     setMic("idle");
+    releaseLeadership(); // let other tabs take over
     const h = document.getElementById("roody-hearing");
     if (h) h.style.display = "none";
   }
 
-  toggleBtn.addEventListener("click", () => {
-    if (voiceOn) voiceTurnOff();
-    else voiceTurnOn();
+  // Debounce the toggle so rapid clicks can't double-fire voiceTurnOn while
+  // the previous one is still awaiting getUserMedia — that's the "loop" bug.
+  let toggleLock = false;
+  toggleBtn.addEventListener("click", async () => {
+    if (toggleLock) return;
+    toggleLock = true;
+    try {
+      if (voiceOn) voiceTurnOff();
+      else await voiceTurnOn();
+    } finally {
+      setTimeout(() => { toggleLock = false; }, 500);
+    }
   });
 
   // Keep the legacy stopEverything callable for other paths (auto-chime, etc.)
