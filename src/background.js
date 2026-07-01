@@ -121,7 +121,7 @@ async function askRoody({ userText, pageContext, history, mode }) {
     : "";
   // Voice turns: explicit "speak briefly" instruction prefixed to the message.
   const voiceInstr = isVoice
-    ? "Reply in ONE short spoken sentence (ideally under 25 words). No lists, no headings, no markdown — this will be read aloud.\n\n"
+    ? "Reply in 1-2 COMPLETE spoken sentences. Always finish your thought — never leave a sentence hanging mid-word. End with punctuation. No lists, no markdown — this will be read aloud.\n\n"
     : "";
   // Language instruction: if non-English, tell the brain to reply in that language.
   const lName = langName(roodyLang);
@@ -203,7 +203,23 @@ async function askRoody({ userText, pageContext, history, mode }) {
     }
     break;
   }
-  return { ok: true, text: finalText || "…" };
+  return { ok: true, text: sanitizeReply(finalText) || "…" };
+}
+
+// Catch obvious LLM truncation — replies that end mid-word or with a dangling
+// contraction. When this happens, tack on a graceful ending so the user hears
+// a complete thought instead of "Okay, we'" hanging in the air.
+function sanitizeReply(txt) {
+  if (!txt) return txt;
+  const trimmed = txt.trim();
+  // Ends properly with punctuation → looks complete
+  if (/[.!?…"'\)\]]$/.test(trimmed)) return trimmed;
+  // Ends with a contraction apostrophe or dash → truncated
+  if (/[a-z]['\-]$/i.test(trimmed) || /\b(I|we|you|it|they|he|she)$/i.test(trimmed)) {
+    return trimmed + "… let me try that again.";
+  }
+  // Otherwise just add a period so TTS reads it as a finished sentence
+  return trimmed + ".";
 }
 
 // ---- ElevenLabs voice (premium TTS — most human, sub-second) -------------
@@ -277,7 +293,7 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
     ? `Here is what I can currently see on the page (read-only):\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
     : "";
   const voiceInstr = isVoice
-    ? "Reply in ONE short spoken sentence (under 25 words). No lists, no markdown — read aloud.\n\n"
+    ? "Reply in 1-2 COMPLETE spoken sentences. Always finish your thought — never trail off mid-word. End with proper punctuation. No lists, no markdown — read aloud.\n\n"
     : "";
   const lName = langName(lang);
   const langInstr = lName
@@ -329,7 +345,7 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
     .filter(Boolean)
     .join("")
     .trim();
-  return { ok: true, text: text || "…" };
+  return { ok: true, text: sanitizeReply(text) || "…" };
 }
 
 // ---- Grok brain (xAI) — OpenAI-compatible chat API -----------------------
@@ -348,7 +364,7 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
     ? `Here is what I can currently see on the page (read-only):\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
     : "";
   const voiceInstr = isVoice
-    ? "Reply in ONE short spoken sentence (under 25 words). No lists, no markdown — read aloud.\n\n"
+    ? "Reply in 1-2 COMPLETE spoken sentences. Always finish your thought — never trail off mid-word. End with proper punctuation. No lists, no markdown — read aloud.\n\n"
     : "";
   const lName = langName(lang);
   const langInstr = lName
@@ -397,7 +413,7 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
   rlog(`✓ Grok ${ms}ms · in=${inTok} out=${outTok} · ${fmtMoney(turnCost)}`);
   if (data.usage) addUsage(model, inTok, outTok);
   const text = (data.choices?.[0]?.message?.content || "").trim();
-  return { ok: true, text: text || "…" };
+  return { ok: true, text: sanitizeReply(text) || "…" };
 }
 
 // Character voice styles — Gemini TTS responds to acting direction in the
