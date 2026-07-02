@@ -196,7 +196,7 @@
         snippet,
         ts: Date.now(),
       };
-      const { roodyMemory } = await chrome.storage.local.get(["roodyMemory"]);
+      const { roodyMemory, roodyTalkCount } = await chrome.storage.local.get(["roodyMemory", "roodyTalkCount"]);
       const mem = Array.isArray(roodyMemory) ? roodyMemory : [];
       // If we already remember this URL+title recently, just update ts
       const dupIdx = mem.findIndex((m) => m.site === entry.site && m.title === entry.title);
@@ -206,7 +206,10 @@
         mem.push(entry);
       }
       while (mem.length > 20) mem.shift(); // keep last 20 only
-      await chrome.storage.local.set({ roodyMemory: mem });
+      await chrome.storage.local.set({
+        roodyMemory: mem,
+        roodyTalkCount: (roodyTalkCount || 0) + 1, // relationship depth, made visible
+      });
     } catch (_) {}
   }
 
@@ -545,6 +548,7 @@
   // in the background: no web search, smaller context, shorter reply, etc).
   function callRoody(userText, pageContext, onText, onSpoken, mode, opts) {
     const skipHistory = opts && opts.skipHistory;
+    const noSpeak = opts && opts.noSpeak; // text bubble only — used by rituals
     let settled = false;
     const finish = (text, speakIt) => {
       if (settled) return;
@@ -557,7 +561,11 @@
           history.push({ role: "assistant", content: text });
           if (history.length > 20) history.splice(0, history.length - 20);
         }
-        speak(text, onSpoken);
+        if (noSpeak) {
+          if (onSpoken) onSpoken();
+        } else {
+          speak(text, onSpoken);
+        }
       } else if (onSpoken) {
         onSpoken();
       }
@@ -992,6 +1000,58 @@
     setMic("idle");
   }
 
+  // ---- Daily rituals (the Hook loop) ----------------------------------------
+  // Morning hello: first browser-open of the day, Roody greets you with one
+  // line referencing yesterday's notebook. Found-something: returning to a
+  // site you've worked on before, Roody SOMETIMES (30%) has an observation
+  // waiting — the variable reward. Both are text bubbles (autoplay rules
+  // block audio before the user interacts with the page).
+  const MORNING_PROMPT =
+    "(First time the user opened their browser today. Greet them like a best friend starting the day — ONE warm short line that references what they were working on recently (check your notebook). Like 'Morning! Still fighting that visa form?' Then stop. Max two sentences.)";
+  const FOUND_PROMPT =
+    "(The user just came back to a page they've worked on before. You were 'reading while they were away' — give ONE genuinely useful or interesting observation about what's on the page, casually. If something looks off, flag it. Max two sentences.)";
+
+  async function dailyRituals() {
+    try {
+      if (document.hidden) return;
+      if (orb.style.display === "none") return; // Roody is disabled
+      const today = new Date().toISOString().slice(0, 10);
+      const { roodyLastHello, roodyMemory, roodyLastFound } = await chrome.storage.local.get([
+        "roodyLastHello", "roodyMemory", "roodyLastFound",
+      ]);
+      const mem = Array.isArray(roodyMemory) ? roodyMemory : [];
+
+      // Morning hello — once per day, only if there's a notebook to reference.
+      if (roodyLastHello !== today && mem.length > 0) {
+        if (!(await canISpeak())) return;
+        await chrome.storage.local.set({ roodyLastHello: today });
+        rlog("🌅 morning hello");
+        openerSent = true; // counts as the greeting — no double-opener later
+        panel.style.display = "flex";
+        const thinking = addBubble("roody", "…");
+        callRoody(MORNING_PROMPT, recentTask() || "(nothing on screen yet)", (t) => {
+          thinking.textContent = t;
+        }, undefined, undefined, { skipHistory: true, noSpeak: true });
+        return;
+      }
+
+      // Found-something — returning to a site you've engaged Roody on before.
+      // SOMETIMES (30%), max once an hour. Variability is the point.
+      if (mem.some((m) => m.site === location.hostname) && Math.random() < 0.3) {
+        const now = Date.now();
+        if (roodyLastFound && now - roodyLastFound < 3600000) return;
+        if (!(await canISpeak())) return;
+        await chrome.storage.local.set({ roodyLastFound: now });
+        rlog("👀 found-something moment");
+        panel.style.display = "flex";
+        const thinking = addBubble("roody", "…");
+        callRoody(FOUND_PROMPT, recentTask() || "(nothing on screen yet)", (t) => {
+          thinking.textContent = t;
+        }, undefined, undefined, { skipHistory: true, noSpeak: true });
+      }
+    } catch (e) { rlog(`⚠ rituals: ${e.message}`); }
+  }
+
   // ---- Boot -----------------------------------------------------------------
   chrome.storage.local
     .get(["roodyAutoChime", "roodyGeminiKey", "roodyElevenKey", "roodyEnabled", "roodyLang"])
@@ -1005,6 +1065,8 @@
     // only to answers that appear from now on.
     lastAnswerSig = readPage().slice(-600);
     startWatching();
+    // Give the page a few seconds to settle, then run the daily rituals.
+    setTimeout(dailyRituals, 6000);
 
     // React to the master switch flipping in settings without a refresh.
     // Also live-update the warm-voice flag when either TTS key is added/cleared

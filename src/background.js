@@ -113,6 +113,12 @@ async function askRoody({ userText, pageContext, history, mode, site, title }) {
   // it decides ROUTING; the per-brain one decides reply length.)
   const asksAnalysis = /\b(analy[sz]e|analysis|what do you think|what's your take|break (this|it) down|review|explain (this|it|the (page|article))|deep dive|dive in(to)?|insight|thoughts on|look (at|closer))\b/i.test(userText || "");
   const useCheap = mode === "voice" && roodyVoiceCheapBrain !== false && !asksAnalysis;
+  // Hook-loop: when the user wraps up ("ok thanks", "cool", "bye"), Roody ends
+  // with a promise to keep watching — loading curiosity for the NEXT visit.
+  const wrapUp = /^(ok(ay)?|cool|thanks?( you)?( so much)?|got it|alright|nice|great|perfect|sounds good|bye|see (ya|you)|good ?night)[\s.!?]*$/i.test((userText || "").trim());
+  if (wrapUp) {
+    userText += "\n\n(The user is wrapping up this conversation. Reply warmly and briefly — and end with a short natural promise to keep an eye on this page and flag anything interesting, so they're curious to come back. Vary the wording; don't repeat the same promise every time.)";
+  }
   // Cheap voice brain only applies within the same provider — don't override
   // Gemini/Grok to Claude Haiku (user might not have a Claude key).
   let model = settingsModel;

@@ -93,7 +93,11 @@ profileEl.addEventListener("input", () => {
 
 // Render Roody's notebook memory
 function renderMemory() {
-  chrome.storage.local.get(["roodyMemory"]).then(({ roodyMemory }) => {
+  chrome.storage.local.get(["roodyMemory", "roodyTalkCount"]).then(({ roodyMemory, roodyTalkCount }) => {
+    const tc = roodyTalkCount || 0;
+    $("talkstats").textContent = tc > 0
+      ? `🧡 You & Roody: ${tc.toLocaleString()} conversation${tc === 1 ? "" : "s"} together`
+      : "";
     const mem = Array.isArray(roodyMemory) ? roodyMemory : [];
     if (mem.length === 0) {
       memoryBoxEl.innerHTML = "<em style='color:#8a7560'>Empty — Roody will start remembering pages when you talk to it.</em>";
