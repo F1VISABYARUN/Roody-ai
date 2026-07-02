@@ -229,7 +229,11 @@ class RoodyPanel {
 
   resolveWebviewView(view) {
     this.view = view;
-    const wv = view.webview;
+    this.wireWebview(view.webview);
+  }
+
+  wireWebview(wv) {
+    this.wv = wv;
     wv.options = {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, "media")],
@@ -241,7 +245,7 @@ class RoodyPanel {
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src ${wv.cspSource}; script-src ${wv.cspSource}; media-src blob: data:; img-src ${wv.cspSource} data:;">
+      content="default-src 'none'; style-src ${wv.cspSource}; script-src ${wv.cspSource}; media-src blob: data: mediastream:; img-src ${wv.cspSource} data:;">
 <link rel="stylesheet" href="${css}">
 </head>
 <body>
@@ -277,7 +281,7 @@ class RoodyPanel {
   }
 
   async handleAsk(text) {
-    const wv = this.view.webview;
+    const wv = this.wv;
     wv.postMessage({ type: "status", text: "thinking…" });
     const reply = await askBrain(text, this.history);
     this.history.push({ role: "user", content: text }, { role: "assistant", content: reply });
@@ -302,7 +306,21 @@ function activate(context) {
     }),
     vscode.commands.registerCommand("roody.open", () =>
       vscode.commands.executeCommand("roody.panel.focus")
-    )
+    ),
+    // Editor-tab mode: some editors deny mic permission to SIDEBAR webviews
+    // but grant it to full editor panels. If the sidebar orb says
+    // "Permission denied", try this instead.
+    vscode.commands.registerCommand("roody.openTab", () => {
+      const tab = vscode.window.createWebviewPanel(
+        "roody.tab",
+        "Roody",
+        vscode.ViewColumn.Beside,
+        { enableScripts: true, retainContextWhenHidden: true,
+          localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "media")] }
+      );
+      const session = new RoodyPanel(context);
+      session.wireWebview(tab.webview);
+    })
   );
 }
 
