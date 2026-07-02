@@ -302,18 +302,23 @@ $("clearg").addEventListener("click", () => {
 // Live cost — shows both USD and INR (approximate ₹85/$).
 const USD_TO_INR = 85;
 function showSpend() {
-  chrome.storage.local.get(["roodyUsage"]).then(({ roodyUsage }) => {
+  chrome.storage.local.get(["roodyUsage", "roodyElevenChars"]).then(({ roodyUsage, roodyElevenChars }) => {
     const u = roodyUsage || { costUSD: 0, calls: 0 };
     const usd = u.costUSD || 0;
     $("spendusd").textContent = "$" + usd.toFixed(4);
     $("spendinr").textContent = "₹" + (usd * USD_TO_INR).toFixed(2);
     $("spendcalls").textContent = u.calls ? `${u.calls} calls so far` : "";
+    const ec = roodyElevenChars || 0;
+    $("elevencredits").textContent = ec
+      ? `🔊 ElevenLabs: ~${ec.toLocaleString()} / 10,000 free credits used this month`
+      : "";
   });
 }
 showSpend();
 $("resetspend").addEventListener("click", async () => {
   await chrome.storage.local.set({
     roodyUsage: { costUSD: 0, calls: 0, inTok: 0, outTok: 0 },
+    roodyElevenChars: 0,
   });
   showSpend();
 });

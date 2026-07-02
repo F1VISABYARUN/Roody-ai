@@ -28,9 +28,10 @@ const PRICES = {
   "gemini-tts": { in: 0.5, out: 10 }, // approximate
   "gemini-stt": { in: 0.3, out: 1 }, // approximate
   "gemini-2.5-flash": { in: 0.3, out: 2.5 },
-  // ElevenLabs charges per character, not per token. We track chars in "out"
-  // slot (input chars are 0) at ~$0.30/1k chars = $300/1M for the Creator tier.
-  "elevenlabs": { in: 0, out: 300 },
+  // ElevenLabs free tier = 10k credits/month, $0 out of pocket. We track
+  // CREDITS (≈characters) separately in roodyElevenChars, NOT as dollars —
+  // counting them as money was inflating the spend meter ~4x.
+  "elevenlabs": { in: 0, out: 0 },
   "grok-3": { in: 3, out: 15 },
   "grok-3-mini": { in: 0.3, out: 0.5 },
   "grok-3-mini-fast": { in: 0.3, out: 0.5 },
@@ -649,7 +650,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       if (roodyElevenKey) {
         const r = await elevenLabsTTS(msg.payload.text);
         if (r.ok) {
-          addUsage("elevenlabs", 0, msg.payload.text.length);
+          // Track free-tier credits (≈chars), not dollars.
+          const { roodyElevenChars } = await chrome.storage.local.get(["roodyElevenChars"]);
+          await chrome.storage.local.set({ roodyElevenChars: (roodyElevenChars || 0) + msg.payload.text.length });
           return sendResponse(r);
         }
         if (!roodyGeminiKey) {
