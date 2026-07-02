@@ -622,9 +622,9 @@
     "(A new answer just appeared on the page. You're reading along with the user. React naturally in ONE short spoken sentence — like a friend looking over their shoulder. Be helpful: if something looks wrong, point it out. If it's interesting, say so. If you spot a bug, warn them. If it's a good answer, celebrate. Make a joke if the moment calls for it. Keep it to one or two sentences, spoken aloud.)";
 
   const PROACTIVE_PROMPTS = [
-    "(Check what the user is working on right now. Give them ONE useful observation — a tip, a suggestion, a heads-up about something you noticed, or just a warm check-in. Be specific to what's on screen. Don't repeat yourself. One sentence, spoken.)",
-    "(Look at what's on screen. If you see anything the user might want to know — a potential issue, a better approach, an interesting detail — mention it casually. If nothing stands out, crack a quick joke about what they're doing. One sentence, spoken.)",
-    "(You're sitting with the user. Glance at what they're doing and say something useful or encouraging. Maybe suggest something, point out a pattern, or just be supportive. Keep it natural and short — one sentence.)",
+    "(You're their best friend hanging out while they work. Glance at what's on screen and say ONE thing — a genuinely useful tip, a playful tease about what they're doing, or a quick idea they might not have thought of. Be specific to what's actually on screen. One sentence, spoken, friend-energy.)",
+    "(Best friend check-in: look at what they're doing. If something's off, warn them like a friend — 'hold up, that's gonna bite you.' If they seem stuck or idle, throw out a quick idea to unstick them. If it's going well, hype them or crack a joke. One sentence, spoken.)",
+    "(You've been quietly reading along. Say something that makes them smile OR gives them a genuinely useful thought — a connection to something they did earlier, a better approach, or just a funny observation about the situation. One sentence, spoken, never generic.)",
   ];
 
   async function reactToNewAnswer() {
@@ -727,8 +727,11 @@
   let isRoodySpeaking = false; // gates SR auto-restart
   let turnSession = 0; // bumped on Voice OFF — late Claude/TTS replies bail
   // Short interrupt words the user can say to CUT ROODY OFF while it's talking.
-  // Only these trigger barge-in — regular speech is ignored during Roody's turn.
-  const INTERRUPT_PATTERN = /^(stop|wait|pause|shush|hush|hold on|hang on|shut up|quiet|nope|no wait|cancel|nevermind)[\s.,!?]*$/i;
+  // Matches optional name prefix — "roody stop", "hey rudy wait", plus common
+  // speech-recognition mishearings of "Roody" (rory, ruby, rudi, woody, buddy).
+  const INTERRUPT_PATTERN = /^(hey |ok |okay )?(roody|rudy|rudi|rory|ruby|woody|buddy|rudey)?[\s,]*(stop|wait|pause|shush|hush|hold on|hang on|shut up|quiet|be quiet|silence|nope|no wait|cancel|nevermind|never mind|enough)[\s.,!?]*$/i;
+  // Full voice-off by voice: "roody go to sleep", "roody voice off", "bye roody".
+  const VOICE_OFF_PATTERN = /^(hey |ok |okay )?(roody|rudy|rudi|rory|ruby|woody|buddy|rudey)?[\s,]*(go to sleep|sleep now|turn off|voice off|power down|good ?night|goodbye|bye bye)[\s.,!?]*$/i;
 
   let srLang = "en-US"; // updated from settings at boot + on change
 
@@ -855,6 +858,13 @@
     if (!voiceOn) { rlog("…ignored (voiceOn=false)"); return; }
     if (!text) { rlog("…ignored (empty)"); return; }
     if (isProbablyEcho(text)) { rlog(`…ignored as ECHO of Roody's last reply: "${text}"`); return; }
+    // Full voice-off by voice — works any time, even mid-speech.
+    if (VOICE_OFF_PATTERN.test(text)) {
+      rlog(`😴 voice-off command: "${text}"`);
+      addBubble("roody", "😴 Going quiet — tap the mic when you want me back.");
+      voiceTurnOff();
+      return;
+    }
     // If Roody is currently speaking, only interrupt-words are actioned
     // (already handled at the interim level). Full sentences during Roody's
     // turn are ignored so we don't queue up a new brain call while the old
