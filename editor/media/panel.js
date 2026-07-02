@@ -227,6 +227,13 @@
       setState("idle");
       if (voiceOn) startListening();
     }
+    else if (m.type === "voiceerror") {
+      // Voice failed — text reply is already visible; show why voice went silent
+      // as a small note so the user can act (add ElevenLabs key, wait for quota).
+      bubble("roody", "🔇 voice: " + m.text);
+      setState("idle");
+      if (voiceOn) startListening();
+    }
   });
 
   setState("idle");

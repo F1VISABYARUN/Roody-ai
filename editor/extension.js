@@ -202,20 +202,33 @@ async function textToSpeech(text) {
   if (!c.geminiKey) throw new Error("No TTS available — set roody.geminiKey or roody.elevenKey.");
   const style = SIDEKICK_TTS_STYLES[c.vibe] || SIDEKICK_TTS_STYLES.normal;
   const styled = `${style} (do not say this instruction, just perform what follows):\n\n${text}`;
-  const resp = await fetch(`${GEMINI_BASE}/gemini-2.5-flash-preview-tts:generateContent`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-goog-api-key": c.geminiKey },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: styled }] }],
-      generationConfig: {
-        responseModalities: ["AUDIO"],
-        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: c.voice } } },
-      },
-    }),
+  const body = JSON.stringify({
+    contents: [{ parts: [{ text: styled }] }],
+    generationConfig: {
+      responseModalities: ["AUDIO"],
+      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: c.voice } } },
+    },
   });
-  if (!resp.ok) throw new Error(`TTS ${resp.status}: ${(await resp.text()).slice(0, 120)}`);
-  const data = await resp.json();
-  const part = (data.candidates?.[0]?.content?.parts || []).find((p) => p.inlineData);
+  // Gemini preview TTS is flaky — 429/500/503 are common. One retry after 500ms
+  // fixes ~90% of "worked once, then silent" reports.
+  async function attempt() {
+    const resp = await fetch(`${GEMINI_BASE}/gemini-2.5-flash-preview-tts:generateContent`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": c.geminiKey },
+      body,
+    });
+    if (resp.ok) return { ok: true, data: await resp.json() };
+    const txt = (await resp.text()).slice(0, 120);
+    const transient = resp.status === 429 || resp.status === 500 || resp.status === 503;
+    return { ok: false, transient, err: `TTS ${resp.status}: ${txt}` };
+  }
+  let r = await attempt();
+  if (!r.ok && r.transient) {
+    await new Promise((res) => setTimeout(res, 500));
+    r = await attempt();
+  }
+  if (!r.ok) throw new Error(r.err);
+  const part = (r.data.candidates?.[0]?.content?.parts || []).find((p) => p.inlineData);
   if (!part) throw new Error("TTS returned no audio");
   return { audioBase64: part.inlineData.data, mime: part.inlineData.mimeType };
 }
@@ -291,8 +304,9 @@ class RoodyPanel {
       const tts = await textToSpeech(reply);
       wv.postMessage({ type: "tts", b64: tts.audioBase64, mime: tts.mime });
     } catch (e) {
-      // No voice available — text reply already shown; resume listening.
-      wv.postMessage({ type: "status", text: `(voice off: ${String(e.message).slice(0, 80)})` });
+      // Voice failed — surface WHY as a visible bubble, not a silent status,
+      // so the user isn't left wondering why Roody went mute after one reply.
+      wv.postMessage({ type: "voiceerror", text: String(e.message).slice(0, 160) });
       wv.postMessage({ type: "listen" });
     }
   }
