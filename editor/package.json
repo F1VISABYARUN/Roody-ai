@@ -1,0 +1,54 @@
+{
+  "name": "roody-editor",
+  "displayName": "Roody — the AI best friend in your editor",
+  "description": "Roody lives in your sidebar, sees your code, and talks with you — real voice in, real voice out. Works in VS Code, Antigravity, and Cursor.",
+  "version": "0.1.0",
+  "publisher": "roody-ai",
+  "license": "MIT",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["AI", "Chat"],
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "roody", "title": "Roody", "icon": "media/orb.svg" }
+      ]
+    },
+    "views": {
+      "roody": [
+        { "type": "webview", "id": "roody.panel", "name": "Roody" }
+      ]
+    },
+    "commands": [
+      { "command": "roody.open", "title": "Roody: Open Panel" }
+    ],
+    "keybindings": [
+      { "command": "roody.open", "key": "ctrl+shift+r", "mac": "cmd+shift+r" }
+    ],
+    "configuration": {
+      "title": "Roody",
+      "properties": {
+        "roody.anthropicKey": { "type": "string", "default": "", "description": "Anthropic API key (Claude brain)" },
+        "roody.geminiKey": { "type": "string", "default": "", "description": "Google Gemini API key (brain option + voice + ears). Free at aistudio.google.com/apikey" },
+        "roody.xaiKey": { "type": "string", "default": "", "description": "xAI API key (Grok brain, optional)" },
+        "roody.elevenKey": { "type": "string", "default": "", "description": "ElevenLabs API key (premium voice, optional)" },
+        "roody.elevenVoice": { "type": "string", "default": "21m00Tcm4TlvDq8ikWAM", "description": "ElevenLabs voice ID" },
+        "roody.model": {
+          "type": "string",
+          "default": "claude-haiku-4-5",
+          "enum": ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-8", "gemini-2.5-flash", "grok-3-mini-fast", "grok-3"],
+          "description": "Roody's brain"
+        },
+        "roody.voice": { "type": "string", "default": "Kore", "description": "Gemini TTS voice (Kore, Aoede, Leda, Zephyr…)" },
+        "roody.vibe": {
+          "type": "string",
+          "default": "normal",
+          "enum": ["normal", "minion", "roadrunner", "coyote", "pinkpanther", "woody", "rapunzel", "snowwhite", "tom", "jerry"],
+          "description": "Character sidekick"
+        },
+        "roody.language": { "type": "string", "default": "en-US", "description": "Reply language (e.g. en-US, te-IN, hi-IN)" }
+      }
+    }
+  }
+}

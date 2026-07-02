@@ -1,0 +1,90 @@
+body {
+  font-family: var(--vscode-font-family, sans-serif);
+  color: var(--vscode-foreground);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  margin: 0;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+#orb {
+  font-size: 42px;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.15s ease, filter 0.2s ease;
+  filter: drop-shadow(0 0 6px rgba(233, 138, 60, 0.55));
+}
+#orb:hover { transform: scale(1.08); }
+#orb.listening { animation: pulse 1.2s ease-in-out infinite; filter: drop-shadow(0 0 12px rgba(80, 200, 120, 0.9)); }
+#orb.thinking { animation: pulse 0.7s ease-in-out infinite; filter: drop-shadow(0 0 10px rgba(240, 200, 60, 0.9)); }
+#orb.speaking { animation: pulse 0.9s ease-in-out infinite; filter: drop-shadow(0 0 12px rgba(233, 138, 60, 1)); }
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+
+#status {
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.75;
+  margin: 6px 0 10px;
+  min-height: 14px;
+}
+
+#log {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 2px;
+}
+
+.bubble {
+  max-width: 90%;
+  padding: 7px 11px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.bubble.roody {
+  align-self: flex-start;
+  background: var(--vscode-editorWidget-background, #2a2a2a);
+  border: 1px solid var(--vscode-widget-border, #3a3a3a);
+}
+.bubble.you {
+  align-self: flex-end;
+  background: var(--vscode-button-background, #e98a3c);
+  color: var(--vscode-button-foreground, #fff);
+}
+
+#inputrow {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+#text {
+  flex: 1;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--vscode-input-border, #3a3a3a);
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font-size: 12.5px;
+  outline: none;
+}
+#send {
+  border: none;
+  border-radius: 8px;
+  padding: 7px 12px;
+  background: var(--vscode-button-background, #e98a3c);
+  color: var(--vscode-button-foreground, #fff);
+  cursor: pointer;
+  font-size: 13px;
+}
