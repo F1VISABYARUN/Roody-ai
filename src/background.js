@@ -36,9 +36,11 @@ const PRICES = {
   "grok-3-mini": { in: 0.3, out: 0.5 },
   "grok-3-mini-fast": { in: 0.3, out: 0.5 },
 };
-async function addUsage(model, inTok, outTok) {
+async function addUsage(model, inTok, outTok, costOverride) {
   const p = PRICES[model] || { in: 0, out: 0 };
-  const cost = (inTok * p.in + outTok * p.out) / 1e6;
+  // costOverride lets callers pass the exact cache-aware cost (cache reads
+  // are 10% of input price — the naive formula would overcharge them 10x).
+  const cost = costOverride != null ? costOverride : (inTok * p.in + outTok * p.out) / 1e6;
   const { roodyUsage } = await chrome.storage.local.get(["roodyUsage"]);
   const u = roodyUsage || { costUSD: 0, calls: 0, inTok: 0, outTok: 0 };
   u.costUSD += cost;
@@ -240,7 +242,7 @@ async function askRoody({ userText, pageContext, history, mode, site, title }) {
     const turnCost = (inTok * p.in + cacheRead * p.in * 0.1 + cacheWrite * p.in * 1.25 + outTok * p.out) / 1e6;
     const cacheTag = cacheRead > 0 ? ` · 💾 cache HIT ${cacheRead}` : (cacheWrite > 0 ? ` · 💾 cache WRITE ${cacheWrite}` : "");
     rlog(`✓ Claude ${ms}ms · in=${inTok} out=${outTok}${cacheTag} · ${fmtMoney(turnCost)} · ${data.stop_reason}`);
-    if (data.usage) addUsage(model, inTok + cacheRead + cacheWrite, outTok);
+    if (data.usage) addUsage(model, inTok + cacheRead + cacheWrite, outTok, turnCost);
     const txt = (data.content || [])
       .filter((b) => b.type === "text")
       .map((b) => b.text)
