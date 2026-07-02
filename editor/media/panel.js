@@ -166,35 +166,88 @@
     return buf;
   }
 
+  // ONE long-lived AudioContext, kept alive across replies. Webviews block
+  // AudioContexts created after the user's initial gesture goes stale, so we
+  // reuse the same one. Also fall back to <audio> element if the context is
+  // suspended and can't resume.
+  let sharedCtx = null;
+  let currentSrc = null;
+  async function ensureCtx() {
+    if (!sharedCtx || sharedCtx.state === "closed") {
+      sharedCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (sharedCtx.state === "suspended") {
+      try { await sharedCtx.resume(); } catch (_) {}
+    }
+    return sharedCtx;
+  }
+
   async function playAudio(b64, mime) {
     stopSpeaking();
     setState("speaking");
+    const raw = b64ToBytes(b64);
+    const isPcm = /pcm|L16/i.test(mime || "");
+    const rateM = /rate=(\d+)/.exec(mime || "");
+    const arrayBuf = isPcm ? pcm16ToWavBytes(raw, rateM ? +rateM[1] : 24000) : raw.buffer;
     try {
-      const raw = b64ToBytes(b64);
-      const isPcm = /pcm|L16/i.test(mime || "");
-      const rateM = /rate=(\d+)/.exec(mime || "");
-      const arrayBuf = isPcm ? pcm16ToWavBytes(raw, rateM ? +rateM[1] : 24000) : raw.buffer;
-      playCtx = new AudioContext();
-      const audioBuf = await playCtx.decodeAudioData(arrayBuf);
-      const src = playCtx.createBufferSource();
+      const actx = await ensureCtx();
+      if (actx.state !== "running") {
+        // Webview refused to resume — use HTML <audio> as a fallback route.
+        return playViaAudioElement(raw, mime);
+      }
+      const audioBuf = await actx.decodeAudioData(arrayBuf.slice(0));
+      const src = actx.createBufferSource();
+      currentSrc = src;
       src.buffer = audioBuf;
-      src.connect(playCtx.destination);
+      src.connect(actx.destination);
       src.onended = () => {
-        try { playCtx.close(); } catch (_) {}
-        playCtx = null;
+        if (currentSrc === src) currentSrc = null;
         setState("idle");
-        if (voiceOn) startListening(); // hands-free loop: Roody done → your turn
+        if (voiceOn) startListening();
       };
       src.start(0);
     } catch (e) {
+      // Any AudioContext trouble → try the <audio> element route.
+      playViaAudioElement(raw, mime);
+    }
+  }
+
+  let currentAudioEl = null;
+  function playViaAudioElement(rawBytes, mime) {
+    try {
+      const blob = new Blob([rawBytes], { type: mime || "audio/mpeg" });
+      const url = URL.createObjectURL(blob);
+      const el = new Audio(url);
+      currentAudioEl = el;
+      el.onended = () => {
+        if (currentAudioEl === el) currentAudioEl = null;
+        try { URL.revokeObjectURL(url); } catch (_) {}
+        setState("idle");
+        if (voiceOn) startListening();
+      };
+      el.onerror = () => {
+        bubble("roody", "🔇 audio playback blocked by editor — click anywhere in the panel and I'll try again.");
+        setState("idle");
+      };
+      el.play().catch(() => {
+        bubble("roody", "🔇 editor blocked audio autoplay — click anywhere in the panel then send again.");
+        setState("idle");
+      });
+    } catch (e) {
+      bubble("roody", "🔇 couldn't play audio: " + e.message);
       setState("idle");
-      if (voiceOn) startListening();
     }
   }
 
   function stopSpeaking() {
-    if (playCtx) { try { playCtx.close(); } catch (_) {} playCtx = null; }
+    try { if (currentSrc) currentSrc.stop(); } catch (_) {}
+    currentSrc = null;
+    if (currentAudioEl) { try { currentAudioEl.pause(); } catch (_) {}; currentAudioEl = null; }
   }
+
+  // Any click in the panel counts as a fresh user gesture — unlocks audio
+  // in webviews that got stricter after the first reply.
+  document.body.addEventListener("click", () => { ensureCtx().catch(() => {}); }, true);
 
   // ---- Wiring ------------------------------------------------------------------
   orb.addEventListener("click", () => {
