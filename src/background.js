@@ -107,7 +107,12 @@ function buildProfileBlock(profile) {
 async function askRoody({ userText, pageContext, history, mode, site, title }) {
   const { apiKey, xaiKey, model: settingsModel } = await getSettings();
   const { roodyVoiceCheapBrain, roodyLang, roodyVibe, roodyMemory, roodyProfile } = await chrome.storage.local.get(["roodyVoiceCheapBrain", "roodyLang", "roodyVibe", "roodyMemory", "roodyProfile"]);
-  const useCheap = mode === "voice" && roodyVoiceCheapBrain !== false;
+  // Smart tiering: cheap model for everyday chatter, the user's FULL model
+  // for "analyze this" turns. Best quality where it matters, cheap where it
+  // doesn't. (Analysis detection duplicated here from the per-brain regex —
+  // it decides ROUTING; the per-brain one decides reply length.)
+  const asksAnalysis = /\b(analy[sz]e|analysis|what do you think|what's your take|break (this|it) down|review|explain (this|it|the (page|article))|deep dive|dive in(to)?|insight|thoughts on|look (at|closer))\b/i.test(userText || "");
+  const useCheap = mode === "voice" && roodyVoiceCheapBrain !== false && !asksAnalysis;
   // Cheap voice brain only applies within the same provider — don't override
   // Gemini/Grok to Claude Haiku (user might not have a Claude key).
   let model = settingsModel;
@@ -481,7 +486,7 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
 // prompt. Each sidekick gets a distinct voice personality so the same TTS
 // voice actually SOUNDS different when the character is "speaking."
 const SIDEKICK_TTS_STYLES = {
-  normal: "Say this warmly, casually, like a close friend chatting — with natural pauses and a soft, friendly tone",
+  normal: "Say this warmly and casually, like a close friend mid-conversation — natural pauses, a smile in the voice. If the text has laughter (haha, pfft) actually chuckle it; if it has 'hmm' or 'ohh', perform them as real thinking sounds, not read them as words",
   minion: "Perform this like a small, silly, hyperactive creature. Use a HIGH-PITCHED, squeaky, excited voice. Speed up on the silly gibberish words. Sound goofy, chaotic, and adorable — like a tiny yellow creature who doesn't fully understand what's happening but is VERY enthusiastic about it",
   roadrunner: "Perform this with bursts of extreme speed and energy. The 'MEEP MEEP' parts should be sharp, quick, and high-pitched. Normal parts are calm, then suddenly ZOOM — fast and energetic. Big contrast between calm narration and explosive speed moments",
   coyote: "Perform this like a dramatic narrator telling a tragic comedy. Sound sophisticated and scheming during the planning parts — then shift to deadpan disappointment when things fail. Think of a genius whose plans always backfire. Dry humor, dramatic pauses before the disaster",
