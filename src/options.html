@@ -71,6 +71,26 @@
       }
       details.adv > summary::before { content: "▸ "; }
       details.adv[open] > summary::before { content: "▾ "; }
+      .cards2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+      @media (max-width: 520px) { .cards2 { grid-template-columns: 1fr; } }
+      .pcard {
+        background: #fff; border: 1.5px solid #f0e2cf; border-radius: 16px;
+        padding: 16px; display: flex; flex-direction: column; gap: 8px;
+      }
+      .pcard.hot { border-color: #e98a3c; box-shadow: 0 2px 12px rgba(233,138,60,.12); }
+      .pcard h3 { margin: 0; font-size: 15px; color: #3a2c1e; }
+      .pcard .tag {
+        align-self: flex-start; font-size: 11px; font-weight: 700; color: #fff;
+        background: #e98a3c; border-radius: 20px; padding: 2px 10px;
+      }
+      .pcard .tag.alt { background: #6a8560; }
+      .pcard p { margin: 0; font-size: 12.5px; color: #8a7560; }
+      .getkey {
+        display: inline-block; font-size: 12.5px; font-weight: 700; color: #e98a3c;
+        text-decoration: none; border: 1.5px solid #f3ddc4; border-radius: 10px;
+        padding: 7px 12px; text-align: center;
+      }
+      .getkey:hover { background: #fff3e4; }
     </style>
   </head>
   <body>
@@ -84,18 +104,35 @@
 
     <!-- ═══════════ SIMPLE VIEW — this is all a normal user needs ═══════════ -->
 
-    <!-- INVITE CODE -->
-    <h2>🎟 Your Invite Code</h2>
-    <p style="font-size:13px;color:#8a7560;margin:0 0 8px">Paste the code you were given and you're done — Roody's brain and voice are on us.</p>
-    <div class="row">
-      <input id="invitecode" type="text" placeholder="ROODY-XXXXXXXX" autocomplete="off" />
-      <button id="clearinvite" class="ghost small" title="Remove code">✕</button>
+    <!-- POWER ROODY — the two ways in, side by side -->
+    <h2>🔑 Power Roody — pick ONE</h2>
+    <div class="cards2">
+      <div class="pcard hot">
+        <span class="tag">EASIEST</span>
+        <h3>🎟 Invite code</h3>
+        <p>Got a code from the Roody team? Paste it — brain and voice are on us. Free daily messages.</p>
+        <div class="row">
+          <input id="invitecode" type="text" placeholder="ROODY-XXXXXXXX" autocomplete="off" />
+          <button id="clearinvite" class="ghost small" title="Remove code">✕</button>
+        </div>
+        <p id="invitestatus" class="keystatus" style="margin:0"></p>
+      </div>
+      <div class="pcard">
+        <span class="tag alt">UNLIMITED &amp; FREE</span>
+        <h3>🆓 Your own Google key</h3>
+        <p>2 minutes, no card: get a free Gemini API key from Google and paste it. Unlimited daily use on Google's free tier.</p>
+        <a class="getkey" href="https://aistudio.google.com/apikey" target="_blank">Get my free key ↗</a>
+        <div class="row">
+          <input id="gkey" type="password" placeholder="AIza..." />
+          <button id="clearg" class="ghost small" title="Remove this key">✕</button>
+        </div>
+        <p id="gstatus" class="keystatus" style="margin:0"></p>
+      </div>
     </div>
-    <p id="invitestatus" class="keystatus"></p>
-    <div id="usagebox" style="display:none;background:#fff;border:1px solid #e7d4ba;border-radius:10px;padding:12px 14px;margin-top:8px">
+    <div id="usagebox" style="display:none;background:#fff;border:1.5px solid #f0e2cf;border-radius:16px;padding:14px 16px;margin-top:12px">
       <div id="usagehello" style="font-weight:700;margin-bottom:6px"></div>
       <div style="background:#f0e2cf;border-radius:8px;height:12px;overflow:hidden">
-        <div id="usagefill" style="background:linear-gradient(90deg,#ffb26b,#e98a3c);height:100%;width:0%"></div>
+        <div id="usagefill" style="background:linear-gradient(90deg,#ffb26b,#e98a3c);height:100%;width:0%;transition:width .4s"></div>
       </div>
       <div id="usagetext" style="font-size:12px;color:#8a7560;margin-top:6px"></div>
     </div>
@@ -193,13 +230,6 @@
         <button id="clearkey" class="ghost small" title="Remove this key">✕</button>
       </div>
       <p id="keystatus" class="keystatus"></p>
-
-      <label for="gkey">Google Gemini API key <span style="font-weight:400;color:#8a7560">(your own key instead of an invite code — free at aistudio.google.com/apikey)</span></label>
-      <div class="row">
-        <input id="gkey" type="password" placeholder="AIza..." />
-        <button id="clearg" class="ghost small" title="Remove this key">✕</button>
-      </div>
-      <p id="gstatus" class="keystatus"></p>
 
       <label for="xkey">xAI (Grok) API key <span style="font-weight:400;color:#8a7560">(for Grok brains — console.x.ai)</span></label>
       <div class="row">
