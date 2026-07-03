@@ -692,5 +692,39 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
-// Clicking the toolbar icon opens Roody's settings.
-chrome.action.onClicked.addListener(() => chrome.runtime.openOptionsPage());
+// ---- Click-to-summon ------------------------------------------------------
+// Roody loads NOTHING until the user clicks the toolbar icon. First click on
+// a page injects the orb; later clicks toggle it. content.js does its own
+// privacy check (blocklisted domains / password / payment fields) and refuses
+// to attach on personal pages.
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab || !tab.id) return;
+  const url = tab.url || "";
+  // Browser-internal pages can't run content scripts at all.
+  if (!/^https?:\/\//.test(url)) {
+    rlog(`⚠ can't summon on ${url.slice(0, 40) || "this page"} (browser page)`);
+    return;
+  }
+  // Already injected? Just toggle visibility.
+  try {
+    const res = await chrome.tabs.sendMessage(tab.id, { type: "roody:toggle" });
+    if (res && res.ok) return;
+  } catch (_) {
+    // No listener — not injected yet. Fall through and inject.
+  }
+  try {
+    await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ["src/content.css"] });
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["src/content.js"] });
+    rlog(`🟠 summoned on ${new URL(url).hostname}`);
+  } catch (e) {
+    rlog(`⚠ summon failed: ${e.message}`);
+  }
+});
+
+// Settings now open from the panel's gear (or right-click icon → Options).
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === "roody:openOptions") {
+    chrome.runtime.openOptionsPage();
+    sendResponse({ ok: true });
+  }
+});

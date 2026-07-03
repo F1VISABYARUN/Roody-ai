@@ -1,21 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Roody — the calm AI voice in your code",
-  "version": "0.2.0",
-  "description": "Roody is a read-only AI companion that lives on top of ChatGPT, Claude, Gemini, Perplexity, Grok, Kimi and DeepSeek. It reads, talks, finds mistakes, helps you breathe — it never edits your code.",
+  "name": "Roody — your AI voice companion",
+  "version": "0.3.0",
+  "description": "Click the icon to summon Roody on any task page — it reads along, talks with you by voice, and keeps you company. Never loads until summoned. Stays out of personal pages (banking, email, chats).",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
-    "https://chatgpt.com/*",
-    "https://chat.openai.com/*",
-    "https://claude.ai/*",
-    "https://gemini.google.com/*",
-    "https://www.perplexity.ai/*",
-    "https://perplexity.ai/*",
-    "https://x.com/*",
-    "https://grok.com/*",
-    "https://www.kimi.com/*",
-    "https://kimi.com/*",
-    "https://chat.deepseek.com/*",
     "https://api.anthropic.com/*",
     "https://generativelanguage.googleapis.com/*",
     "https://api.elevenlabs.io/*",
@@ -26,26 +15,16 @@
   },
   "options_page": "src/options.html",
   "action": {
-    "default_title": "Roody — open settings"
-  },
-  "content_scripts": [
-    {
-      "matches": [
-        "https://chatgpt.com/*",
-        "https://chat.openai.com/*",
-        "https://claude.ai/*",
-        "https://gemini.google.com/*",
-        "https://www.perplexity.ai/*",
-        "https://perplexity.ai/*",
-        "https://x.com/*",
-        "https://grok.com/*",
-        "https://www.kimi.com/*",
-        "https://kimi.com/*",
-        "https://chat.deepseek.com/*"
-      ],
-      "js": ["src/content.js"],
-      "css": ["src/content.css"],
-      "run_at": "document_idle"
+    "default_title": "Summon Roody on this page",
+    "default_icon": {
+      "16": "icons/roody16.png",
+      "48": "icons/roody48.png",
+      "128": "icons/roody128.png"
     }
-  ]
+  },
+  "icons": {
+    "16": "icons/roody16.png",
+    "48": "icons/roody48.png",
+    "128": "icons/roody128.png"
+  }
 }

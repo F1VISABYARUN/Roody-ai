@@ -6,6 +6,67 @@
   if (window.__roodyLoaded) return;
   window.__roodyLoaded = true;
 
+  // ---- Privacy shield -------------------------------------------------------
+  // Roody's hard boundary: NO personal pages. Banking, payments, email, chats,
+  // social media, government, and any page with password/card fields. Even
+  // though the user explicitly summoned us, we refuse and say why.
+  const BLOCKED_DOMAINS = [
+    // banking & payments
+    "paypal.com", "stripe.com", "venmo.com", "wise.com", "revolut.com",
+    "razorpay.com", "paytm.com", "phonepe.com", "pay.google.com", "cash.app",
+    "chase.com", "bankofamerica.com", "wellsfargo.com", "citi.com", "citibank.com",
+    "capitalone.com", "hsbc.com", "barclays.co.uk", "americanexpress.com", "discover.com",
+    "sbi.co.in", "onlinesbi.sbi", "icicibank.com", "hdfcbank.com", "axisbank.com",
+    "kotak.com", "pnbindia.in", "bankofbaroda.in", "idfcfirstbank.com",
+    // email
+    "mail.google.com", "outlook.live.com", "outlook.office.com", "outlook.office365.com",
+    "mail.yahoo.com", "proton.me", "protonmail.com", "mail.zoho.com", "tutanota.com",
+    // chat / messaging
+    "web.whatsapp.com", "web.telegram.org", "discord.com", "app.slack.com",
+    "teams.microsoft.com", "messenger.com", "chat.google.com", "web.skype.com",
+    // social media (parked for now, by design)
+    "facebook.com", "instagram.com", "twitter.com", "x.com", "tiktok.com",
+    "snapchat.com", "threads.net", "linkedin.com", "reddit.com", "pinterest.com",
+  ];
+  function domainBlocked(host) {
+    host = (host || "").toLowerCase();
+    if (BLOCKED_DOMAINS.some((d) => host === d || host.endsWith("." + d))) return true;
+    // login/auth/banking subdomains of ANY site
+    if (/^(login|signin|auth|account|accounts|secure|banking|netbanking)\./.test(host)) return true;
+    // government sites
+    if (/\.(gov|gov\.in|nic\.in|gov\.uk|mil)$/.test(host)) return true;
+    return false;
+  }
+  // Smart detection: personal-looking pages we didn't list — anything with a
+  // password field or credit-card input.
+  function pageIsSensitive() {
+    try {
+      if (document.querySelector('input[type="password"]')) return true;
+      if (document.querySelector('input[autocomplete^="cc-"], input[name*="cardnumber" i], input[id*="card-number" i], input[name*="cvv" i]')) return true;
+    } catch (_) {}
+    return false;
+  }
+  function refusalToast() {
+    const old = document.getElementById("roody-refusal");
+    if (old) old.remove();
+    const t = document.createElement("div");
+    t.id = "roody-refusal";
+    t.textContent = "🙈 Roody stays out of personal pages (logins, banking, email, chats). Summon me on a task page!";
+    t.style.cssText = "position:fixed;bottom:24px;right:24px;z-index:2147483647;background:#3a2c1e;color:#fff;padding:12px 16px;border-radius:12px;font:13px/1.4 sans-serif;max-width:300px;box-shadow:0 4px 20px rgba(0,0,0,.35)";
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 5000);
+  }
+  if (domainBlocked(location.hostname) || pageIsSensitive()) {
+    refusalToast();
+    // Stay responsive to later icon clicks — just repeat the refusal.
+    try {
+      chrome.runtime.onMessage.addListener((msg, _s, send) => {
+        if (msg?.type === "roody:toggle") { refusalToast(); send({ ok: true }); }
+      });
+    } catch (_) {}
+    return;
+  }
+
   const history = []; // running chat between the human and Roody
   const synth = window.speechSynthesis;
 
@@ -159,6 +220,9 @@
   }
 
   function readPage() {
+    // The page can BECOME sensitive after summon (SPA navigates to a login or
+    // checkout view). Re-check on every read; trip the shield if so.
+    if (pageIsSensitive()) { tripSensitive(); return ""; }
     try {
       const host = location.hostname;
       const chatSite = CHAT_CONTAINERS.find((c) => c.host === host);
@@ -268,6 +332,7 @@
         <span id="roody-title">Roody</span>
         <span id="roody-sub">read-only · one switch · conversation flows</span>
       </div>
+      <button id="roody-gear" title="Settings" style="background:none;border:none;font-size:15px;cursor:pointer;opacity:.65;padding:2px 6px">⚙</button>
       <button id="roody-close" title="Close">×</button>
     </div>
     <div id="roody-log"></div>
@@ -373,6 +438,22 @@
   panel.querySelector("#roody-close").addEventListener("click", () => {
     panel.style.display = "none";
   });
+  panel.querySelector("#roody-gear").addEventListener("click", () => {
+    try { chrome.runtime.sendMessage({ type: "roody:openOptions" }); } catch (_) {}
+  });
+
+  // Toolbar icon clicked again while we're already here → toggle everything.
+  try {
+    chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
+      if (msg?.type === "roody:toggle") {
+        const hidden = orb.style.display === "none" || panel.style.display === "none";
+        if (sensitiveTripped) { refusalToast(); }
+        else if (hidden) { orb.style.display = "flex"; panel.style.display = "flex"; }
+        else { panel.style.display = "none"; orb.style.display = "none"; stopEverything(); }
+        sendResponse({ ok: true });
+      }
+    });
+  } catch (_) {}
 
   // Auto-chime is now a settings checkbox (off by default). The header has no
   // toggle for it — keeps the UI dead simple.
@@ -1000,6 +1081,19 @@
     setMic("idle");
   }
 
+  // Page became sensitive mid-session (login/checkout appeared) — Roody
+  // packs up and leaves: voice off, mic off, UI hidden, one-line explanation.
+  let sensitiveTripped = false;
+  function tripSensitive() {
+    if (sensitiveTripped) return;
+    sensitiveTripped = true;
+    rlog("🙈 sensitive fields appeared — Roody disabling on this page");
+    try { stopEverything(); } catch (_) {}
+    orb.style.display = "none";
+    panel.style.display = "none";
+    refusalToast();
+  }
+
   // ---- Daily rituals (the Hook loop) ----------------------------------------
   // Morning hello: first browser-open of the day, Roody greets you with one
   // line referencing yesterday's notebook. Found-something: returning to a
@@ -1013,6 +1107,10 @@
 
   async function dailyRituals() {
     try {
+      // In click-to-summon mode the summon greeting already served as the
+      // hello — skip rituals to avoid double greetings and double API calls.
+      // (Kept for a future auto-appear mode.)
+      if (openerSent) return;
       if (document.hidden) return;
       if (orb.style.display === "none") return; // Roody is disabled
       const today = new Date().toISOString().slice(0, 10);
@@ -1065,7 +1163,14 @@
     // only to answers that appear from now on.
     lastAnswerSig = readPage().slice(-600);
     startWatching();
-    // Give the page a few seconds to settle, then run the daily rituals.
+    // The user just SUMMONED Roody (clicked the toolbar icon) — open the
+    // panel and greet right away. That click IS the invitation.
+    if (!openerSent) {
+      openerSent = true;
+      panel.style.display = "flex";
+      openingHello();
+    }
+    // Rituals only matter for long-lived pages after the greeting.
     setTimeout(dailyRituals, 6000);
 
     // React to the master switch flipping in settings without a refresh.
