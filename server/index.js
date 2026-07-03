@@ -244,14 +244,20 @@ const server = http.createServer(async (req, res) => {
 
   const s = statFor(code);
 
-  // Brain calls burn a credit; tts/stt ride along on a valid code.
+  // Brain calls burn a credit. TTS/STT ride along, but are capped at 3× the
+  // daily limit so a scripted client can't drain the key through voice calls.
   if (kind === "brain") {
     if (s.todayBrain >= info.limit) {
       return json(res, 402, { error: "out-of-credits", used: s.todayBrain, limit: info.limit });
     }
     s.todayBrain += 1; s.allBrain += 1;
-  } else if (kind === "tts") { s.todayTts += 1; s.allTts += 1; }
-  else if (kind === "stt") { s.todayStt += 1; s.allStt += 1; }
+  } else if (kind === "tts") {
+    if (s.todayTts >= info.limit * 3) return json(res, 402, { error: "voice-limit" });
+    s.todayTts += 1; s.allTts += 1;
+  } else if (kind === "stt") {
+    if (s.todayStt >= info.limit * 3) return json(res, 402, { error: "voice-limit" });
+    s.todayStt += 1; s.allStt += 1;
+  }
   s.lastUsed = Date.now();
 
   // Forward to Gemini with the founder's key.
