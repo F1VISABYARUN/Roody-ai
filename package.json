@@ -1,0 +1,12 @@
+{
+  "name": "roody-server",
+  "version": "1.0.0",
+  "description": "Roody credits proxy — deployed to Hostinger Node.js from this repo. (The browser extension lives in src/, the editor extension in editor/.)",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
