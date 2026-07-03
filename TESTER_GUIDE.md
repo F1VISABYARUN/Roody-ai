@@ -12,15 +12,19 @@ you. Real voice, both ways.
 4. Click **Load unpacked** → select the unzipped folder
 5. Pin Roody: puzzle-piece icon in the toolbar → 📌 next to Roody
 
-## 2. Get your free AI key (2 min, no card needed)
+## 2. Enter your invite code (30 seconds)
 
-1. Go to **aistudio.google.com/apikey** (sign in with Google)
-2. Click **Create API key** → copy it (starts with `AIza`)
-3. Right-click the Roody icon → **Options**
-4. Paste the key into the **Gemini** field (it saves automatically)
+1. Right-click the Roody icon in the toolbar → **Options**
+2. Find the **🎟 Invite Code** section at the top
+3. Paste the code you were given (looks like `ROODY-XXXXXX`) — it saves
+   automatically
 
-That one free key powers Roody's brain, ears, and voice. Free tier is plenty
-for daily use.
+That's it — the code gives you 50 free messages a day. No API keys, no
+signups.
+
+*(Power-user alternative: skip the code and paste your own free Gemini API
+key from aistudio.google.com/apikey into the Gemini field — that gives you
+unlimited use on Google's free tier.)*
 
 ## 3. Summon Roody (30 sec)
 
