@@ -188,7 +188,7 @@ async function askRoody({ userText, pageContext, history, mode, site, title }) {
   const voiceInstr = isVoice
     ? (wantsAnalysis
         ? "The user asked you to analyze/think about the page. Reply in 3-4 spoken sentences with a REAL take — insights, connections, opinions, or what stands out. Don't just describe what's on the page; give your view. End with proper punctuation. No lists, no markdown — read aloud.\n\n"
-        : "Reply in ONE complete short sentence (max 15 words). Snappy and finished — end with punctuation, never trail off. No lists, no markdown — read aloud.\n\n")
+        : "Reply in ONE complete warm sentence, roughly 10-20 words. NEVER answer with just one or two words — even a simple answer gets a full friendly sentence. End with punctuation. No lists, no markdown — read aloud.\n\n")
     : "";
   // Language instruction: if non-English, tell the brain to reply in that language.
   const lName = langName(roodyLang);
@@ -228,7 +228,7 @@ async function askRoody({ userText, pageContext, history, mode, site, title }) {
         },
         body: JSON.stringify({
           model,
-          max_tokens: isVoice ? (wantsAnalysis ? 220 : 60) : 400,
+          max_tokens: isVoice ? (wantsAnalysis ? 220 : 90) : 400,
           temperature: 0.4,
           // Prompt caching: mark the stable persona+profile as ephemeral so
           // Anthropic caches it for 5 min. Memory (dynamic) stays uncached in
@@ -403,7 +403,7 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
   const voiceInstr = isVoice
     ? (wantsAnalysis
         ? "The user asked you to analyze the page. Reply in 3-4 spoken sentences with a REAL take — insights, opinions, or connections. Don't just describe. Read aloud, no lists/markdown.\n\n"
-        : "Reply in ONE complete short sentence (max 15 words). Snappy and finished — end with punctuation, never trail off. No lists, no markdown — read aloud.\n\n")
+        : "Reply in ONE complete warm sentence, roughly 10-20 words. NEVER answer with just one or two words — even a simple answer gets a full friendly sentence. End with punctuation. No lists, no markdown — read aloud.\n\n")
     : "";
   const lName = langName(lang);
   const langInstr = lName
@@ -424,7 +424,14 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
     routed = await geminiFetch(model, {
       systemInstruction: { parts: [{ text: systemPrompt || self.ROODY_SYSTEM }] },
       contents,
-      generationConfig: { temperature: 0.4, maxOutputTokens: isVoice ? (wantsAnalysis ? 220 : 60) : 400 },
+      // thinkingBudget 0: Gemini 2.5 Flash is a thinking model — without this
+      // it burns the tiny voice-token budget on invisible reasoning and then
+      // replies "Oh." with the 2 tokens it has left.
+      generationConfig: {
+        temperature: 0.4,
+        maxOutputTokens: isVoice ? (wantsAnalysis ? 300 : 120) : 400,
+        thinkingConfig: { thinkingBudget: 0 },
+      },
     }, "brain");
   } catch (e) {
     return { ok: false, error: `Couldn't reach Gemini. (${e.message})` };
@@ -486,7 +493,7 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
   const voiceInstr = isVoice
     ? (wantsAnalysis
         ? "The user asked you to analyze the page. Reply in 3-4 spoken sentences with a REAL take. Read aloud, no lists.\n\n"
-        : "Reply in ONE complete short sentence (max 15 words). Snappy and finished — end with punctuation, never trail off. No lists, no markdown — read aloud.\n\n")
+        : "Reply in ONE complete warm sentence, roughly 10-20 words. NEVER answer with just one or two words — even a simple answer gets a full friendly sentence. End with punctuation. No lists, no markdown — read aloud.\n\n")
     : "";
   const lName = langName(lang);
   const langInstr = lName
@@ -513,7 +520,7 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
       body: JSON.stringify({
         model,
         messages,
-        max_tokens: isVoice ? (wantsAnalysis ? 220 : 60) : 400,
+        max_tokens: isVoice ? (wantsAnalysis ? 220 : 90) : 400,
         temperature: 0.5,
       }),
     });
@@ -668,6 +675,7 @@ async function geminiSTT({ audioBase64, mime }) {
           ],
         },
       ],
+      generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
     }, "stt");
   } catch (e) {
     return { ok: false, error: `stt-network ${e.message}` };
@@ -750,7 +758,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           contents: [{ parts: [{ text:
             `Summarize this conversation in ONE line (max 22 words), past tense, third person, format: what they worked on + where it left off. No quotes, no preamble.\n\n${transcript.slice(0, 3000)}`
           } ] }],
-          generationConfig: { temperature: 0.2, maxOutputTokens: 60 },
+          generationConfig: { temperature: 0.2, maxOutputTokens: 60, thinkingConfig: { thinkingBudget: 0 } },
         }, "brain");
         if (!routed || !routed.resp.ok) return sendResponse({ ok: false });
         const data = await routed.resp.json();
