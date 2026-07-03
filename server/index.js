@@ -50,8 +50,24 @@ function readBody(req) {
 const server = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") { res.writeHead(200, CORS); return res.end(); }
 
-  // Health check — open this URL in a browser to see the proxy is alive.
   if (req.method === "GET") {
+    // Public pages served straight from the repo (the app deploys with it):
+    // /privacy → the policy URL the Chrome Web Store listing requires.
+    if (req.url === "/privacy" || req.url === "/privacy.html") {
+      try {
+        const html = require("fs").readFileSync(require("path").join(__dirname, "..", "site", "privacy.html"));
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        return res.end(html);
+      } catch (_) { /* fall through to health check */ }
+    }
+    if (req.url === "/roody" || req.url === "/index.html") {
+      try {
+        const html = require("fs").readFileSync(require("path").join(__dirname, "..", "site", "index.html"));
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        return res.end(html);
+      } catch (_) { /* fall through */ }
+    }
+    // Health check — open the root URL to see the proxy is alive.
     return json(res, 200, {
       ok: true,
       service: "roody-proxy",
