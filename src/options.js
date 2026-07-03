@@ -84,7 +84,41 @@ chrome.storage.local
     if (s.roodyInviteCode) inviteEl.value = s.roodyInviteCode;
     if (s.roodyProxyUrl) proxyUrlEl.value = s.roodyProxyUrl;
     showKeyStatus($("invitestatus"), !!s.roodyInviteCode);
+    showUsage(); // values just arrived — paint the usage bar now
   });
+
+// Keep in sync with ROODY_PROXY_URL in background.js.
+const DEFAULT_PROXY = "https://midnightblue-wolf-859857.hostingersite.com/";
+
+// User usage dashboard — "You've used 12 of 50 free messages today".
+async function showUsage() {
+  const code = (inviteEl.value || "").trim();
+  const box = $("usagebox");
+  if (!code) { box.style.display = "none"; return; }
+  try {
+    const base = ((proxyUrlEl.value || "").trim() || DEFAULT_PROXY).replace(/\/+$/, "");
+    const r = await fetch(`${base}/me?code=${encodeURIComponent(code)}`);
+    const me = await r.json();
+    if (!me.ok) {
+      box.style.display = "block";
+      $("usagehello").textContent = "⚠ This code isn't active";
+      $("usagefill").style.width = "0%";
+      $("usagetext").textContent = "Check the code, or ask the Roody team for a fresh one.";
+      return;
+    }
+    box.style.display = "block";
+    $("usagehello").textContent = me.name ? `Hi ${me.name}! 🟠` : "Your Roody plan 🟠";
+    const pct = Math.min(100, Math.round((me.used / me.limit) * 100));
+    $("usagefill").style.width = pct + "%";
+    $("usagetext").textContent =
+      `${me.used} of ${me.limit} free messages used today · refills at midnight UTC · ${me.allTime.toLocaleString()} messages all-time`;
+  } catch (_) {
+    box.style.display = "none"; // offline / proxy unreachable — stay quiet
+  }
+}
+showUsage();
+setInterval(showUsage, 20000);
+inviteEl.addEventListener("blur", () => setTimeout(showUsage, 300));
 
 // Invite code + proxy URL — auto-save on blur like the key fields.
 autoSaveKey(inviteEl, "roodyInviteCode", $("invitestatus"));
@@ -122,9 +156,14 @@ function renderMemory() {
     }
     memoryBoxEl.innerHTML = mem.slice().reverse().map((m) => {
       const when = m.ts ? new Date(m.ts).toLocaleString() : "";
+      // A session recap reads like a diary line — show it instead of the raw
+      // page snippet when we have one.
+      const gist = m.summary
+        ? `<div style="color:#3a2c1e;font-size:12.5px;margin-top:2px">💬 ${escapeHtml(m.summary)}</div>`
+        : `<div style="color:#6b4a2b;font-size:12px;margin-top:2px">${escapeHtml((m.snippet || "").slice(0, 150))}</div>`;
       return `<div style="padding:6px 0;border-bottom:1px solid #f0e2cf">
         <div style="font-weight:600">${escapeHtml(m.site)} · <span style="color:#8a7560;font-weight:400">${escapeHtml((m.title || "").slice(0, 60))}</span></div>
-        <div style="color:#6b4a2b;font-size:12px;margin-top:2px">${escapeHtml((m.snippet || "").slice(0, 150))}</div>
+        ${gist}
         <div style="color:#a89880;font-size:11px;margin-top:2px">${when}</div>
       </div>`;
     }).join("");

@@ -91,9 +91,12 @@ function buildMemoryBlock(memory) {
   const recent = memory.slice(-5);
   const lines = recent.map((m) => {
     const when = m.ts ? new Date(m.ts).toLocaleTimeString() : "";
-    return `- [${when}] ${m.site} · "${m.title}" — ${(m.snippet || "").slice(0, 120)}`;
+    // A session recap ("what we worked on + where it left off") beats a raw
+    // page snippet — use it when we have one.
+    const gist = m.summary ? `RECAP: ${m.summary}` : (m.snippet || "").slice(0, 120);
+    return `- [${when}] ${m.site} · "${m.title}" — ${gist}`;
   });
-  return `\nYour running notebook of the user's recent activity (only pages where they engaged with you):\n${lines.join("\n")}\n\n`;
+  return `\nYour running notebook of the user's recent activity (only pages where they engaged with you). Use RECAP lines to pick threads back up naturally:\n${lines.join("\n")}\n\n`;
 }
 
 // User's own "about me" — a small text they can set in Settings so Roody
@@ -704,6 +707,46 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg?.type === "roody:stt") {
     geminiSTT(msg.payload).then(sendResponse);
+    return true;
+  }
+  // Session recap — the "never lose the thread" feature. When a conversation
+  // ends, distill it into one line and remember it in the notebook, so the
+  // next summon can pick the thread back up ("last time we fixed X…").
+  if (msg?.type === "roody:recap") {
+    (async () => {
+      try {
+        const { history, site, title } = msg.payload || {};
+        if (!Array.isArray(history) || history.length < 2) return sendResponse({ ok: false });
+        const transcript = history
+          .map((m) => `${m.role === "assistant" ? "Roody" : "User"}: ${String(m.content).slice(0, 200)}`)
+          .join("\n");
+        const routed = await geminiFetch("gemini-2.5-flash", {
+          contents: [{ parts: [{ text:
+            `Summarize this conversation in ONE line (max 22 words), past tense, third person, format: what they worked on + where it left off. No quotes, no preamble.\n\n${transcript.slice(0, 3000)}`
+          } ] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 60 },
+        }, "brain");
+        if (!routed || !routed.resp.ok) return sendResponse({ ok: false });
+        const data = await routed.resp.json();
+        const recap = (data?.candidates?.[0]?.content?.parts || [])
+          .map((p) => p.text).filter(Boolean).join("").trim();
+        if (!recap) return sendResponse({ ok: false });
+        // Attach the recap to the notebook entry for this page.
+        const { roodyMemory } = await chrome.storage.local.get(["roodyMemory"]);
+        const mem = Array.isArray(roodyMemory) ? roodyMemory : [];
+        const idx = mem.findIndex((m) => m.site === site && m.title === (title || "").slice(0, 100));
+        const entry = idx >= 0 ? mem[idx] : { site, title: (title || "").slice(0, 100), snippet: "", ts: Date.now() };
+        entry.summary = recap.slice(0, 200);
+        entry.ts = Date.now();
+        if (idx >= 0) mem[idx] = entry; else mem.push(entry);
+        while (mem.length > 20) mem.shift();
+        await chrome.storage.local.set({ roodyMemory: mem });
+        rlog(`📝 session recap saved: "${recap.slice(0, 60)}…"`);
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
     return true;
   }
   // Content script can post a log line through us so everything lands in one place.

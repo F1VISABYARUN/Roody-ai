@@ -435,8 +435,24 @@
     const thinking = addBubble("roody", "…");
     callRoody(OPENER_PROMPT, recent, (t) => (thinking.textContent = t));
   }
+  // Session recap — when a conversation wraps, ask the background to distill
+  // it into one line for the notebook ("what we did + where we left off").
+  // Fires at most once per new material, and only after a real exchange.
+  let lastRecapLen = 0;
+  function maybeRecap() {
+    if (history.length < 2 || history.length === lastRecapLen) return;
+    lastRecapLen = history.length;
+    try {
+      chrome.runtime.sendMessage({
+        type: "roody:recap",
+        payload: { history: history.slice(-8), site: location.hostname, title: document.title },
+      });
+    } catch (_) {}
+  }
+
   panel.querySelector("#roody-close").addEventListener("click", () => {
     panel.style.display = "none";
+    maybeRecap();
   });
   panel.querySelector("#roody-gear").addEventListener("click", () => {
     try { chrome.runtime.sendMessage({ type: "roody:openOptions" }); } catch (_) {}
@@ -449,7 +465,7 @@
         const hidden = orb.style.display === "none" || panel.style.display === "none";
         if (sensitiveTripped) { refusalToast(); }
         else if (hidden) { orb.style.display = "flex"; panel.style.display = "flex"; }
-        else { panel.style.display = "none"; orb.style.display = "none"; stopEverything(); }
+        else { panel.style.display = "none"; orb.style.display = "none"; stopEverything(); maybeRecap(); }
         sendResponse({ ok: true });
       }
     });
@@ -1056,6 +1072,7 @@
     stopListening();
     setMic("idle");
     releaseLeadership(); // let other tabs take over
+    maybeRecap(); // conversation over → remember what we did
     const h = document.getElementById("roody-hearing");
     if (h) h.style.display = "none";
   }
