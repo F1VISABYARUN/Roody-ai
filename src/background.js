@@ -340,9 +340,11 @@ async function elevenLabsTTS(text) {
 // ---- Gemini voice (Roody's mouth and ears) --------------------------------
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-// Founder's credits proxy (Supabase Edge Function). Users with an invite code
-// but no own Gemini key are routed through here — the real key lives on the
-// server. Set this once after deploying backend/ (or override in Settings).
+// Founder's credits proxy. Users with an invite code but no own Gemini key
+// are routed through here — the real key lives on the server. Deploy either
+// backend-php/ (Hostinger) or backend/ (Supabase), then set the URL, e.g.
+//   "https://yourdomain.com/roody-proxy.php"
+// (Users can override in Settings → Invite Code → Advanced.)
 const ROODY_PROXY_URL = "";
 
 // Gemini router: own key → straight to Google. No key but invite code →
