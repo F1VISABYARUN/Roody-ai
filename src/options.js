@@ -19,6 +19,8 @@ const statusEl = $("status");
 const profileEl = $("profile");
 const profileCountEl = $("profilecount");
 const memoryBoxEl = $("memorybox");
+const inviteEl = $("invitecode");
+const proxyUrlEl = $("proxyurl");
 
 const VIBE_PREVIEWS = {
   normal: "Just Roody — warm, witty, no interruptions.",
@@ -43,7 +45,7 @@ chrome.storage.local
   .get([
     "roodyApiKey", "roodyModel", "roodyGeminiKey", "roodyXaiKey", "roodyElevenKey", "roodyElevenVoice",
     "roodyVoice", "roodyLang", "roodyVibe", "roodyWebSearch", "roodyEnabled", "roodyAutoChime", "roodyVoiceCheapBrain",
-    "roodyProfile",
+    "roodyProfile", "roodyInviteCode", "roodyProxyUrl",
   ])
   .then((s) => {
     if (s.roodyApiKey) keyEl.value = s.roodyApiKey;
@@ -79,7 +81,22 @@ chrome.storage.local
     showKeyStatus($("estatus"), !!s.roodyElevenKey);
     if (s.roodyProfile) profileEl.value = s.roodyProfile;
     profileCountEl.textContent = (profileEl.value || "").length;
+    if (s.roodyInviteCode) inviteEl.value = s.roodyInviteCode;
+    if (s.roodyProxyUrl) proxyUrlEl.value = s.roodyProxyUrl;
+    showKeyStatus($("invitestatus"), !!s.roodyInviteCode);
   });
+
+// Invite code + proxy URL — auto-save on blur like the key fields.
+autoSaveKey(inviteEl, "roodyInviteCode", $("invitestatus"));
+proxyUrlEl.addEventListener("blur", () => {
+  chrome.storage.local.set({ roodyProxyUrl: proxyUrlEl.value.trim() });
+});
+$("clearinvite").addEventListener("click", () => {
+  if (!confirm("Remove the invite code?")) return;
+  inviteEl.value = "";
+  chrome.storage.local.set({ roodyInviteCode: "" });
+  showKeyStatus($("invitestatus"), false);
+});
 
 // Auto-save profile as user types (debounced 400ms)
 let profileSaveTimer = null;

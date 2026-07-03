@@ -164,7 +164,20 @@
       Adam, Rachel-clone, etc. via personal voice slots.)
     </div>
 
-    <label for="gkey">Google Gemini API key <span style="font-weight:400;color:#8a7560">(optional — fallback voice; also powers Gemini brain if selected above)</span></label>
+    <!-- INVITE CODE — the no-keys-needed path -->
+    <h2>🎟 Invite Code</h2>
+    <p style="font-size:13px;color:#8a7560;margin:0 0 8px">Got a Roody invite code? Paste it here and you're done — no API keys needed. Free daily messages, courtesy of the Roody team.</p>
+    <div class="row">
+      <input id="invitecode" type="text" placeholder="ROODY-XXXXXXXX" autocomplete="off" />
+      <button id="clearinvite" class="ghost small" title="Remove code">✕</button>
+    </div>
+    <p id="invitestatus" class="keystatus"></p>
+    <details style="margin-top:6px">
+      <summary style="font-size:12px;color:#8a7560;cursor:pointer">Advanced: proxy URL</summary>
+      <input id="proxyurl" type="text" placeholder="https://YOURPROJECT.supabase.co/functions/v1/roody-proxy" style="margin-top:6px;font-size:12px" />
+    </details>
+
+    <label for="gkey">Google Gemini API key <span style="font-weight:400;color:#8a7560">(optional — your own key instead of an invite code; free at aistudio.google.com/apikey)</span></label>
     <div class="row">
       <input id="gkey" type="password" placeholder="AIza..." />
       <button id="clearg" class="ghost small" title="Remove this key">✕</button>

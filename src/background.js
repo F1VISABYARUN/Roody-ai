@@ -340,17 +340,43 @@ async function elevenLabsTTS(text) {
 // ---- Gemini voice (Roody's mouth and ears) --------------------------------
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
+// Founder's credits proxy (Supabase Edge Function). Users with an invite code
+// but no own Gemini key are routed through here — the real key lives on the
+// server. Set this once after deploying backend/ (or override in Settings).
+const ROODY_PROXY_URL = "";
+
+// Gemini router: own key → straight to Google. No key but invite code →
+// through the founder's proxy (kind: "brain" burns a credit, "tts"/"stt"
+// ride along). Returns { resp, via } or null when there's no way through.
+async function geminiFetch(model, bodyObj, kind) {
+  const { roodyGeminiKey, roodyInviteCode, roodyProxyUrl } = await chrome.storage.local.get([
+    "roodyGeminiKey", "roodyInviteCode", "roodyProxyUrl",
+  ]);
+  if (roodyGeminiKey) {
+    const resp = await fetch(`${GEMINI_BASE}/${model}:generateContent`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": roodyGeminiKey },
+      body: JSON.stringify(bodyObj),
+    });
+    return { resp, via: "own" };
+  }
+  const proxy = ((roodyProxyUrl || ROODY_PROXY_URL) || "").trim();
+  const code = (roodyInviteCode || "").trim();
+  if (code && proxy) {
+    const resp = await fetch(proxy, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code, kind, model, body: bodyObj }),
+    });
+    return { resp, via: "proxy" };
+  }
+  return null;
+}
+const OUT_OF_CREDITS_MSG = "You've used today's free Roody messages — they refill tomorrow! 🌅 (Or add your own free Gemini key in Settings for unlimited.)";
+
 // Alternate brain — Gemini Flash, ~10x cheaper than Sonnet. Same persona,
 // same page context, same chat history shape.
 async function askGeminiBrain({ userText, pageContext, history, model, mode, lang, systemPrompt, site, title }) {
-  const { roodyGeminiKey } = await chrome.storage.local.get(["roodyGeminiKey"]);
-  if (!roodyGeminiKey) {
-    return {
-      ok: false,
-      error:
-        "Gemini brain selected but no Gemini key — open Roody's settings and paste one (free at aistudio.google.com/apikey).",
-    };
-  }
   const isVoice = mode === "voice";
   const wantsAnalysis = /\b(analy[sz]e|analysis|what do you think|what's your take|break (this|it) down|review|explain (this|it|the (page|article))|deep dive|dive in(to)?|insight|thoughts on|look (at|closer))\b/i.test(userText || "");
   const ctxCap = isVoice ? (wantsAnalysis ? 6000 : 1500) : 14000;
@@ -377,22 +403,29 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
     { role: "user", parts: [{ text: langInstr + voiceInstr + contextBlock + userText }] },
   ];
 
-  let resp;
+  let routed;
   try {
-    resp = await fetch(`${GEMINI_BASE}/${model}:generateContent`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": roodyGeminiKey,
-      },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt || self.ROODY_SYSTEM }] },
-        contents,
-        generationConfig: { temperature: 0.4, maxOutputTokens: isVoice ? (wantsAnalysis ? 220 : 60) : 400 },
-      }),
-    });
+    routed = await geminiFetch(model, {
+      systemInstruction: { parts: [{ text: systemPrompt || self.ROODY_SYSTEM }] },
+      contents,
+      generationConfig: { temperature: 0.4, maxOutputTokens: isVoice ? (wantsAnalysis ? 220 : 60) : 400 },
+    }, "brain");
   } catch (e) {
     return { ok: false, error: `Couldn't reach Gemini. (${e.message})` };
+  }
+  if (!routed) {
+    return {
+      ok: false,
+      error:
+        "Gemini brain selected but no key or invite code — open Roody's settings and paste a free Gemini key (aistudio.google.com/apikey) or your invite code.",
+    };
+  }
+  const resp = routed.resp;
+  if (resp.status === 402) {
+    return { ok: false, error: OUT_OF_CREDITS_MSG };
+  }
+  if (resp.status === 403 && routed.via === "proxy") {
+    return { ok: false, error: "That invite code isn't active — check it in Settings or ask for a new one." };
   }
   if (!resp.ok) {
     return {
@@ -401,7 +434,8 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
     };
   }
   const data = await resp.json();
-  if (data.usageMetadata) {
+  // Meter only what the USER pays for — proxied calls are on the founder.
+  if (data.usageMetadata && routed.via === "own") {
     addUsage(
       "gemini-2.5-flash",
       data.usageMetadata.promptTokenCount || 0,
@@ -521,19 +555,14 @@ const SIDEKICK_ELEVEN_SETTINGS = {
 
 // Text -> speech. Returns base64 PCM (signed 16-bit, mono) + its mime.
 async function geminiTTS(text) {
-  const { roodyGeminiKey, roodyVoice, roodyVibe } = await chrome.storage.local.get([
-    "roodyGeminiKey",
-    "roodyVoice",
-    "roodyVibe",
-  ]);
-  if (!roodyGeminiKey) { rlog("⚠ TTS skipped: no Gemini key → robotic browser voice"); return { ok: false, error: "no-gemini-key" }; }
+  const { roodyVoice, roodyVibe } = await chrome.storage.local.get(["roodyVoice", "roodyVibe"]);
   const vibe = roodyVibe || "normal";
   const t0 = performance.now();
   rlog(`→ Gemini TTS (${text.length} chars, voice=${roodyVoice || "Kore"}, vibe=${vibe})`);
 
   const styleDirective = SIDEKICK_TTS_STYLES[vibe] || SIDEKICK_TTS_STYLES.normal;
   const styled = `${styleDirective} (do not say this instruction, just perform what follows):\n\n${text}`;
-  const body = JSON.stringify({
+  const bodyObj = {
     contents: [{ parts: [{ text: styled }] }],
     generationConfig: {
       responseModalities: ["AUDIO"],
@@ -543,25 +572,23 @@ async function geminiTTS(text) {
         },
       },
     },
-  });
+  };
 
   // One attempt + one retry on 500/503/429 — Gemini TTS is flaky under load.
   async function attempt(n) {
-    let resp;
+    let routed;
     try {
-      resp = await fetch(
-        `${GEMINI_BASE}/gemini-2.5-flash-preview-tts:generateContent`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-goog-api-key": roodyGeminiKey },
-          body,
-        }
-      );
+      routed = await geminiFetch("gemini-2.5-flash-preview-tts", bodyObj, "tts");
     } catch (e) {
       rlog(`❌ TTS network${n > 1 ? " (retry)" : ""}: ${e.message}`);
       return { transient: true, error: `tts-network ${e.message}` };
     }
-    if (resp.ok) return { resp };
+    if (!routed) {
+      rlog("⚠ TTS skipped: no Gemini key or invite code → robotic browser voice");
+      return { transient: false, error: "no-gemini-key" };
+    }
+    const resp = routed.resp;
+    if (resp.ok) return { resp, via: routed.via };
     const txt = (await resp.text()).slice(0, 160);
     const transient = resp.status === 500 || resp.status === 503 || resp.status === 429;
     rlog(`❌ TTS ${resp.status}${n > 1 ? " (retry)" : ""}: ${txt}`);
@@ -581,7 +608,7 @@ async function geminiTTS(text) {
   const resp = r.resp;
   const data = await resp.json();
   const ms = Math.round(performance.now() - t0);
-  if (data.usageMetadata) {
+  if (data.usageMetadata && r.via === "own") {
     addUsage(
       "gemini-tts",
       data.usageMetadata.promptTokenCount || 0,
@@ -598,38 +625,30 @@ async function geminiTTS(text) {
 
 // Speech -> text. Takes base64 audio + its mime, returns the transcript.
 async function geminiSTT({ audioBase64, mime }) {
-  const { roodyGeminiKey } = await chrome.storage.local.get(["roodyGeminiKey"]);
-  if (!roodyGeminiKey) return { ok: false, error: "no-gemini-key" };
-
-  let resp;
+  let routed;
   try {
-    resp = await fetch(`${GEMINI_BASE}/gemini-2.5-flash:generateContent`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": roodyGeminiKey,
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: "Transcribe this audio to plain text. Return ONLY the exact words spoken — no commentary, no quotes.",
-              },
-              { inlineData: { mimeType: mime, data: audioBase64 } },
-            ],
-          },
-        ],
-      }),
-    });
+    routed = await geminiFetch("gemini-2.5-flash", {
+      contents: [
+        {
+          parts: [
+            {
+              text: "Transcribe this audio to plain text. Return ONLY the exact words spoken — no commentary, no quotes.",
+            },
+            { inlineData: { mimeType: mime, data: audioBase64 } },
+          ],
+        },
+      ],
+    }, "stt");
   } catch (e) {
     return { ok: false, error: `stt-network ${e.message}` };
   }
+  if (!routed) return { ok: false, error: "no-gemini-key" };
+  const resp = routed.resp;
   if (!resp.ok) {
     return { ok: false, error: `stt ${resp.status}` };
   }
   const data = await resp.json();
-  if (data.usageMetadata) {
+  if (data.usageMetadata && routed.via === "own") {
     addUsage(
       "gemini-stt",
       data.usageMetadata.promptTokenCount || 0,
@@ -655,11 +674,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     // key is set). Otherwise surface the ElevenLabs error so the user can see
     // what's wrong instead of silently getting the robotic browser voice.
     (async () => {
-      const { roodyElevenKey, roodyGeminiKey } = await chrome.storage.local.get([
+      const { roodyElevenKey, roodyGeminiKey, roodyInviteCode } = await chrome.storage.local.get([
         "roodyElevenKey",
         "roodyGeminiKey",
+        "roodyInviteCode",
       ]);
-      rlog(`TTS request: eleven=${roodyElevenKey ? "yes" : "no"} gemini=${roodyGeminiKey ? "yes" : "no"}`);
+      const geminiAvailable = !!(roodyGeminiKey || roodyInviteCode);
+      rlog(`TTS request: eleven=${roodyElevenKey ? "yes" : "no"} gemini=${geminiAvailable ? "yes" : "no"}`);
       if (roodyElevenKey) {
         const r = await elevenLabsTTS(msg.payload.text);
         if (r.ok) {
@@ -668,7 +689,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           await chrome.storage.local.set({ roodyElevenChars: (roodyElevenChars || 0) + msg.payload.text.length });
           return sendResponse(r);
         }
-        if (!roodyGeminiKey) {
+        if (!geminiAvailable) {
           // No backup possible — return the real ElevenLabs error so the user
           // sees it in the bubble instead of silently getting robotic voice.
           rlog(`⚠ ElevenLabs failed and no Gemini backup: ${r.error}`);

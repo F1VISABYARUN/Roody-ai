@@ -1152,11 +1152,11 @@
 
   // ---- Boot -----------------------------------------------------------------
   chrome.storage.local
-    .get(["roodyAutoChime", "roodyGeminiKey", "roodyElevenKey", "roodyEnabled", "roodyLang"])
+    .get(["roodyAutoChime", "roodyGeminiKey", "roodyElevenKey", "roodyInviteCode", "roodyEnabled", "roodyLang"])
     .then((s) => {
       if (typeof s.roodyAutoChime === "boolean") autoChime = s.roodyAutoChime;
       if (s.roodyLang) srLang = s.roodyLang;
-      geminiVoice = !!(s.roodyElevenKey || s.roodyGeminiKey);
+      geminiVoice = !!(s.roodyElevenKey || s.roodyGeminiKey || s.roodyInviteCode);
       applyEnabled(s.roodyEnabled !== false); // default on
       reflectListenState();
     // Don't react to whatever is already on the page when we load —
@@ -1179,12 +1179,12 @@
     // voice forever (the boot-time read of geminiVoice never re-runs).
     chrome.storage.onChanged.addListener((changes) => {
       if (changes.roodyEnabled) applyEnabled(changes.roodyEnabled.newValue !== false);
-      if (changes.roodyElevenKey || changes.roodyGeminiKey) {
+      if (changes.roodyElevenKey || changes.roodyGeminiKey || changes.roodyInviteCode) {
         chrome.storage.local
-          .get(["roodyElevenKey", "roodyGeminiKey"])
-          .then(({ roodyElevenKey, roodyGeminiKey }) => {
+          .get(["roodyElevenKey", "roodyGeminiKey", "roodyInviteCode"])
+          .then(({ roodyElevenKey, roodyGeminiKey, roodyInviteCode }) => {
             const before = geminiVoice;
-            geminiVoice = !!(roodyElevenKey || roodyGeminiKey);
+            geminiVoice = !!(roodyElevenKey || roodyGeminiKey || roodyInviteCode);
             ttsWarned = false; // let the next failure re-surface, if any
             if (before !== geminiVoice) {
               rlog(`🔈 warm voice ${geminiVoice ? "ENABLED" : "DISABLED"} (key change picked up live)`);

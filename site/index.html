@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Roody — your AI voice companion</title>
+  <meta name="description" content="Summon an AI best friend on any page. It reads along, talks with you by voice, and never touches your personal pages.">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #fffaf3; color: #3a2c1e; line-height: 1.6;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 0 24px; }
+    header { text-align: center; padding: 72px 0 40px; }
+    .orb {
+      width: 96px; height: 96px; border-radius: 50%; margin: 0 auto 24px;
+      background: radial-gradient(circle at 38% 35%, #ffb26b, #e98a3c 60%, #c96f28);
+      box-shadow: 0 8px 40px rgba(233, 138, 60, .45);
+      animation: breathe 3.5s ease-in-out infinite;
+    }
+    @keyframes breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+    h1 { font-size: 40px; letter-spacing: -0.5px; }
+    .tagline { font-size: 20px; color: #6b4a2b; margin-top: 10px; }
+    .cta {
+      display: inline-block; margin-top: 28px; background: #e98a3c; color: #fff;
+      padding: 14px 32px; border-radius: 14px; font-weight: 700; font-size: 16px;
+      text-decoration: none; box-shadow: 0 4px 16px rgba(233,138,60,.35);
+    }
+    .cta:hover { background: #d97a2c; }
+    .cta-sub { display: block; margin-top: 10px; font-size: 13px; color: #8a7560; }
+    section { padding: 36px 0; }
+    h2 { font-size: 22px; color: #6b4a2b; margin-bottom: 14px; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+    .card {
+      background: #fff; border: 1px solid #f0e2cf; border-radius: 16px; padding: 18px;
+    }
+    .card b { display: block; margin-bottom: 6px; font-size: 15px; }
+    .card p { font-size: 13.5px; color: #6b4a2b; }
+    .privacy { background: #f4f9f1; border: 1px solid #dcead4; border-radius: 16px; padding: 22px; }
+    .privacy li { margin: 6px 0 6px 20px; font-size: 14.5px; }
+    footer { text-align: center; padding: 40px 0 60px; font-size: 13px; color: #8a7560; }
+    footer a { color: #b06a2c; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #1c1712; color: #f0e6da; }
+      .tagline { color: #cbb59c; }
+      h2 { color: #e6c9a8; }
+      .card { background: #262019; border-color: #3a3025; }
+      .card p { color: #cbb59c; }
+      .privacy { background: #1f2a1c; border-color: #33452e; }
+      footer { color: #a89880; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="orb"></div>
+      <h1>Roody</h1>
+      <p class="tagline">Your AI best friend, on whatever page you're working on.<br>It reads along. It talks. You talk back.</p>
+      <a class="cta" href="#install" id="cta">Get Roody</a>
+      <span class="cta-sub">Free · Chrome extension · Your data never touches our servers (we don't have any)</span>
+    </header>
+
+    <section>
+      <h2>What Roody does</h2>
+      <div class="cards">
+        <div class="card"><b>🗣 Real voice, both ways</b><p>Talk naturally, hear replies in a warm human voice. Say "Roody stop" to cut it off — like a real friend.</p></div>
+        <div class="card"><b>👀 Reads the page with you</b><p>Articles, docs, code, courses — summon Roody and ask "what do you think of this?"</p></div>
+        <div class="card"><b>😄 A friend, not a bot</b><p>Jokes, honest opinions, encouragement. Pick a sidekick — a Minion might crash the conversation.</p></div>
+        <div class="card"><b>🌏 Speaks your language</b><p>English, తెలుగు Telugu, हिन्दी Hindi, தமிழ் Tamil and 10+ more.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="privacy">
+        <h2>🛡 Privacy first — by architecture, not promise</h2>
+        <ul>
+          <li><b>Loads nothing until you click.</b> Roody only appears when you summon it.</li>
+          <li><b>Refuses personal pages.</b> Banking, payments, email, chats, social media, government sites — Roody won't run there, even if you ask.</li>
+          <li><b>No servers, no tracking.</b> Your conversations go straight from your browser to the AI provider. We never see them.</li>
+          <li><b>Read-only, always.</b> Roody never edits, clicks, or types on any page.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="install">
+      <h2>Get started in 2 minutes</h2>
+      <ol style="margin-left: 20px; font-size: 15px;">
+        <li style="margin: 8px 0">Install Roody from the Chrome Web Store <em>(link coming — in review)</em></li>
+        <li style="margin: 8px 0">Paste your invite code — or a free Gemini API key — in Settings</li>
+        <li style="margin: 8px 0">Click the orange icon on any task page and say hi 🟠</li>
+      </ol>
+    </section>
+
+    <footer>
+      <a href="privacy.html">Privacy Policy</a> · <a href="https://github.com/F1VISABYARUN/Roody-ai">GitHub</a><br>
+      Built with stubborn optimism. 🟠
+    </footer>
+  </div>
+</body>
+</html>
