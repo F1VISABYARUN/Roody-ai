@@ -130,6 +130,18 @@ async function askRoody({ userText, pageContext, history, mode, site, title }) {
     else if (settingsModel.startsWith("grok-")) model = "grok-3-mini-fast";
     else model = "claude-haiku-4-5";
   }
+  // Credential-aware routing: invite-code-only users default to a Claude
+  // model they have no key for. If the selected brain's key is missing but
+  // Gemini is reachable (own key or invite code), route to Gemini instead of
+  // erroring — fresh installs must Just Work with only a code.
+  {
+    const { roodyGeminiKey, roodyInviteCode } = await chrome.storage.local.get(["roodyGeminiKey", "roodyInviteCode"]);
+    const geminiReachable = !!(roodyGeminiKey || roodyInviteCode);
+    if (geminiReachable) {
+      if (model.startsWith("grok-") && !xaiKey) model = "gemini-2.5-flash";
+      else if (!model.startsWith("grok-") && !model.startsWith("gemini-") && !apiKey) model = "gemini-2.5-flash";
+    }
+  }
   const baseSystem = getSystemPrompt(roodyVibe || "normal");
   const profileBlock = buildProfileBlock(roodyProfile);
   const memoryBlock = buildMemoryBlock(roodyMemory);

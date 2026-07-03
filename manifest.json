@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Roody — your AI voice companion",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Click the icon to summon Roody on any task page — it reads along, talks with you by voice, and keeps you company. Never loads until summoned. Stays out of personal pages (banking, email, chats).",
   "permissions": [
     "storage",

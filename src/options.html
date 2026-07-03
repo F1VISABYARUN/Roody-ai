@@ -207,9 +207,29 @@
     <div id="memorybox" style="background:#fff;border:1px solid #e7d4ba;border-radius:10px;padding:10px;font-size:13px;max-height:200px;overflow-y:auto;color:#3a2c1e"></div>
     <div style="margin-top:8px"><button id="clearmem" class="ghost small">🗑 Erase my history</button></div>
 
-    <!-- ═══════════ ADVANCED — collapsed; normal users never open this ═══════════ -->
+    <!-- ═══════════ HELP — the one support tool users may need ═══════════ -->
     <details class="adv">
-      <summary>⚙️ Advanced — bring your own AI keys, diagnostics (for developers)</summary>
+      <summary>🛟 Something not working? Diagnostic log</summary>
+      <div class="note" style="margin-top:10px">
+        If Roody misbehaves, click 📋 Copy and send this log to the Roody team.
+        It contains timings and errors — never your conversations.
+        <br /><br />
+        <div style="display:flex; gap:8px; margin-bottom:8px">
+          <button id="reflog" class="small">↻ Refresh</button>
+          <button id="copylog" class="small" style="background:#6b4a2b">📋 Copy</button>
+          <button id="clearlog" class="ghost small">Clear</button>
+          <label style="margin:0 0 0 auto; font-weight:400; font-size:12px; display:flex; align-items:center; gap:6px">
+            <input id="autorefresh" type="checkbox" style="width:auto" checked /> auto-refresh
+          </label>
+        </div>
+        <textarea id="logbox" readonly style="width:100%;height:200px;font-family:ui-monospace,Menlo,monospace;font-size:12px;border:1px solid #e7d4ba;border-radius:8px;padding:8px;background:#fff7ec;color:#3a2c1e;white-space:pre;overflow:auto"></textarea>
+      </div>
+    </details>
+
+    <!-- ═══════════ DEV PANEL — hidden entirely. Founder opens the options
+         page with #dev on the URL to reveal it. Users never see this. ═══ -->
+    <div id="adminonly" style="display:none">
+      <div class="note warn" style="margin-top:30px"><strong>🔧 Developer panel</strong> — visible because the URL ends in #dev. Users never see this section.</div>
 
       <h2>🧠 Brain (the thinking)</h2>
       <label for="model">Which brain?</label>
@@ -301,21 +321,6 @@
         <button id="resetspend" class="small" style="margin-top:8px;background:#8a7560">Reset counter</button>
       </div>
 
-      <h2>🧰 Logs (paste these when something feels off)</h2>
-      <div class="note">
-        Live record of what Roody is doing, with timings and errors. Newest at the bottom.
-        <br /><br />
-        <div style="display:flex; gap:8px; margin-bottom:8px">
-          <button id="reflog" class="small">↻ Refresh</button>
-          <button id="copylog" class="small" style="background:#6b4a2b">📋 Copy</button>
-          <button id="clearlog" class="ghost small">Clear</button>
-          <label style="margin:0 0 0 auto; font-weight:400; font-size:12px; display:flex; align-items:center; gap:6px">
-            <input id="autorefresh" type="checkbox" style="width:auto" checked /> auto-refresh
-          </label>
-        </div>
-        <textarea id="logbox" readonly style="width:100%;height:240px;font-family:ui-monospace,Menlo,monospace;font-size:12px;border:1px solid #e7d4ba;border-radius:8px;padding:8px;background:#fff7ec;color:#3a2c1e;white-space:pre;overflow:auto"></textarea>
-      </div>
-
       <h2>🔒 Keys &amp; privacy</h2>
       <div class="note">
         Keys and your invite code are saved in <code>chrome.storage.local</code>
@@ -326,7 +331,7 @@
         Roody only ever <strong>reads</strong> pages — it never edits, and it
         refuses to run on banking, email, chat, and other personal pages.
       </div>
-    </details>
+    </div>
 
     <!-- FOOTER -->
     <h2>📱 Where Roody works</h2>

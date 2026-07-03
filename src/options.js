@@ -1,6 +1,17 @@
 // Roody settings — everything you can turn on, off, change, or wipe.
 
 const $ = (id) => document.getElementById(id);
+
+// Developer door: the machinery panel (own keys, brain picker, spend, proxy)
+// is invisible to users. The founder opens the options page with #dev on the
+// URL — chrome-extension://<id>/src/options.html#dev — to reveal it.
+function applyDevMode() {
+  const on = location.hash === "#dev";
+  const panel = $("adminonly");
+  if (panel) panel.style.display = on ? "block" : "none";
+}
+applyDevMode();
+window.addEventListener("hashchange", applyDevMode);
 const keyEl = $("key");
 const modelEl = $("model");
 const gkeyEl = $("gkey");
