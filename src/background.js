@@ -572,6 +572,14 @@ const SIDEKICK_ELEVEN_SETTINGS = {
 // Text -> speech. Returns base64 PCM (signed 16-bit, mono) + its mime.
 async function geminiTTS(text) {
   const { roodyVoice, roodyVibe } = await chrome.storage.local.get(["roodyVoice", "roodyVibe"]);
+  // Long inputs make the preview TTS slow (20-40s) and flaky (empty "no-audio"
+  // responses). Cap at ~550 chars, cutting at a sentence boundary.
+  if (text.length > 550) {
+    const cut = text.slice(0, 550);
+    const lastEnd = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+    text = lastEnd > 200 ? cut.slice(0, lastEnd + 1) : cut + "…";
+    rlog(`✂ TTS input trimmed to ${text.length} chars (long replies choke the voice)`);
+  }
   const vibe = roodyVibe || "normal";
   const t0 = performance.now();
   rlog(`→ Gemini TTS (${text.length} chars, voice=${roodyVoice || "Kore"}, vibe=${vibe})`);
@@ -611,32 +619,38 @@ async function geminiTTS(text) {
     return { transient, status: resp.status, error: `tts ${resp.status} ${txt}` };
   }
 
-  let r = await attempt(1);
-  if (!r.resp && r.transient) {
-    rlog("↻ retrying TTS after transient error…");
-    await new Promise((res) => setTimeout(res, 400));
-    r = await attempt(2);
+  // Up to 2 tries. "200 OK but empty audio" (tts-no-audio) counts as a flake
+  // and gets retried too — it's the preview model's most common failure mode.
+  for (let tryN = 1; tryN <= 2; tryN++) {
+    const r = await attempt(tryN);
+    if (!r.resp) {
+      if (r.transient && tryN === 1) {
+        rlog("↻ retrying TTS after transient error…");
+        await new Promise((res) => setTimeout(res, 400));
+        continue;
+      }
+      rlog("⚠ Gemini TTS failed → falling back to robotic browser voice");
+      return { ok: false, error: r.error };
+    }
+    const data = await r.resp.json();
+    const ms = Math.round(performance.now() - t0);
+    if (data.usageMetadata && r.via === "own") {
+      addUsage(
+        "gemini-tts",
+        data.usageMetadata.promptTokenCount || 0,
+        data.usageMetadata.candidatesTokenCount || 0
+      );
+    }
+    const part = (data?.candidates?.[0]?.content?.parts || []).find((p) => p.inlineData);
+    if (!part) {
+      rlog(`❌ TTS no audio in response (${ms}ms)${tryN === 1 ? " — retrying" : ""}`);
+      if (tryN === 1) { await new Promise((res) => setTimeout(res, 400)); continue; }
+      return { ok: false, error: "tts-no-audio" };
+    }
+    rlog(`✓ TTS ${ms}ms · ${Math.round(part.inlineData.data.length / 1024)}KB`);
+    return { ok: true, audioBase64: part.inlineData.data, mime: part.inlineData.mimeType };
   }
-  if (!r.resp) {
-    rlog("⚠ Gemini TTS failed twice → falling back to robotic browser voice");
-    return { ok: false, error: r.error };
-  }
-  const resp = r.resp;
-  const data = await resp.json();
-  const ms = Math.round(performance.now() - t0);
-  if (data.usageMetadata && r.via === "own") {
-    addUsage(
-      "gemini-tts",
-      data.usageMetadata.promptTokenCount || 0,
-      data.usageMetadata.candidatesTokenCount || 0
-    );
-  }
-  const part = (data?.candidates?.[0]?.content?.parts || []).find(
-    (p) => p.inlineData
-  );
-  if (!part) { rlog(`❌ TTS no audio in response (${ms}ms)`); return { ok: false, error: "tts-no-audio" }; }
-  rlog(`✓ TTS ${ms}ms · ${Math.round(part.inlineData.data.length / 1024)}KB`);
-  return { ok: true, audioBase64: part.inlineData.data, mime: part.inlineData.mimeType };
+  return { ok: false, error: "tts-no-audio" };
 }
 
 // Speech -> text. Takes base64 audio + its mime, returns the transcript.
