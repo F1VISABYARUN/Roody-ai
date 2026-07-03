@@ -64,57 +64,44 @@
       .toggle input { width: auto; transform: scale(1.3); }
       .keystatus { font-size: 12px; color: #8a7560; margin: 4px 0 0; }
       .keystatus.has { color: #4a8a3c; }
+      details.adv { margin-top: 34px; border-top: 2px dashed #f0e2cf; padding-top: 14px; }
+      details.adv > summary {
+        cursor: pointer; font-weight: 700; color: #8a7560; font-size: 14px;
+        list-style: none; user-select: none;
+      }
+      details.adv > summary::before { content: "▸ "; }
+      details.adv[open] > summary::before { content: "▾ "; }
     </style>
   </head>
   <body>
     <h1>Roody 🟠</h1>
-    <p class="sub">The calm, read-only voice that lives in your code and chats.</p>
+    <p class="sub">Your AI voice companion — click the Roody icon on any page to summon it.</p>
 
     <label class="toggle">
       <input id="enabled" type="checkbox" checked />
       🟠 Roody is ON (uncheck to hide the orb everywhere)
     </label>
 
-    <!-- BRAIN -->
-    <h2>🧠 Brain (the thinking)</h2>
+    <!-- ═══════════ SIMPLE VIEW — this is all a normal user needs ═══════════ -->
 
-    <label for="model">Which brain?</label>
-    <select id="model">
-      <option value="claude-sonnet-4-6">Claude Sonnet 4.6 — sharpest, warm ⭐ (recommended)</option>
-      <option value="claude-haiku-4-5">Claude Haiku 4.5 — fast &amp; cheap Claude</option>
-      <option value="claude-opus-4-8">Claude Opus 4.8 — heaviest reasoning, costs more</option>
-      <option value="gemini-2.5-flash">Gemini 2.5 Flash — ~10× cheaper, still good</option>
-      <option value="grok-3-mini-fast">Grok 3 Mini Fast — funny, edgy, fast ($5/$10 per M)</option>
-      <option value="grok-3-mini">Grok 3 Mini — funnier, deeper thinking ($5/$10 per M)</option>
-      <option value="grok-3">Grok 3 — full Grok, sharpest xAI brain ($3/$15 per M)</option>
-    </select>
-
-    <label for="key">Anthropic API key <span style="font-weight:400;color:#8a7560">(needed for Claude brains)</span></label>
+    <!-- INVITE CODE -->
+    <h2>🎟 Your Invite Code</h2>
+    <p style="font-size:13px;color:#8a7560;margin:0 0 8px">Paste the code you were given and you're done — Roody's brain and voice are on us.</p>
     <div class="row">
-      <input id="key" type="password" placeholder="sk-ant-..." />
-      <button id="clearkey" class="ghost small" title="Remove this key">✕</button>
+      <input id="invitecode" type="text" placeholder="ROODY-XXXXXXXX" autocomplete="off" />
+      <button id="clearinvite" class="ghost small" title="Remove code">✕</button>
     </div>
-    <p id="keystatus" class="keystatus"></p>
+    <p id="invitestatus" class="keystatus"></p>
 
-    <label for="xkey">xAI (Grok) API key <span style="font-weight:400;color:#8a7560">(needed for Grok brains — get one at <a href="https://console.x.ai" target="_blank">console.x.ai</a>)</span></label>
-    <div class="row">
-      <input id="xkey" type="password" placeholder="xai-..." />
-      <button id="clearx" class="ghost small" title="Remove this key">✕</button>
-    </div>
-    <p id="xstatus" class="keystatus"></p>
+    <!-- ABOUT ME -->
+    <h2>👤 About You</h2>
+    <p style="font-size:13px;color:#8a7560;margin:0 0 8px">Tell Roody your name and what you're up to — it remembers you on every page. Example: <em>"I'm Priya, studying for GATE, I speak English and Telugu."</em></p>
+    <textarea id="profile" rows="3" placeholder="Hi Roody, I'm…" style="width:100%;padding:10px;border:1px solid #e7d4ba;border-radius:10px;font-size:14px;box-sizing:border-box;font-family:inherit;resize:vertical;" maxlength="500"></textarea>
+    <div style="font-size:12px;color:#8a7560;margin-top:4px"><span id="profilecount">0</span>/500 · saves automatically</div>
 
-    <!-- VOICE -->
-    <h2>🎙️ Voice (the talking &amp; listening)</h2>
-
-    <div class="note ok" style="margin-bottom:8px">
-      <strong>Want a real human voice?</strong> Add an ElevenLabs key below
-      (10k chars/month free at <a href="https://elevenlabs.io" target="_blank">elevenlabs.io</a>).
-      It's ~20× faster than Gemini TTS (sub-second vs 8 seconds) and sounds
-      indistinguishable from a real person. If both keys are set, Roody uses
-      ElevenLabs and only falls back to Gemini if it fails.
-    </div>
-
-    <label for="lang">🌍 Language (mic + replies)</label>
+    <!-- PERSONALIZE -->
+    <h2>🎨 Personalize</h2>
+    <label for="lang">🌍 Language (you speak, Roody replies)</label>
     <select id="lang">
       <option value="en-US">English (US)</option>
       <option value="en-GB">English (UK)</option>
@@ -131,60 +118,8 @@
       <option value="ko-KR">한국어 (Korean)</option>
       <option value="zh-CN">中文 (Chinese)</option>
     </select>
-    <p style="font-size:12px;color:#8a7560;margin:4px 0 12px">Sets the mic language AND tells the brain to reply in this language. Telugu/Hindi/Tamil work best with Gemini TTS (ElevenLabs needs Multilingual v2 model for non-English).</p>
 
-    <label for="ekey">ElevenLabs API key <span style="font-weight:400;color:#8a7560">(optional — premium, sub-second human voice)</span></label>
-    <div class="row">
-      <input id="ekey" type="password" placeholder="sk_..." />
-      <button id="cleare" class="ghost small" title="Remove this key">✕</button>
-    </div>
-    <p id="estatus" class="keystatus"></p>
-
-    <label for="evoice">ElevenLabs voice</label>
-    <select id="evoice">
-      <option value="21m00Tcm4TlvDq8ikWAM">Rachel — calm, warm ⭐ (paid plan only)</option>
-      <option value="EXAVITQu4vr4xnSDxMaL">Sarah — soft, friendly (paid plan only)</option>
-      <option value="AZnzlk1XvdvUeBnXmlld">Domi — strong, confident (paid plan only)</option>
-      <option value="MF3mGyEYCl7XYWbV9V6O">Elli — youthful, bright (paid plan only)</option>
-      <option value="XB0fDUnXU5powFXDhCwa">Charlotte — gentle, expressive (paid plan only)</option>
-      <option value="9BWtsMINqrJLrRacOk9x">Aria — natural, conversational (paid plan only)</option>
-      <option value="custom">Other → paste a custom voice ID below</option>
-    </select>
-    <input id="evoicecustom" type="text" placeholder="Custom voice ID (only if 'Other' selected)" style="margin-top:6px" />
-    <div style="display:flex; gap:8px; margin-top:8px; align-items:center; flex-wrap:wrap">
-      <button id="evoicefetch" class="small">↻ Load voices my key can use</button>
-      <button id="evoicepreview" class="small" style="background:#6b4a2b">🔊 Preview this voice</button>
-      <span id="evoicefetchstatus" style="font-size:12px;color:#8a7560"></span>
-    </div>
-    <div class="note warn" style="margin-top:6px; font-size:12px">
-      <strong>Free ElevenLabs plan?</strong> The 6 library voices above only
-      work via API on paid plans. Click "Load voices my key can use" — Roody
-      will fetch the voices actually available on your account and let you pick
-      from those. (Free accounts always have access to "Default" voices like
-      Adam, Rachel-clone, etc. via personal voice slots.)
-    </div>
-
-    <!-- INVITE CODE — the no-keys-needed path -->
-    <h2>🎟 Invite Code</h2>
-    <p style="font-size:13px;color:#8a7560;margin:0 0 8px">Got a Roody invite code? Paste it here and you're done — no API keys needed. Free daily messages, courtesy of the Roody team.</p>
-    <div class="row">
-      <input id="invitecode" type="text" placeholder="ROODY-XXXXXXXX" autocomplete="off" />
-      <button id="clearinvite" class="ghost small" title="Remove code">✕</button>
-    </div>
-    <p id="invitestatus" class="keystatus"></p>
-    <details style="margin-top:6px">
-      <summary style="font-size:12px;color:#8a7560;cursor:pointer">Advanced: proxy URL</summary>
-      <input id="proxyurl" type="text" placeholder="https://YOURPROJECT.supabase.co/functions/v1/roody-proxy" style="margin-top:6px;font-size:12px" />
-    </details>
-
-    <label for="gkey">Google Gemini API key <span style="font-weight:400;color:#8a7560">(optional — your own key instead of an invite code; free at aistudio.google.com/apikey)</span></label>
-    <div class="row">
-      <input id="gkey" type="password" placeholder="AIza..." />
-      <button id="clearg" class="ghost small" title="Remove this key">✕</button>
-    </div>
-    <p id="gstatus" class="keystatus"></p>
-
-    <label for="voice">Gemini voice <span style="font-weight:400;color:#8a7560">(used when no ElevenLabs key — female voices only)</span></label>
+    <label for="voice">🗣 Roody's voice</label>
     <select id="voice">
       <option value="Kore">Kore — calm &amp; firm ⭐ (recommended)</option>
       <option value="Aoede">Aoede — breezy &amp; light</option>
@@ -200,27 +135,11 @@
       <option value="Sulafat">Sulafat — warm</option>
     </select>
 
-    <!-- ABOUT ME (user profile) -->
-    <h2>👤 About You</h2>
-    <p style="font-size:13px;color:#8a7560;margin:0 0 8px">Tell Roody who you are, what you're working on, what matters to you. Roody will remember this across every page and conversation. Keep it short (max 500 chars). Example: <em>"I'm Rohan, prepping for my US F1 visa interview next week. I'm a software engineer, I speak English and Telugu."</em></p>
-    <textarea id="profile" rows="4" placeholder="Tell Roody about yourself…" style="width:100%;padding:10px;border:1px solid #e7d4ba;border-radius:10px;font-size:14px;box-sizing:border-box;font-family:inherit;resize:vertical;" maxlength="500"></textarea>
-    <div style="font-size:12px;color:#8a7560;margin-top:4px"><span id="profilecount">0</span>/500 characters · saves automatically</div>
-
-    <!-- MEMORY / notebook -->
-    <h2>📓 Roody's Notebook</h2>
-    <div id="talkstats" style="font-size:14px;color:#e98a3c;font-weight:600;margin:0 0 6px"></div>
-    <p style="font-size:13px;color:#8a7560;margin:0 0 8px">Pages where you've talked to Roody. This is what Roody remembers across tabs so it can connect things up.</p>
-    <div id="memorybox" style="background:#fff;border:1px solid #e7d4ba;border-radius:10px;padding:10px;font-size:13px;max-height:200px;overflow-y:auto;color:#3a2c1e"></div>
-    <div style="margin-top:8px"><button id="clearmem" class="ghost small">🗑 Clear Notebook</button></div>
-
-    <!-- SIDEKICK -->
-    <h2>🎭 Character Sidekick</h2>
-    <p style="font-size:13px;color:#8a7560;margin:0 0 8px">Roody stays Roody — but your sidekick character jumps in every few replies with their signature chaos. Pick one!</p>
-    <label for="vibe">Active sidekick</label>
+    <label for="vibe">🎭 Character sidekick <span style="font-weight:400;color:#8a7560">(jumps in every few replies)</span></label>
     <select id="vibe">
       <option value="normal">None — just Roody, no sidekick</option>
       <option value="minion">🍌 Minion — banana chaos, confused by everything</option>
-      <option value="roadrunner">🏃 Road Runner — meep meep! zooms through your code</option>
+      <option value="roadrunner">🏃 Road Runner — meep meep! zooms through everything</option>
       <option value="coyote">💣 Wile E. Coyote — elaborate plans that always backfire</option>
       <option value="pinkpanther">🩷 Pink Panther — smooth, sneaky, cool jazzy energy</option>
       <option value="woody">🤠 Woody — "there's a snake in my boot!" loyal cowboy leader</option>
@@ -231,102 +150,156 @@
     </select>
     <p id="vibepreview" style="font-size:12px;color:#8a7560;margin:6px 0 0;font-style:italic"></p>
 
-    <!-- BEHAVIOR -->
-    <h2>⚙️ Behavior</h2>
-
-    <label style="display:flex;align-items:center;gap:8px;font-weight:600">
-      <input id="websearch" type="checkbox" style="width:auto" checked />
-      🌐 Let Roody look things up on the web
-    </label>
-
-    <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:10px">
+    <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:14px">
       <input id="autochime" type="checkbox" style="width:auto" />
-      💬 Auto-chime — let Roody speak up on its own when a new answer lands
-      <span style="font-weight:400;color:#8a7560">(off by default; tap mic to talk anytime)</span>
+      💬 Let Roody speak up on its own sometimes
+      <span style="font-weight:400;color:#8a7560">(off by default)</span>
     </label>
 
-    <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:10px">
-      <input id="cheapvoice" type="checkbox" style="width:auto" checked />
-      💸 Use cheap Haiku brain for voice mode
-      <span style="font-weight:400;color:#8a7560">(3× cheaper, plenty smart for short spoken replies; text mode keeps the brain you picked)</span>
-    </label>
+    <!-- HISTORY -->
+    <h2>📓 You &amp; Roody</h2>
+    <div id="talkstats" style="font-size:15px;color:#e98a3c;font-weight:700;margin:0 0 6px"></div>
+    <p style="font-size:13px;color:#8a7560;margin:0 0 8px">Pages you've talked about together — this is Roody's memory of your time together. It lives only on this computer.</p>
+    <div id="memorybox" style="background:#fff;border:1px solid #e7d4ba;border-radius:10px;padding:10px;font-size:13px;max-height:200px;overflow-y:auto;color:#3a2c1e"></div>
+    <div style="margin-top:8px"><button id="clearmem" class="ghost small">🗑 Erase my history</button></div>
 
-    <!-- SPEND -->
-    <h2>💰 Spend</h2>
-    <div class="note ok">
-      <strong>Estimated total spend:</strong>
-      <div style="font-size:18px;font-weight:700;margin-top:6px">
-        <span id="spendusd">$0.0000</span>
-        <span style="color:#6a8560">·</span>
-        <span id="spendinr">₹0.00</span>
+    <!-- ═══════════ ADVANCED — collapsed; normal users never open this ═══════════ -->
+    <details class="adv">
+      <summary>⚙️ Advanced — bring your own AI keys, diagnostics (for developers)</summary>
+
+      <h2>🧠 Brain (the thinking)</h2>
+      <label for="model">Which brain?</label>
+      <select id="model">
+        <option value="claude-sonnet-4-6">Claude Sonnet 4.6 — sharpest, warm ⭐</option>
+        <option value="claude-haiku-4-5">Claude Haiku 4.5 — fast &amp; cheap Claude</option>
+        <option value="claude-opus-4-8">Claude Opus 4.8 — heaviest reasoning, costs more</option>
+        <option value="gemini-2.5-flash">Gemini 2.5 Flash — ~10× cheaper, still good</option>
+        <option value="grok-3-mini-fast">Grok 3 Mini Fast — funny, edgy, fast</option>
+        <option value="grok-3-mini">Grok 3 Mini — funnier, deeper thinking</option>
+        <option value="grok-3">Grok 3 — full Grok, sharpest xAI brain</option>
+      </select>
+      <p style="font-size:12px;color:#8a7560;margin:4px 0 0">With only an invite code, Roody uses Gemini regardless — the brain picker applies when you bring your own keys below.</p>
+
+      <label for="key">Anthropic API key <span style="font-weight:400;color:#8a7560">(for Claude brains)</span></label>
+      <div class="row">
+        <input id="key" type="password" placeholder="sk-ant-..." />
+        <button id="clearkey" class="ghost small" title="Remove this key">✕</button>
       </div>
-      <div id="spendcalls" style="color:#6a8560;font-size:13px;margin-top:2px"></div>
-      <div id="elevencredits" style="color:#6a8560;font-size:13px;margin-top:2px"></div>
-      <div style="font-size:11px;color:#8a7560;margin-top:6px">INR shown at ~₹85 / $1 (approximate). ElevenLabs free tier = credits, not money.</div>
-      <button id="resetspend" class="small" style="margin-top:8px;background:#8a7560">Reset counter</button>
-    </div>
+      <p id="keystatus" class="keystatus"></p>
 
-    <!-- LOGS / DIAGNOSTICS -->
-    <h2>🧰 Logs (paste these when something feels off)</h2>
-    <div class="note">
-      Live record of what Roody is doing, with timings and errors. Newest at
-      the bottom. If a reply was slow, look for the <code>Claude</code> line —
-      its <code>ms</code> is how long the brain took. If a voice turn was
-      missed, look for <code>SR error</code> or <code>ignored as ECHO</code>.
-      <br /><br />
-      <div style="display:flex; gap:8px; margin-bottom:8px">
-        <button id="reflog" class="small">↻ Refresh</button>
-        <button id="copylog" class="small" style="background:#6b4a2b">📋 Copy</button>
-        <button id="clearlog" class="ghost small">Clear</button>
-        <label style="margin:0 0 0 auto; font-weight:400; font-size:12px; display:flex; align-items:center; gap:6px">
-          <input id="autorefresh" type="checkbox" style="width:auto" checked /> auto-refresh
-        </label>
+      <label for="gkey">Google Gemini API key <span style="font-weight:400;color:#8a7560">(your own key instead of an invite code — free at aistudio.google.com/apikey)</span></label>
+      <div class="row">
+        <input id="gkey" type="password" placeholder="AIza..." />
+        <button id="clearg" class="ghost small" title="Remove this key">✕</button>
       </div>
-      <textarea id="logbox" readonly style="width:100%;height:240px;font-family:ui-monospace,Menlo,monospace;font-size:12px;border:1px solid #e7d4ba;border-radius:8px;padding:8px;background:#fff7ec;color:#3a2c1e;white-space:pre;overflow:auto"></textarea>
-    </div>
+      <p id="gstatus" class="keystatus"></p>
 
-    <!-- SHARING -->
-    <h2>🤝 Sharing Roody</h2>
-    <div class="note warn">
-      <strong>If you give Roody to a friend:</strong> share the extension folder
-      (or ZIP) — <strong>do NOT share your API keys</strong>. Each person should
-      paste <em>their own</em> keys above.
-      <br /><br />
-      <strong>Why?</strong> An API key is like a credit card — anyone holding it
-      can spend on it until you revoke it. If a key ever leaks (or you stop
-      trusting someone you shared one with), go to your provider's console and
-      <strong>regenerate</strong> it — that instantly cuts off anyone using the
-      old one:
-      <ul style="margin: 8px 0 0 18px">
-        <li>Anthropic key → <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a></li>
-        <li>Gemini key → <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a></li>
-      </ul>
-      <br />
-      <strong>Want to control who uses Roody?</strong> That needs a small backend
-      server (Roody talks to your server, your server holds the keys, you can
-      revoke any user). Not in v1 — tell us when you're ready to share publicly
-      and we'll add it.
-    </div>
+      <label for="xkey">xAI (Grok) API key <span style="font-weight:400;color:#8a7560">(for Grok brains — console.x.ai)</span></label>
+      <div class="row">
+        <input id="xkey" type="password" placeholder="xai-..." />
+        <button id="clearx" class="ghost small" title="Remove this key">✕</button>
+      </div>
+      <p id="xstatus" class="keystatus"></p>
 
-    <!-- DEVICE -->
+      <h2>🎙️ Premium voice (ElevenLabs)</h2>
+      <div class="note ok" style="margin-bottom:8px">
+        Optional: an ElevenLabs key (10k chars/month free at <a href="https://elevenlabs.io" target="_blank">elevenlabs.io</a>)
+        gives a sub-second, indistinguishable-from-human voice. If set, Roody
+        prefers it and falls back to Gemini TTS.
+      </div>
+      <label for="ekey">ElevenLabs API key</label>
+      <div class="row">
+        <input id="ekey" type="password" placeholder="sk_..." />
+        <button id="cleare" class="ghost small" title="Remove this key">✕</button>
+      </div>
+      <p id="estatus" class="keystatus"></p>
+
+      <label for="evoice">ElevenLabs voice</label>
+      <select id="evoice">
+        <option value="21m00Tcm4TlvDq8ikWAM">Rachel — calm, warm ⭐ (paid plan only)</option>
+        <option value="EXAVITQu4vr4xnSDxMaL">Sarah — soft, friendly (paid plan only)</option>
+        <option value="AZnzlk1XvdvUeBnXmlld">Domi — strong, confident (paid plan only)</option>
+        <option value="MF3mGyEYCl7XYWbV9V6O">Elli — youthful, bright (paid plan only)</option>
+        <option value="XB0fDUnXU5powFXDhCwa">Charlotte — gentle, expressive (paid plan only)</option>
+        <option value="9BWtsMINqrJLrRacOk9x">Aria — natural, conversational (paid plan only)</option>
+        <option value="custom">Other → paste a custom voice ID below</option>
+      </select>
+      <input id="evoicecustom" type="text" placeholder="Custom voice ID (only if 'Other' selected)" style="margin-top:6px" />
+      <div style="display:flex; gap:8px; margin-top:8px; align-items:center; flex-wrap:wrap">
+        <button id="evoicefetch" class="small">↻ Load voices my key can use</button>
+        <button id="evoicepreview" class="small" style="background:#6b4a2b">🔊 Preview this voice</button>
+        <span id="evoicefetchstatus" style="font-size:12px;color:#8a7560"></span>
+      </div>
+      <div class="note warn" style="margin-top:6px; font-size:12px">
+        <strong>Free ElevenLabs plan?</strong> The library voices above only work
+        via API on paid plans — click "Load voices my key can use" to pick from
+        the voices your account can actually use.
+      </div>
+
+      <h2>⚙️ Behavior</h2>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600">
+        <input id="websearch" type="checkbox" style="width:auto" checked />
+        🌐 Let Roody look things up on the web (own Claude key, text mode only)
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:10px">
+        <input id="cheapvoice" type="checkbox" style="width:auto" checked />
+        💸 Use the cheap brain for voice mode
+        <span style="font-weight:400;color:#8a7560">(3× cheaper, plenty smart for short spoken replies)</span>
+      </label>
+
+      <label style="margin-top:14px">Proxy URL override <span style="font-weight:400;color:#8a7560">(where invite-code requests go — leave empty for default)</span></label>
+      <input id="proxyurl" type="text" placeholder="https://…" style="font-size:12px" />
+
+      <h2>💰 Spend (only your own keys — invite-code usage costs you nothing)</h2>
+      <div class="note ok">
+        <strong>Estimated total spend:</strong>
+        <div style="font-size:18px;font-weight:700;margin-top:6px">
+          <span id="spendusd">$0.0000</span>
+          <span style="color:#6a8560">·</span>
+          <span id="spendinr">₹0.00</span>
+        </div>
+        <div id="spendcalls" style="color:#6a8560;font-size:13px;margin-top:2px"></div>
+        <div id="elevencredits" style="color:#6a8560;font-size:13px;margin-top:2px"></div>
+        <div style="font-size:11px;color:#8a7560;margin-top:6px">INR at ~₹85/$1 (approximate). ElevenLabs free tier = credits, not money.</div>
+        <button id="resetspend" class="small" style="margin-top:8px;background:#8a7560">Reset counter</button>
+      </div>
+
+      <h2>🧰 Logs (paste these when something feels off)</h2>
+      <div class="note">
+        Live record of what Roody is doing, with timings and errors. Newest at the bottom.
+        <br /><br />
+        <div style="display:flex; gap:8px; margin-bottom:8px">
+          <button id="reflog" class="small">↻ Refresh</button>
+          <button id="copylog" class="small" style="background:#6b4a2b">📋 Copy</button>
+          <button id="clearlog" class="ghost small">Clear</button>
+          <label style="margin:0 0 0 auto; font-weight:400; font-size:12px; display:flex; align-items:center; gap:6px">
+            <input id="autorefresh" type="checkbox" style="width:auto" checked /> auto-refresh
+          </label>
+        </div>
+        <textarea id="logbox" readonly style="width:100%;height:240px;font-family:ui-monospace,Menlo,monospace;font-size:12px;border:1px solid #e7d4ba;border-radius:8px;padding:8px;background:#fff7ec;color:#3a2c1e;white-space:pre;overflow:auto"></textarea>
+      </div>
+
+      <h2>🔒 Keys &amp; privacy</h2>
+      <div class="note">
+        Keys and your invite code are saved in <code>chrome.storage.local</code>
+        on <em>this</em> computer only. Never share your API keys with anyone —
+        a key is like a credit card. If one leaks, regenerate it at
+        <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a> /
+        <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com</a>.
+        Roody only ever <strong>reads</strong> pages — it never edits, and it
+        refuses to run on banking, email, chat, and other personal pages.
+      </div>
+    </details>
+
+    <!-- FOOTER -->
     <h2>📱 Where Roody works</h2>
     <div class="note">
-      <strong>AI sites Roody lives on:</strong><br />
-      ChatGPT · Claude · Gemini · Perplexity · Grok (grok.com &amp; x.com) ·
-      Kimi · DeepSeek<br /><br />
-      ✅ Chrome / Edge / Brave on desktop (Windows, Mac, Linux).<br />
-      ❌ Mobile (iPhone, Android) — phone browsers don't run extensions. A
-      Roody mobile app is a separate build for later.
-    </div>
-
-    <!-- PRIVACY -->
-    <h2>🔒 Your keys &amp; privacy</h2>
-    <div class="note">
-      Keys are saved in <code>chrome.storage.local</code> on <em>this</em>
-      computer only — not synced, not sent anywhere except to the matching
-      provider (Anthropic / Google) when Roody talks to it. Use the ✕ button
-      next to any key to wipe it. Roody only ever <strong>reads</strong> the
-      page — it never edits.
+      <strong>Any task page</strong> — articles, docs, courses, code, AI chats.
+      Click the 🟠 Roody icon in your toolbar to summon it; click again to
+      dismiss. Roody politely refuses personal pages (banking, payments,
+      email, chats, social media).<br /><br />
+      ✅ Chrome / Edge / Brave on desktop (Windows, Mac, Linux)<br />
+      ❌ Mobile — phone browsers don't run extensions (a Roody app comes later)
     </div>
 
     <div style="margin-top: 22px; display:flex; gap: 10px; align-items: center">
