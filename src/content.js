@@ -181,6 +181,105 @@
     });
   }
 
+  // ---- PDF study mode -------------------------------------------------------
+  // Chrome's built-in PDF viewer keeps the text locked inside a plugin the DOM
+  // can't see, so Roody reads PDFs itself: it takes the raw file bytes, inflates
+  // the FlateDecode streams with the browser's NATIVE DecompressionStream (zero
+  // libraries, no remote code — stays store-compliant), and pulls text out of
+  // the content-stream operators. Works on most text PDFs; scanned/image PDFs
+  // have no text to extract, so we fall back to "paste it and I'll study it."
+  let studyDoc = null; // { name, text } once a PDF is loaded for study
+
+  // Byte-accurate string so file offsets line up with the raw bytes.
+  function pdfLatin1(bytes) {
+    let s = "";
+    const CH = 0x8000;
+    for (let i = 0; i < bytes.length; i += CH) {
+      s += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+    }
+    return s;
+  }
+
+  // Inflate a stream. PDFs use zlib ("deflate"); some tools emit raw deflate.
+  async function pdfInflate(bytes) {
+    for (const fmt of ["deflate", "deflate-raw"]) {
+      try {
+        const ds = new DecompressionStream(fmt);
+        const stream = new Blob([bytes]).stream().pipeThrough(ds);
+        const buf = await new Response(stream).arrayBuffer();
+        return new Uint8Array(buf);
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  // Pull readable text out of a decoded content stream by walking its operators:
+  // literal (…) strings are the text; Td/TD/T*/'/" mean a new line.
+  function pdfTextFromContent(s) {
+    let out = "";
+    let i = 0;
+    const n = s.length;
+    while (i < n) {
+      const c = s[i];
+      if (c === "(") {
+        let depth = 1;
+        let str = "";
+        i++;
+        while (i < n && depth > 0) {
+          const ch = s[i];
+          if (ch === "\\") {
+            const nx = s[i + 1];
+            const esc = { n: "\n", r: "", t: "\t", b: "", f: "", "(": "(", ")": ")", "\\": "\\" };
+            if (nx !== undefined && nx in esc) { str += esc[nx]; i += 2; continue; }
+            const m = s.slice(i + 1, i + 4).match(/^[0-7]{1,3}/);
+            if (m) { str += String.fromCharCode(parseInt(m[0], 8) & 0xff); i += 1 + m[0].length; continue; }
+            i += 2; continue;
+          }
+          if (ch === "(") { depth++; str += ch; i++; continue; }
+          if (ch === ")") { depth--; if (depth === 0) { i++; break; } str += ch; i++; continue; }
+          str += ch; i++;
+        }
+        out += str;
+      } else if (c === "<" && s[i + 1] !== "<") {
+        // Hex string — usually needs a font CMap to decode, skip it.
+        const end = s.indexOf(">", i);
+        if (end === -1) break;
+        i = end + 1;
+      } else if ((c === "T" && (s[i + 1] === "d" || s[i + 1] === "D" || s[i + 1] === "*")) || c === "'" || c === '"') {
+        out += "\n"; i += 2;
+      } else {
+        i++;
+      }
+    }
+    return out;
+  }
+
+  // Extract text from a whole PDF file (ArrayBuffer) → plain string.
+  async function extractPdfText(arrayBuffer) {
+    const bytes = new Uint8Array(arrayBuffer);
+    const raw = pdfLatin1(bytes);
+    let text = "";
+    const re = /stream\r?\n/g;
+    let m;
+    while ((m = re.exec(raw))) {
+      const start = m.index + m[0].length;
+      const end = raw.indexOf("endstream", start);
+      if (end === -1) continue;
+      let sEnd = end;
+      if (raw[sEnd - 1] === "\n") sEnd--;
+      if (raw[sEnd - 1] === "\r") sEnd--;
+      const streamBytes = bytes.subarray(start, sEnd);
+      const inflated = await pdfInflate(streamBytes);
+      const content = inflated ? pdfLatin1(inflated) : pdfLatin1(streamBytes);
+      // Only mine streams that carry text operators (skips images/fonts).
+      if (content && /(Tj|TJ|BT)/.test(content)) {
+        text += pdfTextFromContent(content) + "\n";
+      }
+      re.lastIndex = end + 9;
+    }
+    return text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  }
+
   // ---- Read the page (SMART extraction, ZERO scrolling) --------------------
   // Different strategy per site type:
   //   - AI chat sites: find the chat container, extract user/AI turns only
@@ -228,6 +327,8 @@
   }
 
   function readPage() {
+    // A PDF the user handed us for study wins over whatever's in the DOM.
+    if (studyDoc && studyDoc.text) return studyDoc.text.slice(0, 16000);
     // The page can BECOME sensitive after summon (SPA navigates to a login or
     // checkout view). Re-check on every read; trip the shield if so.
     if (pageIsSensitive()) { tripSensitive(); return ""; }
@@ -289,6 +390,8 @@
   function recentTask() {
     const t = readPage();
     if (!t) return "";
+    // Studying a PDF: name it and hand over the opening — that's the subject.
+    if (studyDoc) return `Document: ${studyDoc.name}\n\n` + t.slice(0, 2200);
     // On AI chat sites the newest messages are at the BOTTOM → tail is right.
     // On articles/docs/any normal page the tail is footer junk (references,
     // "see also", cookie notices) — the actual subject is at the TOP. Reading
@@ -363,9 +466,11 @@
       <span id="roody-hearing-text"></span>
     </div>
     <div id="roody-inputrow">
+      <button id="roody-pdf" title="Study a PDF with Roody">📄</button>
       <input id="roody-text" type="text" placeholder="…or just type to Roody" autocomplete="off" />
       <button id="roody-send" title="Send">➤</button>
     </div>
+    <input id="roody-pdf-file" type="file" accept="application/pdf,.pdf" style="display:none" />
   `;
 
   document.body.appendChild(orb);
@@ -705,6 +810,78 @@
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") send(input.value);
   });
+
+  // ---- Study a PDF ----------------------------------------------------------
+  const PDF_OPENER_PROMPT =
+    "(The user just handed you a PDF/document to study together. Look at the beginning of it. In ONE or two warm spoken sentences, say what it looks like it's about, then ask how they want to use it — read it together, summarize it, or quiz them. Don't dump the contents back at them.)";
+
+  async function loadStudyPdf(file) {
+    if (!file) return;
+    const note = addBubble("roody", `📄 Reading ${file.name}…`);
+    setMic("thinking");
+    try {
+      const buf = await file.arrayBuffer();
+      const text = await extractPdfText(buf);
+      if (!text || text.length < 40) {
+        studyDoc = null;
+        note.textContent =
+          `Hmm, I couldn't pull readable text out of ${file.name} — it's probably a scanned/image PDF. Copy-paste the part you want and I'll study it with you.`;
+        setMic("idle");
+        return;
+      }
+      studyDoc = { name: file.name, text };
+      pageCache = text;
+      seenLines.clear();
+      const sub = panel.querySelector("#roody-sub");
+      if (sub) sub.textContent = `📄 studying ${file.name}`;
+      note.textContent =
+        `📄 Got it — I read ${file.name} (${text.length.toLocaleString()} characters). Ask me anything, or say "quiz me."`;
+      const thinking = addBubble("roody", "…");
+      callRoody(PDF_OPENER_PROMPT, text.slice(0, 2500), (t) => (thinking.textContent = t), () => setMic("idle"));
+    } catch (e) {
+      studyDoc = null;
+      note.textContent = `I couldn't open that file (${(e && e.message) || "error"}). Mind trying again?`;
+      setMic("idle");
+    }
+  }
+
+  const pdfBtn = panel.querySelector("#roody-pdf");
+  const pdfFile = panel.querySelector("#roody-pdf-file");
+  if (pdfBtn && pdfFile) {
+    pdfBtn.addEventListener("click", () => pdfFile.click());
+    pdfFile.addEventListener("change", () => {
+      const f = pdfFile.files && pdfFile.files[0];
+      pdfFile.value = "";
+      if (f) loadStudyPdf(f);
+    });
+  }
+  // Drag a PDF straight onto the panel.
+  panel.addEventListener("dragover", (e) => { e.preventDefault(); });
+  panel.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f && /pdf/i.test((f.type || "") + " " + (f.name || ""))) loadStudyPdf(f);
+  });
+
+  // If Roody was summoned on a PDF URL, try to read it automatically (best
+  // effort — Chrome may not inject us into its PDF viewer, and that's fine:
+  // the 📄 button always works).
+  (async function autoStudyPdf() {
+    try {
+      const looksPdf =
+        (document.contentType || "").toLowerCase() === "application/pdf" ||
+        /\.pdf($|\?|#)/i.test(location.pathname + location.search);
+      if (!looksPdf) return;
+      const buf = await (await fetch(location.href)).arrayBuffer();
+      const text = await extractPdfText(buf);
+      if (text && text.length > 40) {
+        studyDoc = { name: document.title || "this PDF", text };
+        pageCache = text;
+        const sub = panel.querySelector("#roody-sub");
+        if (sub) sub.textContent = `📄 studying this PDF`;
+      }
+    } catch (_) {}
+  })();
 
   // ---- Live watching: react when new content appears -----------------------
   const REACTION_PROMPT =
