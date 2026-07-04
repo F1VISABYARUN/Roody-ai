@@ -355,51 +355,14 @@
   document.body.appendChild(orb);
   document.body.appendChild(panel);
 
-  // ---- Draggable orb (any corner / edge of the screen) ---------------------
-  // Click = open panel. Drag = move it. Position persists across pages.
-  (function makeDraggable() {
-    let down = null;
-    let moved = false;
-
-    chrome.storage.local.get(["roodyOrbPos"]).then(({ roodyOrbPos }) => {
-      if (roodyOrbPos) applyOrbPos(roodyOrbPos);
-    });
-
-    function applyOrbPos(p) {
-      orb.style.right = "auto";
-      orb.style.bottom = "auto";
-      orb.style.left = p.left + "px";
-      orb.style.top = p.top + "px";
-    }
-
-    orb.addEventListener("mousedown", (e) => {
-      const r = orb.getBoundingClientRect();
-      down = { sx: e.clientX, sy: e.clientY, ox: r.left, oy: r.top };
-      moved = false;
-      e.preventDefault();
-    });
-    window.addEventListener("mousemove", (e) => {
-      if (!down) return;
-      const dx = e.clientX - down.sx;
-      const dy = e.clientY - down.sy;
-      if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return; // tiny = still a click
-      moved = true;
-      const w = orb.offsetWidth, h = orb.offsetHeight;
-      const left = Math.max(4, Math.min(window.innerWidth - w - 4, down.ox + dx));
-      const top = Math.max(4, Math.min(window.innerHeight - h - 4, down.oy + dy));
-      applyOrbPos({ left, top });
-    });
-    window.addEventListener("mouseup", () => {
-      if (!down) return;
-      if (moved) {
-        const r = orb.getBoundingClientRect();
-        chrome.storage.local.set({ roodyOrbPos: { left: r.left, top: r.top } });
-      }
-      down = null;
-      setTimeout(() => (moved = false), 50);
-    });
-    // Swallow the click that follows a drag so it doesn't accidentally open.
-    orb.addEventListener("click", (e) => { if (moved) e.stopImmediatePropagation(); }, true);
+  // ---- Orb anchored bottom-right, next to the panel ------------------------
+  // In summon mode the orb and panel appear together on click, so the orb
+  // stays locked in its corner (CSS default) beside the panel. The old
+  // drag-to-move feature persisted a mid-page position that split the orb
+  // away from the always-bottom-right panel — the "two orbs / floating orb"
+  // bug. We clear any stale saved position so nobody stays stuck with it.
+  (function anchorOrb() {
+    chrome.storage.local.remove("roodyOrbPos").catch(() => {});
   })();
 
   // Honor the "Roody is off" master switch — hide everything and bail.
