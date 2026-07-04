@@ -189,6 +189,7 @@
   // the content-stream operators. Works on most text PDFs; scanned/image PDFs
   // have no text to extract, so we fall back to "paste it and I'll study it."
   let studyDoc = null; // { name, text } once a PDF is loaded for study
+  let chatContentFound = false; // real chat text extracted → suppress stale tab title
 
   // Byte-accurate string so file offsets line up with the raw bytes.
   function pdfLatin1(bytes) {
@@ -322,7 +323,19 @@
       ).forEach((el) => el.remove());
       return clone;
     }
-    // Last resort — body
+    // Last resort — body, but strip sidebars first. On Perplexity-style apps
+    // the left panel lists the user's OLD searches; reading it as page text
+    // made Roody talk about last week's query instead of the current answer.
+    try {
+      const clone = document.body.cloneNode(true);
+      clone.querySelectorAll(
+        "nav, aside, header, footer, script, style, noscript, " +
+        "[role='navigation'], [role='banner'], [role='complementary'], " +
+        "[class*='sidebar'], [class*='side-bar'], [class*='history'], " +
+        ".menu, .nav, .navbar, [aria-hidden='true']"
+      ).forEach((el) => el.remove());
+      if ((clone.innerText || "").trim().length > 200) return clone;
+    } catch (_) {}
     return document.body;
   }
 
@@ -336,10 +349,16 @@
       const host = location.hostname;
       const chatSite = CHAT_CONTAINERS.find((c) => c.host === host);
       let text = "";
+      chatContentFound = false;
       if (chatSite) {
         const container = document.querySelector(chatSite.sel);
         if (container && container.innerText) {
           text = container.innerText.trim();
+          // On chat/search sites the tab title is a stale label (usually the
+          // user's FIRST query). When we got real conversation text, the
+          // title must not be sent — it makes the brain claim the page is
+          // about something it stopped being about an hour ago.
+          chatContentFound = text.length > 200;
         }
       }
       if (!text) {
@@ -476,14 +495,64 @@
   document.body.appendChild(orb);
   document.body.appendChild(panel);
 
-  // ---- Orb anchored bottom-right, next to the panel ------------------------
-  // In summon mode the orb and panel appear together on click, so the orb
-  // stays locked in its corner (CSS default) beside the panel. The old
-  // drag-to-move feature persisted a mid-page position that split the orb
-  // away from the always-bottom-right panel — the "two orbs / floating orb"
-  // bug. We clear any stale saved position so nobody stays stuck with it.
-  (function anchorOrb() {
-    chrome.storage.local.remove("roodyOrbPos").catch(() => {});
+  // ---- Drag Roody anywhere — the panel rides along --------------------------
+  // The old drag bug was that only the orb moved while the panel stayed
+  // bottom-right ("floating orb"). Now one place() moves BOTH: the panel
+  // docks above the orb wherever it lands, flipping below when there's no
+  // room. Position persists across pages; a sub-5px pointer wobble still
+  // counts as a click, so tap-to-open keeps working.
+  let orbPos = null; // last custom {x, y}; null = default CSS corner
+  function placeRoody(x, y) {
+    const W = window.innerWidth, H = window.innerHeight;
+    const ow = orb.offsetWidth || 52, oh = orb.offsetHeight || 52;
+    x = Math.max(4, Math.min(W - ow - 4, x));
+    y = Math.max(4, Math.min(H - oh - 4, y));
+    orb.style.left = x + "px"; orb.style.top = y + "px";
+    orb.style.right = "auto"; orb.style.bottom = "auto";
+    const pw = panel.offsetWidth || 340;
+    const ph = panel.offsetHeight || Math.min(H * 0.7, 460);
+    let px = Math.max(4, Math.min(W - pw - 4, x + ow - pw));
+    let py = y - ph - 12; // dock above the orb…
+    if (py < 4) py = Math.min(H - ph - 4, y + oh + 12); // …or below at the top edge
+    py = Math.max(4, py);
+    panel.style.left = px + "px"; panel.style.top = py + "px";
+    panel.style.right = "auto"; panel.style.bottom = "auto";
+    orbPos = { x, y };
+  }
+  (function makeDraggable() {
+    let sx = 0, sy = 0, ox = 0, oy = 0, dragging = false, moved = false;
+    orb.addEventListener("pointerdown", (e) => {
+      dragging = true; moved = false;
+      sx = e.clientX; sy = e.clientY;
+      const r = orb.getBoundingClientRect(); ox = r.left; oy = r.top;
+      try { orb.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    orb.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      if (!moved && Math.hypot(dx, dy) < 5) return;
+      moved = true;
+      placeRoody(ox + dx, oy + dy);
+    });
+    orb.addEventListener("pointerup", (e) => {
+      dragging = false;
+      try { orb.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (moved) chrome.storage.local.set({ roodyOrbPos: orbPos }).catch(() => {});
+    });
+    // Registered BEFORE the open/close toggle listener → a drag-release never
+    // also toggles the panel.
+    orb.addEventListener("click", (e) => {
+      if (moved) { e.stopImmediatePropagation(); moved = false; }
+    });
+    // The panel is display:none while closed, so it can't be measured at drag
+    // time. Re-dock it the moment it becomes visible.
+    new MutationObserver(() => {
+      if (orbPos && panel.style.display !== "none") placeRoody(orbPos.x, orbPos.y);
+    }).observe(panel, { attributes: true, attributeFilter: ["style"] });
+    // Restore last saved spot.
+    chrome.storage.local.get("roodyOrbPos").then(({ roodyOrbPos: p }) => {
+      if (p && typeof p.x === "number" && typeof p.y === "number") placeRoody(p.x, p.y);
+    }).catch(() => {});
   })();
 
   // Honor the "Roody is off" master switch — hide everything and bail.
@@ -766,7 +835,7 @@
 
     try {
       chrome.runtime.sendMessage(
-        { type: "roody:ask", payload: { userText, pageContext, history, mode, site: location.hostname, title: document.title } },
+        { type: "roody:ask", payload: { userText, pageContext, history, mode, site: location.hostname, title: chatContentFound ? "" : document.title } },
         (res) => {
           if (chrome.runtime.lastError) {
             rlog(`⚠ ask failed: ${chrome.runtime.lastError.message}`);

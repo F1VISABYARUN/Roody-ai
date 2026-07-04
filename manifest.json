@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Roody — your AI voice companion",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Summon an AI friend on any page. It reads along, studies PDFs with you, and talks by voice. Loads only when clicked.",
   "permissions": [
     "storage",
@@ -19,6 +19,14 @@
     "service_worker": "src/background.js"
   },
   "options_page": "src/options.html",
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+R"
+      },
+      "description": "Summon / hide Roody on this page"
+    }
+  },
   "action": {
     "default_title": "Summon Roody on this page",
     "default_icon": {

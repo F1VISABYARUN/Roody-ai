@@ -1,5 +1,6 @@
 // Roody's brain-stem: receives messages from the orb, calls Claude, sends the reply back.
 try { importScripts("persona.js"); } catch (_) { importScripts("src/persona.js"); }
+try { importScripts("sanitize.js"); } catch (_) { importScripts("src/sanitize.js"); }
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 // Roody just reads and chats — Sonnet is the sweet spot (smart + ~40% cheaper
@@ -285,20 +286,10 @@ async function askRoody({ userText, pageContext, history, mode, site, title }) {
   return { ok: true, text: sanitizeReply(finalText) || "…" };
 }
 
-// Catch obvious LLM truncation — replies that end mid-word or with a dangling
-// contraction. When this happens, tack on a graceful ending so the user hears
-// a complete thought instead of "Okay, we'" hanging in the air.
+// Reply hygiene lives in sanitize.js (shared with the eval agent so every
+// leak we fix becomes a permanent regression test).
 function sanitizeReply(txt) {
-  if (!txt) return txt;
-  const trimmed = txt.trim();
-  // Ends properly with punctuation → looks complete
-  if (/[.!?…"'\)\]]$/.test(trimmed)) return trimmed;
-  // Ends with a contraction apostrophe or dash → truncated
-  if (/[a-z]['\-]$/i.test(trimmed) || /\b(I|we|you|it|they|he|she)$/i.test(trimmed)) {
-    return trimmed + "… let me try that again.";
-  }
-  // Otherwise just add a period so TTS reads it as a finished sentence
-  return trimmed + ".";
+  return self.RoodySanitize.sanitizeReply(txt);
 }
 
 // ---- ElevenLabs voice (premium TTS — most human, sub-second) -------------

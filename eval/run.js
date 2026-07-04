@@ -1,0 +1,136 @@
+// Roody's eval agent — replays every known failure against the shared logic
+// so a bug we fixed can never quietly come back. Run with: node eval/run.js
+// Every user-reported screenshot becomes a case here. Zero dependencies.
+
+const { sanitizeReply, stripInternalHeaders } = require("../src/sanitize.js");
+
+let pass = 0;
+let fail = 0;
+function check(name, got, want) {
+  const ok = got === want;
+  if (ok) { pass++; console.log(`  ✅ ${name}`); }
+  else {
+    fail++;
+    console.log(`  ❌ ${name}`);
+    console.log(`     got:  ${JSON.stringify(got)}`);
+    console.log(`     want: ${JSON.stringify(want)}`);
+  }
+}
+function checkTrue(name, cond, detail) {
+  if (cond) { pass++; console.log(`  ✅ ${name}`); }
+  else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
+}
+
+console.log("\n— Reply hygiene (src/sanitize.js) —");
+
+// CASE: Perplexity leak, 2026-07-04 screenshot. Roody spoke its internal
+// notebook header out loud: '[1:08:29 AM] www.perplexity.ai · "…" — RECAP: …'
+check(
+  "notebook header + RECAP line is stripped (Perplexity leak)",
+  sanitizeReply(
+    '[1:08:29 AM] www.perplexity.ai · "i got b1b2 fifa for both my wife and husband…" — RECAP: The user was asking Roody to analyze the page.\n\n' +
+    "Oh, you are absolutely right! My bad, I misread that."
+  ),
+  "Oh, you are absolutely right! My bad, I misread that."
+);
+
+// CASE: YouTube leak, same day. Replies opened with a bare "RECAP: …" line.
+check(
+  "bare RECAP: opener line is stripped (YouTube leak)",
+  sanitizeReply(
+    "RECAP: You're watching a FarzaTV live stream and asked what he's saying.\n\n" +
+    "Okay, so I can't actually hear the video — I can only read the page text."
+  ),
+  "Okay, so I can't actually hear the video — I can only read the page text."
+);
+
+check(
+  "stacked header lines are all stripped",
+  sanitizeReply(
+    "[12:27:45 AM] claude.ai · \"Claude Code\"\nRECAP: The user was starting a new conversation.\n\nHey! What are we looking at?"
+  ),
+  "Hey! What are we looking at?"
+);
+
+check(
+  "a reply that is ONLY a recap never becomes silence",
+  stripInternalHeaders("RECAP: You're watching a live stream."),
+  "RECAP: You're watching a live stream."
+);
+
+check(
+  "normal reply passes through untouched",
+  sanitizeReply("Haha okay, bold question. So — what's the plan?"),
+  "Haha okay, bold question. So — what's the plan?"
+);
+
+check(
+  "mid-reply timestamps are NOT stripped (only leading headers)",
+  sanitizeReply("The stream started at [1:08:29 AM] according to the page."),
+  "The stream started at [1:08:29 AM] according to the page."
+);
+
+console.log("\n— Truncation repair (pre-existing behavior stays fixed) —");
+
+check(
+  "dangling contraction gets a graceful ending",
+  sanitizeReply("Okay, we'"),
+  "Okay, we'… let me try that again."
+);
+check(
+  "unpunctuated ending gets a period",
+  sanitizeReply("That looks like a solid plan to me"),
+  "That looks like a solid plan to me."
+);
+check(
+  "complete sentence is untouched",
+  sanitizeReply("That looks like a solid plan to me!"),
+  "That looks like a solid plan to me!"
+);
+
+console.log("\n— Persona guardrails present (src/persona.js) —");
+
+const fs = require("fs");
+const persona = fs.readFileSync(__dirname + "/../src/persona.js", "utf8");
+checkTrue(
+  "content-beats-title rule exists",
+  persona.includes("TRUST THE CONTENT, NOT THE TAB TITLE"),
+  "guardrail line missing from persona"
+);
+checkTrue(
+  "never-output-internal-formats rule exists",
+  persona.includes("NEVER OUTPUT INTERNAL FORMATS"),
+  "guardrail line missing from persona"
+);
+checkTrue(
+  "editor persona is in sync with src persona",
+  fs.readFileSync(__dirname + "/../editor/persona.js", "utf8").includes("TRUST THE CONTENT, NOT THE TAB TITLE"),
+  "regenerate editor/persona.js from src/persona.js"
+);
+
+console.log("\n— Extraction rules stay wired (src/content.js) —");
+
+const content = fs.readFileSync(__dirname + "/../src/content.js", "utf8");
+checkTrue(
+  "chat sites suppress the stale tab title",
+  content.includes("chatContentFound") && content.includes('title: chatContentFound ? "" : document.title'),
+  "title suppression removed from callRoody payload"
+);
+checkTrue(
+  "body fallback strips sidebars/history panels",
+  content.includes("[class*='sidebar']") && content.includes("[class*='history']"),
+  "sidebar stripping removed from findArticle"
+);
+checkTrue(
+  "articles are read from the TOP, chat sites from the tail",
+  content.includes("isChatSite") && content.includes("t.slice(0, 2200)"),
+  "footer-reading bug regressed in recentTask"
+);
+checkTrue(
+  "orb drag moves the panel too",
+  content.includes("placeRoody") && content.includes("panel.style.left"),
+  "panel no longer rides along with the orb"
+);
+
+console.log(`\n${fail === 0 ? "🎉" : "💥"} ${pass} passed, ${fail} failed\n`);
+process.exit(fail === 0 ? 0 : 1);
