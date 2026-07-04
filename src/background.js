@@ -416,13 +416,20 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
     })),
-    { role: "user", parts: [{ text: langInstr + voiceInstr + contextBlock + userText }] },
+    { role: "user", parts: [{ text: langInstr + voiceInstr + userText }] },
   ];
+
+  // Cache-friendly layout: the page/PDF context rides in systemInstruction —
+  // the byte-stable PREFIX of the prompt — instead of inside the newest user
+  // turn. Gemini 2.5's implicit caching (75% off re-read input tokens) only
+  // matches identical prefixes, so a static document (PDF study mode) gets
+  // cached after the first message; only history + the question change.
+  const system = (systemPrompt || self.ROODY_SYSTEM) + (contextBlock ? `\n\n${contextBlock}` : "");
 
   let routed;
   try {
     routed = await geminiFetch(model, {
-      systemInstruction: { parts: [{ text: systemPrompt || self.ROODY_SYSTEM }] },
+      systemInstruction: { parts: [{ text: system }] },
       contents,
       // thinkingBudget 0: Gemini 2.5 Flash is a thinking model — without this
       // it burns the tiny voice-token budget on invisible reasoning and then
