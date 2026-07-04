@@ -796,12 +796,27 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // a page injects the orb; later clicks toggle it. content.js does its own
 // privacy check (blocklisted domains / password / payment fields) and refuses
 // to attach on personal pages.
+// Open Roody's standalone Study tab — the escape hatch for pages we can't
+// inject the orb onto (PDF viewer, file://, chrome:// pages). If the current
+// tab is itself a PDF we can reach over the network, pass its URL so the
+// Study page auto-loads it.
+function openStudyTab(pdfUrl) {
+  let url = chrome.runtime.getURL("src/study.html");
+  if (pdfUrl && /^https?:\/\//.test(pdfUrl) && /\.pdf($|\?|#)/i.test(pdfUrl)) {
+    url += "?src=" + encodeURIComponent(pdfUrl);
+  }
+  chrome.tabs.create({ url });
+}
+
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab || !tab.id) return;
   const url = tab.url || "";
-  // Browser-internal pages can't run content scripts at all.
+  const looksPdf = /\.pdf($|\?|#)/i.test(url) || /^file:/.test(url);
+  // Browser-internal / file / PDF pages can't run content scripts. Instead of
+  // doing nothing, open Roody's Study tab so the user can still read a PDF.
   if (!/^https?:\/\//.test(url)) {
-    rlog(`⚠ can't summon on ${url.slice(0, 40) || "this page"} (browser page)`);
+    rlog(`📄 can't attach to ${url.slice(0, 40) || "this page"} — opening Study tab`);
+    openStudyTab(url);
     return;
   }
   // Already injected? Just toggle visibility.
@@ -816,7 +831,10 @@ chrome.action.onClicked.addListener(async (tab) => {
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["src/content.js"] });
     rlog(`🟠 summoned on ${new URL(url).hostname}`);
   } catch (e) {
-    rlog(`⚠ summon failed: ${e.message}`);
+    // Injection is blocked on Chrome's PDF viewer and a few hardened pages.
+    // Fall back to the Study tab so a PDF is still readable.
+    rlog(`⚠ summon failed: ${e.message}${looksPdf ? " — opening Study tab" : ""}`);
+    if (looksPdf) openStudyTab(url);
   }
 });
 
