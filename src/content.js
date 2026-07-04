@@ -211,9 +211,16 @@
     if (article && article.innerText && article.innerText.length > 300) return article;
     const main = document.querySelector("main");
     if (main && main.innerText && main.innerText.length > 300) {
-      // Strip common UI noise inside main
+      // Strip common UI noise inside main so Roody reads content, not chrome.
       const clone = main.cloneNode(true);
-      clone.querySelectorAll("nav, header, footer, aside, [role='navigation'], [role='banner'], [role='complementary'], .menu, .sidebar, button").forEach((el) => el.remove());
+      clone.querySelectorAll(
+        "nav, header, footer, aside, script, style, noscript, " +
+        "[role='navigation'], [role='banner'], [role='complementary'], " +
+        ".menu, .sidebar, .nav, .navbar, .footer, .header, .ad, .ads, " +
+        "[class*='cookie'], [class*='consent'], [class*='banner'], " +
+        "[class*='related'], [class*='recommend'], [class*='newsletter'], " +
+        "[aria-hidden='true'], button"
+      ).forEach((el) => el.remove());
       return clone;
     }
     // Last resort — body
@@ -281,7 +288,16 @@
   // The most recent task — tail of what's on screen. Cheap, focused.
   function recentTask() {
     const t = readPage();
-    return t ? t.slice(-2500) : "";
+    if (!t) return "";
+    // On AI chat sites the newest messages are at the BOTTOM → tail is right.
+    // On articles/docs/any normal page the tail is footer junk (references,
+    // "see also", cookie notices) — the actual subject is at the TOP. Reading
+    // the wrong end was why Roody greeted people about page footers.
+    const isChatSite = CHAT_CONTAINERS.some((c) => c.host === location.hostname);
+    if (isChatSite) return t.slice(-2500);
+    // Regular page: title + the opening of the content = what it's actually about.
+    const head = t.slice(0, 2200);
+    return (document.title ? `Page: ${document.title}\n\n` : "") + head;
   }
 
   // Incrementally capture new content as it appears — called by

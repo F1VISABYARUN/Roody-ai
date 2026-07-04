@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Roody — your AI voice companion",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "description": "Summon an AI friend on any page — it reads along and talks with you by voice. Loads only when clicked; avoids personal sites.",
   "permissions": [
     "storage",
