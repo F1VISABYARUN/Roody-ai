@@ -68,6 +68,7 @@
   }
 
   const history = []; // running chat between the human and Roody
+  let exchangeCount = 0; // total exchanges ever — history caps at 20, this doesn't
   const synth = window.speechSynthesis;
 
   // Tuning knobs.
@@ -440,8 +441,11 @@
   // Fires at most once per new material, and only after a real exchange.
   let lastRecapLen = 0;
   function maybeRecap() {
-    if (history.length < 2 || history.length === lastRecapLen) return;
-    lastRecapLen = history.length;
+    // Compare the monotonic exchange counter, NOT history.length — history is
+    // capped at 20, so its length stops changing mid-session and would block
+    // every recap after the 10th exchange.
+    if (exchangeCount < 1 || exchangeCount === lastRecapLen) return;
+    lastRecapLen = exchangeCount;
     try {
       chrome.runtime.sendMessage({
         type: "roody:recap",
@@ -657,6 +661,7 @@
           history.push({ role: "user", content: userText });
           history.push({ role: "assistant", content: text });
           if (history.length > 20) history.splice(0, history.length - 20);
+          exchangeCount++; // monotonic — history.length freezes at the 20-cap
         }
         if (noSpeak) {
           if (onSpoken) onSpoken();

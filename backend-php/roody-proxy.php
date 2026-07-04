@@ -39,6 +39,9 @@ if ($code === '' || $model === '' || $body === null) {
 if (!in_array($model, $ALLOWED_MODELS, true)) {
   http_response_code(400); echo json_encode(['error' => 'model-not-allowed']); exit;
 }
+if (!in_array($kind, ['brain', 'tts', 'stt'], true)) {
+  http_response_code(400); echo json_encode(['error' => 'bad-kind']); exit;
+}
 
 try {
   $pdo = new PDO(

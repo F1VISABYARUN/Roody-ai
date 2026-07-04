@@ -237,6 +237,9 @@ const server = http.createServer(async (req, res) => {
   const { kind, model, body } = payload;
 
   if (!code || !model || !body) return json(res, 400, { error: "missing-fields" });
+  // Strict kind whitelist — an unknown kind used to skip ALL counting while
+  // still forwarding to Gemini, letting any code holder drain the key.
+  if (!["brain", "tts", "stt"].includes(kind)) return json(res, 400, { error: "bad-kind" });
   if (!ALLOWED_MODELS.has(model)) return json(res, 400, { error: "model-not-allowed" });
   const info = codeInfo(code);
   if (!info) return json(res, 403, { error: "invalid-code" });
