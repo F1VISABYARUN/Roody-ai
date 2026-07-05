@@ -132,6 +132,36 @@ checkTrue(
   "panel no longer rides along with the orb"
 );
 
+console.log("\n— Thinking Partner: lead with substance, never deflect —");
+
+checkTrue(
+  "persona has the Thinking Partner / page-is-the-prompt rule",
+  persona.includes("THINKING PARTNER") && persona.includes("The page IS the prompt"),
+  "thinking-partner rule missing from persona"
+);
+checkTrue(
+  "persona bans the deflection replies from the logs",
+  persona.includes("What's on your mind?") && persona.includes("BANNED"),
+  "deflection ban missing from persona"
+);
+checkTrue(
+  "persona demands judgment over description",
+  persona.includes("JUDGING the page = valuable") || persona.includes("Lead with JUDGMENT"),
+  "judgment>description rule missing"
+);
+checkTrue(
+  "opener prompt leads with substance, not a question",
+  content.includes("single most USEFUL thing you notice") &&
+    !content.includes("then ask them one thing"),
+  "opener still deflects with a question"
+);
+checkTrue(
+  "PDF opener auto-decodes instead of asking how to use it",
+  content.includes("ONE key idea that matters most") &&
+    fs.readFileSync(__dirname + "/../src/study.js", "utf8").includes("ONE key idea that matters most"),
+  "PDF opener still asks 'how do you want to use it?'"
+);
+
 console.log("\n— Accurate ears (Whisper) wiring —");
 
 const server = fs.readFileSync(__dirname + "/../server/index.js", "utf8");

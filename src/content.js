@@ -576,7 +576,7 @@
 
   // Roody talks first: looks at JUST the latest task on the page and opens up.
   const OPENER_PROMPT =
-    "(The user just opened you. Look ONLY at the most recent thing on the page — their latest message and the latest answer. Open the conversation out loud: one warm, short line about what they're working on, then ask them one thing. One or two sentences, spoken. Don't summarize the whole page.)";
+    "(The user just opened you. Look at what's on their screen right now and say the single most USEFUL thing you notice — the point that matters, a problem you spot, or a sharp observation about what they're doing. Lead with that substance in one or two spoken sentences. Do NOT ask 'what are you working on?' or 'what's on your mind?' — you can already see. No filler, no whole-page summary.)";
 
   function openingHello() {
     const recent = recentTask();
@@ -882,7 +882,7 @@
 
   // ---- Study a PDF ----------------------------------------------------------
   const PDF_OPENER_PROMPT =
-    "(The user just handed you a PDF/document to study together. Look at the beginning of it. In ONE or two warm spoken sentences, say what it looks like it's about, then ask how they want to use it — read it together, summarize it, or quiz them. Don't dump the contents back at them.)";
+    "(The user just loaded a PDF to study. Immediately give the useful decode in 2-3 spoken sentences: what this document is, the ONE key idea that matters most, and one thing people usually get wrong or should focus on. Then, in a short half-sentence, offer to go deeper or quiz them. Lead with substance — do NOT ask 'how do you want to use it?')";
 
   async function loadStudyPdf(file) {
     if (!file) return;

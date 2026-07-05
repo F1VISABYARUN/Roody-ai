@@ -132,7 +132,7 @@
 
   // ---- Load a PDF -----------------------------------------------------------
   const OPENER =
-    "(The user just handed you a PDF/document to study together. Look at the beginning of it. In ONE or two warm spoken sentences, say what it looks like it's about, then ask how they want to use it — read it together, summarize it, or quiz them. Don't dump the contents back at them.)";
+    "(The user just loaded a PDF to study. Immediately give the useful decode in 2-3 spoken sentences: what this document is, the ONE key idea that matters most, and one thing people usually get wrong or should focus on. Then, in a short half-sentence, offer to go deeper or quiz them. Lead with substance — do NOT ask 'how do you want to use it?')";
 
   async function loadPdf(file) {
     if (!file) return;
