@@ -450,6 +450,29 @@
     captureTimer = setTimeout(() => { captureTimer = null; captureIncremental(); }, 800);
   }
 
+  // Detect the page type from cheap heuristics (URL + a couple of DOM signals)
+  // so the brain can act like the right expert. No LLM call, no cost — just a
+  // string the background maps to a mode instruction. Invisible to the user.
+  function detectMode() {
+    if (studyDoc) return "learning";
+    const host = location.hostname.replace(/^www\./, "");
+    const hp = host + location.pathname;
+    if (/(github\.com|gitlab\.com|bitbucket\.org|stackoverflow\.com|stackexchange\.com|codepen\.io|codesandbox\.io|replit\.com|jsfiddle\.net)/.test(host)) return "code";
+    if (/(arxiv\.org|scholar\.google|researchgate|semanticscholar|nature\.com|sciencedirect|ncbi\.nlm\.nih\.gov|ssrn\.com|papers\.ssrn)/.test(host)) return "research";
+    if (/(readthedocs|developer\.mozilla|devdocs\.io|^docs\.|\/docs\/)/.test(hp)) return "research";
+    if (/(docs\.google\.com\/document|notion\.so|substack\.com\/publish|overleaf\.com|hemingwayapp)/.test(hp)) return "writing";
+    if (/(ycombinator\.com|producthunt\.com|crunchbase\.com|pitchbook\.com|a16z\.com|firstround\.com)/.test(host)) return "founder";
+    const isChat = CHAT_CONTAINERS.some((c) => c.host === location.hostname);
+    if (!isChat) {
+      try {
+        if (document.querySelectorAll("pre code, .highlight, .CodeMirror, .monaco-editor, .cm-editor").length >= 3) return "code";
+        const ed = document.querySelector('[contenteditable="true"], textarea');
+        if (ed && ((ed.textContent || ed.value || "").length > 400)) return "writing";
+      } catch (_) {}
+    }
+    return "general";
+  }
+
   // Best context to send the brain — cached history + current screen.
   function buildContext() {
     captureIncremental();
@@ -835,7 +858,7 @@
 
     try {
       chrome.runtime.sendMessage(
-        { type: "roody:ask", payload: { userText, pageContext, history, mode, site: location.hostname, title: chatContentFound ? "" : document.title } },
+        { type: "roody:ask", payload: { userText, pageContext, history, mode, site: location.hostname, title: chatContentFound ? "" : document.title, pageMode: detectMode() } },
         (res) => {
           if (chrome.runtime.lastError) {
             rlog(`⚠ ask failed: ${chrome.runtime.lastError.message}`);

@@ -79,6 +79,24 @@ function langName(code) {
   return LANG_NAMES[short] || null;
 }
 
+// ---- Modes ----------------------------------------------------------------
+// content.js detects the page type from cheap heuristics (URL + DOM) and sends
+// a `pageMode`. We inject a short, spoken-appropriate instruction so Roody acts
+// like the right expert for the context — invisible to the user, no extra LLM
+// call, no cost change. Judgment-first, matching the Thinking Partner persona.
+const MODE_HINTS = {
+  code:
+    "CODE MODE: They're looking at code or an error. Hunt for the actual bug, the risky line, the edge case they'll hit — and if there's an error, point at the likely cause and where to look. Don't narrate what the code obviously does; find what's wrong or what's simpler.",
+  learning:
+    "LEARNING MODE: They're studying a document. Optimize for RETENTION, not coverage: the one idea that matters most, what people usually misunderstand, and a memory hook or analogy that makes it stick. Offer to quiz them.",
+  research:
+    "RESEARCH MODE: They're reading research or docs. Separate evidence from claims, flag what's strong vs weak, name the open question, and point to what's worth reading deeper. Don't just summarize.",
+  writing:
+    "WRITING MODE: They're writing. Be a sharp editor, not a cheerleader: the weak sentence, the missing argument, the stronger phrasing, the flow break. Judge clarity, don't praise.",
+  founder:
+    "FOUNDER MODE: They're working on product/startup material. Surface the real risk, the competitor, the moat gap, the objection an investor would raise. Be the honest co-founder who says the hard thing.",
+};
+
 // Build the full system prompt: base persona + active vibe overlay.
 function getSystemPrompt(vibe) {
   const overlay = (self.ROODY_VIBES && self.ROODY_VIBES[vibe]) || "";
@@ -108,7 +126,7 @@ function buildProfileBlock(profile) {
   return `About the user (what they told you about themselves):\n"${p.slice(0, 500)}"\n\n`;
 }
 
-async function askRoody({ userText, pageContext, history, mode, site, title }) {
+async function askRoody({ userText, pageContext, history, mode, site, title, pageMode }) {
   const { apiKey, xaiKey, model: settingsModel } = await getSettings();
   const { roodyVoiceCheapBrain, roodyLang, roodyVibe, roodyMemory, roodyProfile } = await chrome.storage.local.get(["roodyVoiceCheapBrain", "roodyLang", "roodyVibe", "roodyMemory", "roodyProfile"]);
   // Smart tiering: cheap model for everyday chatter, the user's FULL model
@@ -152,8 +170,10 @@ async function askRoody({ userText, pageContext, history, mode, site, title }) {
   //   dynamic part = memory (updates every turn → NOT cached)
   // The full string is still assembled for Gemini/Grok which don't cache the
   // same way.
-  const stableSystem = profileBlock + baseSystem;
-  const systemPrompt = profileBlock + memoryBlock + baseSystem;
+  // Mode hint sits with the stable prefix (stable per page → still caches).
+  const modeBlock = (pageMode && MODE_HINTS[pageMode]) ? MODE_HINTS[pageMode] + "\n\n" : "";
+  const stableSystem = profileBlock + modeBlock + baseSystem;
+  const systemPrompt = profileBlock + modeBlock + memoryBlock + baseSystem;
 
   // Gemini brain
   if (model && model.startsWith("gemini-")) {

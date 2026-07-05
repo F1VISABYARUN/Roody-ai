@@ -162,6 +162,31 @@ checkTrue(
   "PDF opener still asks 'how do you want to use it?'"
 );
 
+console.log("\n— Modes: act like the right expert per page —");
+
+const bg = fs.readFileSync(__dirname + "/../src/background.js", "utf8");
+checkTrue(
+  "background defines mode hints for code/learning/research/writing/founder",
+  ["code", "learning", "research", "writing", "founder"].every((m) => bg.includes(`  ${m}:\n`)),
+  "MODE_HINTS missing a mode"
+);
+checkTrue(
+  "background threads pageMode into the prompt",
+  bg.includes("pageMode }") && bg.includes("MODE_HINTS[pageMode]"),
+  "pageMode not wired into askRoody"
+);
+checkTrue(
+  "content.js detects mode from URL + DOM and sends it",
+  content.includes("function detectMode") && content.includes("pageMode: detectMode()"),
+  "detectMode missing or not sent"
+);
+checkTrue(
+  "studyDoc forces learning mode",
+  content.includes('if (studyDoc) return "learning"') &&
+    fs.readFileSync(__dirname + "/../src/study.js", "utf8").includes('pageMode: "learning"'),
+  "PDF study not pinned to learning mode"
+);
+
 console.log("\n— Accurate ears (Whisper) wiring —");
 
 const server = fs.readFileSync(__dirname + "/../server/index.js", "utf8");

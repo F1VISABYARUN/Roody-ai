@@ -117,6 +117,7 @@
             history,
             site: "study",
             title: studyDoc ? studyDoc.name : "Study",
+            pageMode: "learning",
           },
         },
         (res) => {
