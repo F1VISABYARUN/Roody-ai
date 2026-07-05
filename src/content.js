@@ -735,7 +735,7 @@
       if (chrome.runtime.lastError || !res || !res.ok || !res.audioBase64) {
         const why = (chrome.runtime.lastError && chrome.runtime.lastError.message) ||
                     (res && res.error) || "no response";
-        rlog(`🔈 ROBOTIC voice (warm TTS failed: ${String(why).slice(0, 120)})`);
+        rlog(`🔈 ROBOTIC voice (warm TTS failed: ${String(why).slice(0, 400)})`);
         if (!ttsWarned) {
           ttsWarned = true;
           addBubble(

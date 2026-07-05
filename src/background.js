@@ -618,9 +618,14 @@ async function geminiTTS(text) {
     }
     const resp = routed.resp;
     if (resp.ok) return { resp, via: routed.via };
-    const txt = (await resp.text()).slice(0, 160);
-    const transient = resp.status === 500 || resp.status === 503 || resp.status === 429;
-    rlog(`❌ TTS ${resp.status}${n > 1 ? " (retry)" : ""}: ${txt}`);
+    const txt = (await resp.text()).slice(0, 400);
+    // 429 = quota exhausted — a wall, not a flake. Retrying in 400ms just
+    // burns another request against an empty bucket; only 500/503 get a retry.
+    const transient = resp.status === 500 || resp.status === 503;
+    rlog(`❌ TTS ${resp.status}${n > 1 ? " (retry)" : ""} via ${routed.via === "own" ? "OWN key" : "invite-code proxy"}: ${txt}`);
+    if (resp.status === 429) {
+      rlog(`💳 voice quota exhausted on the ${routed.via === "own" ? "Gemini key in Settings" : "founder key on the proxy"} — text keeps working; voice needs billing/quota on that key`);
+    }
     return { transient, status: resp.status, error: `tts ${resp.status} ${txt}` };
   }
 
