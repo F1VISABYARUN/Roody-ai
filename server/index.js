@@ -20,6 +20,11 @@ const path = require("path");
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const ADMIN_KEY = process.env.ADMIN_KEY || "";
+// Optional: when set, invite-code STT is transcribed by OpenAI Whisper
+// (better ears — accents, Telugu, noisy rooms) instead of Gemini. The key
+// stays server-side; the extension never sees which engine transcribed.
+const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
+const OPENAI_STT_MODEL = process.env.OPENAI_STT_MODEL || "gpt-4o-mini-transcribe";
 const DAILY_LIMIT = parseInt(process.env.DAILY_LIMIT || "50", 10);
 const ENV_CODES = new Set(
   (process.env.ROODY_CODES || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
@@ -223,6 +228,7 @@ const server = http.createServer(async (req, res) => {
       codes_loaded: allCodes().filter((c) => !c.disabled).length,
       daily_limit: DAILY_LIMIT,
       key_set: !!GEMINI_KEY,
+      whisper: !!OPENAI_KEY,
     });
   }
   if (req.method !== "POST") return json(res, 405, { error: "method" });
@@ -262,6 +268,50 @@ const server = http.createServer(async (req, res) => {
     s.todayStt += 1; s.allStt += 1;
   }
   s.lastUsed = Date.now();
+
+  // STT via Whisper when an OpenAI key is configured. The extension sends the
+  // Gemini STT shape (audio as an inlineData part); we translate: pull the
+  // audio out, send it to OpenAI's transcription API, and wrap the transcript
+  // back in a Gemini-shaped response so the extension can't tell the
+  // difference. Falls through to Gemini if anything's off.
+  if (kind === "stt" && OPENAI_KEY) {
+    const part = (body.contents?.[0]?.parts || []).find((p) => p.inlineData);
+    if (part?.inlineData?.data) {
+      try {
+        const bytes = Buffer.from(part.inlineData.data, "base64");
+        const fd = new FormData();
+        fd.append("model", OPENAI_STT_MODEL);
+        fd.append(
+          "file",
+          new Blob([bytes], { type: part.inlineData.mimeType || "audio/wav" }),
+          /webm/i.test(part.inlineData.mimeType || "") ? "audio.webm" : "audio.wav"
+        );
+        const w = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+          method: "POST",
+          headers: { authorization: `Bearer ${OPENAI_KEY}` },
+          body: fd,
+        });
+        if (w.ok) {
+          const out = await w.json();
+          // Whisper bills per minute — read the duration from the WAV header
+          // (sample rate at byte 24, data size at 40) for the cost column.
+          try {
+            if (bytes.length > 44 && bytes.toString("ascii", 0, 4) === "RIFF") {
+              const rate = bytes.readUInt32LE(24);
+              const dataSize = bytes.readUInt32LE(40);
+              if (rate > 0) s.costUSD += (dataSize / (rate * 2) / 60) * 0.003;
+            }
+          } catch (_) {}
+          return json(res, 200, {
+            candidates: [{ content: { parts: [{ text: out.text || "" }] } }],
+          });
+        }
+        console.error(`whisper ${w.status}: ${(await w.text()).slice(0, 200)} — falling back to Gemini STT`);
+      } catch (e) {
+        console.error(`whisper unreachable (${e.message}) — falling back to Gemini STT`);
+      }
+    }
+  }
 
   // Forward to Gemini with the founder's key.
   let r, text;

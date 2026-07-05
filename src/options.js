@@ -18,6 +18,7 @@ const gkeyEl = $("gkey");
 const xkeyEl = $("xkey");
 const voiceEl = $("voice");
 const langEl = $("lang");
+const earsEl = $("ears");
 const ekeyEl = $("ekey");
 const evoiceEl = $("evoice");
 const evoiceCustomEl = $("evoicecustom");
@@ -56,7 +57,7 @@ chrome.storage.local
   .get([
     "roodyApiKey", "roodyModel", "roodyGeminiKey", "roodyXaiKey", "roodyElevenKey", "roodyElevenVoice",
     "roodyVoice", "roodyLang", "roodyVibe", "roodyWebSearch", "roodyEnabled", "roodyAutoChime", "roodyVoiceCheapBrain",
-    "roodyProfile", "roodyInviteCode", "roodyProxyUrl",
+    "roodyProfile", "roodyInviteCode", "roodyProxyUrl", "roodyEars",
   ])
   .then((s) => {
     if (s.roodyApiKey) keyEl.value = s.roodyApiKey;
@@ -64,6 +65,7 @@ chrome.storage.local
     if (s.roodyGeminiKey) gkeyEl.value = s.roodyGeminiKey;
     if (s.roodyXaiKey) xkeyEl.value = s.roodyXaiKey;
     if (s.roodyLang) langEl.value = s.roodyLang;
+    earsEl.value = s.roodyEars === "accurate" ? "accurate" : "browser";
     if (s.roodyVibe) vibeEl.value = s.roodyVibe;
     $("vibepreview").textContent = VIBE_PREVIEWS[vibeEl.value] || "";
     if (s.roodyElevenKey) ekeyEl.value = s.roodyElevenKey;
@@ -237,6 +239,7 @@ autoSaveKey(ekeyEl, "roodyElevenKey", $("estatus"));
 modelEl.addEventListener("change", () => chrome.storage.local.set({ roodyModel: modelEl.value }));
 voiceEl.addEventListener("change", () => chrome.storage.local.set({ roodyVoice: voiceEl.value }));
 langEl.addEventListener("change", () => chrome.storage.local.set({ roodyLang: langEl.value }));
+earsEl.addEventListener("change", () => chrome.storage.local.set({ roodyEars: earsEl.value }));
 webEl.addEventListener("change", () => chrome.storage.local.set({ roodyWebSearch: webEl.checked }));
 chimeEl.addEventListener("change", () => chrome.storage.local.set({ roodyAutoChime: chimeEl.checked }));
 cheapVoiceEl.addEventListener("change", () => chrome.storage.local.set({ roodyVoiceCheapBrain: cheapVoiceEl.checked }));
@@ -432,6 +435,7 @@ $("save").addEventListener("click", async () => {
     roodyElevenVoice: elevenVoice,
     roodyVoice: voiceEl.value,
     roodyLang: langEl.value,
+    roodyEars: earsEl.value,
     roodyVibe: vibeEl.value,
     roodyWebSearch: webEl.checked,
     roodyAutoChime: chimeEl.checked,

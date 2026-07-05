@@ -132,5 +132,30 @@ checkTrue(
   "panel no longer rides along with the orb"
 );
 
+console.log("\n— Accurate ears (Whisper) wiring —");
+
+const server = fs.readFileSync(__dirname + "/../server/index.js", "utf8");
+checkTrue(
+  "proxy routes STT to Whisper when OPENAI_API_KEY is set",
+  server.includes("api.openai.com/v1/audio/transcriptions") && server.includes('kind === "stt" && OPENAI_KEY'),
+  "Whisper branch missing from server"
+);
+checkTrue(
+  "Whisper reply is wrapped in a Gemini-shaped response",
+  server.includes("candidates: [{ content: { parts: [{ text: out.text"),
+  "extension-compatible response shape missing"
+);
+checkTrue(
+  "content.js dispatches ears mode in startListening",
+  content.includes('earsMode === "accurate"') && content.includes("recStartListening"),
+  "accurate-ears dispatch missing"
+);
+checkTrue(
+  "options page exposes the ears setting",
+  fs.readFileSync(__dirname + "/../src/options.html", "utf8").includes('id="ears"') &&
+    fs.readFileSync(__dirname + "/../src/options.js", "utf8").includes("roodyEars"),
+  "ears setting missing from options"
+);
+
 console.log(`\n${fail === 0 ? "🎉" : "💥"} ${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

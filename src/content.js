@@ -1157,6 +1157,7 @@
 
   function startListening() {
     if (!voiceOn) return;
+    if (earsMode === "accurate") return recStartListening();
     if (!sr) sr = buildSR();
     if (!sr) {
       addBubble("roody", "This browser can't listen hands-free — you can still type to me.");
@@ -1167,9 +1168,147 @@
   }
 
   function stopListening() {
+    recStopListening();
     if (!sr) return;
     try { sr.onend = null; sr.stop(); } catch (_) {}
     sr = null;
+  }
+
+  // ---- Accurate ears (Whisper) ----------------------------------------------
+  // Instead of the browser's SpeechRecognition (instant but flaky with accents
+  // and multilingual speech), record the utterance with MediaRecorder, stop on
+  // ~1.5s of silence, and send the audio through the roody:stt route — Gemini
+  // on an own key, Whisper via the proxy when the server has an OpenAI key.
+  // Same loop the editor extension uses. Costs ~1s extra per turn; no interim
+  // transcripts, so voice barge-in doesn't work in this mode.
+  let earsMode = "browser"; // "browser" | "accurate" (roodyEars setting)
+  let recStream = null;
+  let recRecorder = null;
+  function hearingNote(text, hideAfterMs) {
+    const h = document.getElementById("roody-hearing");
+    const ht = document.getElementById("roody-hearing-text");
+    if (!h || !ht) return;
+    h.style.display = "block";
+    ht.textContent = text;
+    if (hideAfterMs) setTimeout(() => { h.style.display = "none"; }, hideAfterMs);
+  }
+  async function recStartListening() {
+    if (!voiceOn || recRecorder) return;
+    try {
+      recStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+    } catch (e) {
+      rlog(`⚠ accurate ears: mic denied (${e.message}) — falling back to browser ears`);
+      earsMode = "browser";
+      startListening();
+      return;
+    }
+    const chunks = [];
+    recRecorder = new MediaRecorder(recStream, { mimeType: "audio/webm;codecs=opus" });
+    recRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    recRecorder.onstop = async () => {
+      if (recStream) { recStream.getTracks().forEach((t) => t.stop()); recStream = null; }
+      recRecorder = null;
+      if (!voiceOn) return; // turned off mid-recording — discard
+      const blob = new Blob(chunks, { type: "audio/webm" });
+      if (blob.size < 4000) { // too tiny = silence → just listen again
+        if (voiceOn && !isRoodySpeaking) recStartListening();
+        return;
+      }
+      hearingNote("🎧 transcribing…");
+      try {
+        const wavB64 = await webmToWavB64(blob);
+        chrome.runtime.sendMessage(
+          { type: "roody:stt", payload: { audioBase64: wavB64, mime: "audio/wav" } },
+          (res) => {
+            if (chrome.runtime.lastError || !res || !res.ok) {
+              const why = (chrome.runtime.lastError && chrome.runtime.lastError.message) || (res && res.error) || "no response";
+              rlog(`⚠ accurate ears: STT failed (${String(why).slice(0, 200)})`);
+              hearingNote("🎧 didn't catch that — try again", 2500);
+              if (voiceOn && !isRoodySpeaking) recStartListening();
+              return;
+            }
+            const heard = (res.text || "").trim();
+            if (!heard) {
+              hearingNote("🎧 didn't catch that — try again", 2500);
+              if (voiceOn && !isRoodySpeaking) recStartListening();
+              return;
+            }
+            rlog(`🎧 HEARD (accurate): "${heard}"`);
+            hearingNote(`✓ heard: "${heard}"`, 3000);
+            onUserSpoke(heard);
+          }
+        );
+      } catch (e) {
+        rlog(`⚠ accurate ears: audio processing failed (${e.message})`);
+        if (voiceOn && !isRoodySpeaking) recStartListening();
+      }
+    };
+    recRecorder.start();
+    hearingNote("🎧 listening (accurate ears)…");
+    rlog("🎧 accurate ears: recording");
+    recWatchSilence(recStream);
+  }
+  // Stop recording after: speech was heard, then ~1.5s of quiet. Max 15s.
+  function recWatchSilence(stream) {
+    const actx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = actx.createMediaStreamSource(stream);
+    const analyser = actx.createAnalyser();
+    analyser.fftSize = 2048;
+    src.connect(analyser);
+    const buf = new Float32Array(analyser.fftSize);
+    let heardSpeech = false;
+    let quietSince = 0;
+    const startedAt = Date.now();
+    const tick = () => {
+      if (!recRecorder || recRecorder.state !== "recording") {
+        try { actx.close(); } catch (_) {}
+        return;
+      }
+      analyser.getFloatTimeDomainData(buf);
+      let rms = 0;
+      for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
+      rms = Math.sqrt(rms / buf.length);
+      const now = Date.now();
+      if (rms > 0.015) { heardSpeech = true; quietSince = 0; }
+      else if (heardSpeech && !quietSince) quietSince = now;
+      const longQuiet = heardSpeech && quietSince && now - quietSince > 1500;
+      const tooLong = now - startedAt > 15000;
+      if (longQuiet || tooLong) {
+        try { actx.close(); } catch (_) {}
+        try { recRecorder.stop(); } catch (_) {}
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    tick();
+  }
+  function recStopListening() {
+    if (recRecorder && recRecorder.state === "recording") {
+      const r = recRecorder;
+      recRecorder = null; // onstop sees null → discards
+      try { r.onstop = null; r.stop(); } catch (_) {}
+    }
+    if (recStream) { recStream.getTracks().forEach((t) => t.stop()); recStream = null; }
+    recRecorder = null;
+  }
+  // Decode whatever MediaRecorder produced into mono 16-bit WAV base64 — the
+  // format both Gemini STT and Whisper reliably accept.
+  async function webmToWavB64(blob) {
+    const arrayBuf = await blob.arrayBuffer();
+    const actx = new (window.AudioContext || window.webkitAudioContext)();
+    const audio = await actx.decodeAudioData(arrayBuf);
+    const ch = audio.getChannelData(0); // mono
+    const rate = audio.sampleRate;
+    const pcm = new Uint8Array(ch.length * 2);
+    const view = new DataView(pcm.buffer);
+    for (let i = 0; i < ch.length; i++) {
+      const s = Math.max(-1, Math.min(1, ch[i]));
+      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    try { actx.close(); } catch (_) {}
+    return blobToBase64(pcm16ToWav(pcm, rate));
   }
 
   // Cheap echo filter: was that 'user speech' actually Roody's voice echoing
@@ -1242,7 +1381,7 @@
 
   async function voiceTurnOn() {
     if (voiceOn) return;
-    if (!SR) {
+    if (!SR && earsMode !== "accurate") {
       rlog("❌ Can't turn voice on — no SpeechRecognition support");
       addBubble("roody", "This browser can't do hands-free voice — try Chrome. You can still type to me.");
       return;
@@ -1399,10 +1538,11 @@
 
   // ---- Boot -----------------------------------------------------------------
   chrome.storage.local
-    .get(["roodyAutoChime", "roodyGeminiKey", "roodyElevenKey", "roodyInviteCode", "roodyEnabled", "roodyLang"])
+    .get(["roodyAutoChime", "roodyGeminiKey", "roodyElevenKey", "roodyInviteCode", "roodyEnabled", "roodyLang", "roodyEars"])
     .then((s) => {
       if (typeof s.roodyAutoChime === "boolean") autoChime = s.roodyAutoChime;
       if (s.roodyLang) srLang = s.roodyLang;
+      if (s.roodyEars === "accurate") earsMode = "accurate";
       geminiVoice = !!(s.roodyElevenKey || s.roodyGeminiKey || s.roodyInviteCode);
       applyEnabled(s.roodyEnabled !== false); // default on
       reflectListenState();
@@ -1445,6 +1585,11 @@
       if (changes.roodyAutoChime) {
         autoChime = changes.roodyAutoChime.newValue === true;
         rlog(`🔔 auto-chime ${autoChime ? "ON" : "OFF"} (picked up live)`);
+      }
+      if (changes.roodyEars) {
+        earsMode = changes.roodyEars.newValue === "accurate" ? "accurate" : "browser";
+        rlog(`👂 ears mode: ${earsMode} (picked up live)`);
+        if (voiceOn) { stopListening(); startListening(); }
       }
     });
   }).catch((e) => { rlog(`⚠ boot failed: ${e.message}`); });
