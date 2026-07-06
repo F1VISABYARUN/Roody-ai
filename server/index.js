@@ -22,6 +22,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto"); // built-in — zero new deps
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const ADMIN_KEY = process.env.ADMIN_KEY || "";
@@ -62,7 +63,7 @@ const PRICE = {
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "content-type",
+  "Access-Control-Allow-Headers": "content-type, authorization",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
@@ -70,6 +71,8 @@ const CORS = {
 const DATA_FILE = path.join(process.env.DATA_DIR || __dirname, "roody-data.json");
 let dyn = { codes: {} }; // { "ROODY-XXXX": { name, limit, disabled, created } }
 try { dyn = JSON.parse(fs.readFileSync(DATA_FILE, "utf8")); } catch (_) {}
+if (!dyn.users) dyn.users = {};       // { email: { name, invite_code, plan, joined_at, tokens:[{tok(sha256),exp}] } }
+if (!dyn.waitlist) dyn.waitlist = []; // [{ email, name, source, created_at }]
 function saveDyn() {
   try { fs.writeFileSync(DATA_FILE, JSON.stringify(dyn, null, 2)); } catch (e) { console.error("save failed:", e.message); }
 }
@@ -102,6 +105,38 @@ function mintCode() {
   let s = "";
   for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
   return "ROODY-" + s;
+}
+
+// ---- User accounts & waitlist (zero-dependency, stored in roody-data.json) --
+// Designed with Antigravity, hardened here: tokens are stored as sha256 HASHES
+// (a leaked data file must not hand out live sessions), inputs are validated,
+// and every list has a growth cap so a script can't bloat the JSON file.
+const WAITLIST_CAP = 5000;
+const ACCOUNTS_PER_CODE = 10;
+const TOKENS_PER_USER = 5;
+function validEmail(e) {
+  return typeof e === "string" && e.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
+}
+function makeToken() { return crypto.randomBytes(32).toString("hex"); }
+function hashTok(t) { return crypto.createHash("sha256").update(t).digest("hex"); }
+function tokenExpiry() { return Date.now() + 30 * 24 * 60 * 60 * 1000; } // 30 days
+function userForToken(token) {
+  if (!token) return null;
+  const h = hashTok(token);
+  for (const u of Object.values(dyn.users)) {
+    const t = (u.tokens || []).find((t) => t.tok === h && t.exp > Date.now());
+    if (t) return u;
+  }
+  return null;
+}
+function grantToken(user) {
+  const token = makeToken();
+  user.tokens = [...(user.tokens || []).filter((t) => t.exp > Date.now()), { tok: hashTok(token), exp: tokenExpiry() }]
+    .slice(-TOKENS_PER_USER); // cap sessions per user
+  return token;
+}
+function bearerToken(req) {
+  return (req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
 }
 
 // ---- Usage stats (in-memory; metadata only, never conversation content) ----
@@ -256,7 +291,20 @@ ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}
   <button>Generate</button>
 </form>
 <table><tr><th>Code</th><th>Name</th><th>Brain · Voice</th><th>Today</th><th>TTS · STT</th><th>All-time</th><th>Est. cost</th><th>Last used</th><th></th></tr>${rows}</table>
-<p style="color:#a89880;font-size:12px;margin-top:16px">Metadata only — conversations are never stored. Panel-minted codes persist to roody-data.json (survives restarts; a full redeploy may reset them — keep VIP codes in the ROODY_CODES env var too). Auto-refreshes every 60s.</p>
+
+<h2 style="margin-top:28px;color:#cbb59c;font-size:17px">👥 Users (${Object.keys(dyn.users || {}).length})</h2>
+<table><tr><th>Email</th><th>Name</th><th>Code</th><th>Plan</th><th>Joined</th></tr>
+${Object.values(dyn.users || {}).slice(-50).map((v) =>
+    `<tr><td>${esc(v.email)}</td><td>${esc(v.name || "—")}</td><td>${esc(v.invite_code)}</td><td>${esc(v.plan || "free")}</td><td>${new Date(v.joined_at).toLocaleString()}</td></tr>`
+  ).join("") || '<tr><td colspan="5" style="color:#a89880">No users yet</td></tr>'}</table>
+
+<h2 style="margin-top:28px;color:#cbb59c;font-size:17px">📬 Waitlist (${(dyn.waitlist || []).length})</h2>
+<table><tr><th>Email</th><th>Name</th><th>Source</th><th>Joined</th></tr>
+${(dyn.waitlist || []).slice(-50).reverse().map((w) =>
+    `<tr><td>${esc(w.email)}</td><td>${esc(w.name || "—")}</td><td>${esc(w.source || "—")}</td><td>${new Date(w.created_at).toLocaleString()}</td></tr>`
+  ).join("") || '<tr><td colspan="4" style="color:#a89880">Empty</td></tr>'}</table>
+
+<p style="color:#a89880;font-size:12px;margin-top:16px">Metadata only — conversations are never stored. Panel-minted codes, users and the waitlist persist to roody-data.json (survives restarts; a full redeploy may reset them — set DATA_DIR in hPanel to a persistent folder, and keep VIP codes in the ROODY_CODES env var too). Auto-refreshes every 60s.</p>
 </body></html>`;
 }
 
@@ -266,6 +314,44 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET") {
     const u = new URL(req.url, "http://x");
+
+    // User portal page (same serve-from-site pattern as /privacy and /roody).
+    if (u.pathname === "/portal" || u.pathname === "/portal.html") {
+      try {
+        const html = fs.readFileSync(path.join(__dirname, "..", "site", "portal.html"));
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        return res.end(html);
+      } catch (_) {
+        return json(res, 404, { error: "portal-not-found" });
+      }
+    }
+
+    // Profile + usage for logged-in portal users. Separate path from the
+    // extension's /me?code= endpoint, which must never change shape.
+    if (u.pathname === "/me/profile") {
+      const user = userForToken(bearerToken(req));
+      if (!user) return json(res, 401, { error: "not-logged-in" });
+      const s = statFor(user.invite_code);
+      const info = codeInfo(user.invite_code);
+      return json(res, 200, {
+        ok: true,
+        user: {
+          email: user.email, name: user.name || null, plan: user.plan || "free",
+          invite_code: user.invite_code, joined_at: user.joined_at,
+        },
+        usage: {
+          today: {
+            brain_calls: s.todayBrain, tts_calls: s.todayTts, stt_calls: s.todayStt,
+            daily_limit: info?.limit || DAILY_LIMIT,
+            remaining: Math.max(0, (info?.limit || DAILY_LIMIT) - s.todayBrain),
+          },
+          allTime: {
+            brain_calls: s.allBrain, in_tokens: s.inTok, out_tokens: s.outTok,
+            cost_usd: s.costUSD.toFixed(4),
+          },
+        },
+      });
+    }
 
     // User-facing usage check — powers the dashboard inside the extension.
     if (u.pathname === "/me") {
@@ -343,6 +429,74 @@ const server = http.createServer(async (req, res) => {
     });
   }
   if (req.method !== "POST") return json(res, 405, { error: "method" });
+
+  // ---- Accounts & waitlist (POST) — each route returns; anything else falls
+  // through to the AI proxy below, untouched. ---------------------------------
+  const pu = new URL(req.url, "http://x");
+
+  if (pu.pathname === "/auth/register") {
+    let b; try { b = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "bad-json" }); }
+    const em = (b?.email || "").trim().toLowerCase();
+    const code = (b?.invite_code || "").trim().toUpperCase();
+    if (!validEmail(em)) return json(res, 400, { error: "valid email required" });
+    if (!code) return json(res, 400, { error: "invite_code required" });
+    if (!codeInfo(code)) return json(res, 403, { error: "invalid-invite-code" });
+    if (dyn.users[em]) return json(res, 409, { error: "email already registered — sign in instead" });
+    // One leaked code must not mint unlimited accounts.
+    const onCode = Object.values(dyn.users).filter((x) => x.invite_code === code).length;
+    if (onCode >= ACCOUNTS_PER_CODE) return json(res, 403, { error: "code-account-limit" });
+    dyn.users[em] = {
+      email: em, name: (b?.name || "").slice(0, 60) || null, invite_code: code,
+      plan: "free", joined_at: Date.now(), source: (b?.source || "").slice(0, 40) || null,
+      tokens: [],
+    };
+    const token = grantToken(dyn.users[em]);
+    saveDyn();
+    return json(res, 200, { ok: true, token, user: { email: em, name: dyn.users[em].name, plan: "free", invite_code: code } });
+  }
+
+  if (pu.pathname === "/auth/login") {
+    let b; try { b = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "bad-json" }); }
+    const em = (b?.email || "").trim().toLowerCase();
+    const code = (b?.invite_code || "").trim().toUpperCase();
+    if (!em || !code) return json(res, 400, { error: "email and invite_code required" });
+    const user = dyn.users[em];
+    if (!user || user.invite_code !== code) return json(res, 401, { error: "email or invite code doesn't match" });
+    const token = grantToken(user);
+    saveDyn();
+    return json(res, 200, { ok: true, token, user: { email: em, name: user.name, plan: user.plan, invite_code: code } });
+  }
+
+  if (pu.pathname === "/auth/logout") {
+    const raw = bearerToken(req);
+    const user = userForToken(raw);
+    if (user) {
+      const h = hashTok(raw);
+      user.tokens = (user.tokens || []).filter((t) => t.tok !== h);
+      saveDyn();
+    }
+    return json(res, 200, { ok: true });
+  }
+
+  if (pu.pathname === "/auth/update") {
+    const user = userForToken(bearerToken(req));
+    if (!user) return json(res, 401, { error: "not-logged-in" });
+    let b; try { b = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "bad-json" }); }
+    if (b?.name) { user.name = String(b.name).slice(0, 60); saveDyn(); }
+    return json(res, 200, { ok: true, name: user.name });
+  }
+
+  if (pu.pathname === "/waitlist") {
+    let b; try { b = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "bad-json" }); }
+    const em = (b?.email || "").trim().toLowerCase();
+    if (!validEmail(em)) return json(res, 400, { error: "valid email required" });
+    if (dyn.waitlist.length >= WAITLIST_CAP) return json(res, 503, { error: "waitlist-full" });
+    if (!dyn.waitlist.find((w) => w.email === em)) {
+      dyn.waitlist.push({ email: em, name: (b?.name || "").slice(0, 60) || null, source: (b?.source || "").slice(0, 40) || null, created_at: Date.now() });
+      saveDyn();
+    }
+    return json(res, 200, { ok: true, message: "You're on the list! 🐶" });
+  }
 
   let payload;
   try {

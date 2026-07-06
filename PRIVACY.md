@@ -11,9 +11,14 @@ This policy explains exactly what data Roody touches and where it goes.
 - Roody **refuses to run** on personal pages: banking, payments, email,
   messaging, social media, government sites, and any page containing
   password or payment-card fields.
-- We operate **no servers** and collect **no data**. Ever.
-- Page excerpts and your messages go **only** to the AI provider you
-  configured with **your own API key**.
+- Your **conversations are never stored** — not by us, not anywhere.
+- With your **own API key**, everything goes directly from your browser to
+  the AI provider — we're not in the middle at all.
+- With an **invite code**, requests pass through our small relay server,
+  which counts usage (calls, tokens) to enforce daily limits — it does
+  **not** store the content of your pages or messages.
+- Creating a **portal account** is optional; if you do, we store only your
+  email, display name, and invite code.
 
 ## What Roody reads
 
@@ -32,9 +37,25 @@ the AI service **you** selected in settings, using **your** API key:
 - xAI Grok (api.x.ai)
 - ElevenLabs voice (api.elevenlabs.io)
 
-Their handling of that data is governed by their own privacy policies. Roody
-adds no middleman: we have no servers, so we never see, store, or transmit
-any of your data.
+Their handling of that data is governed by their own privacy policies.
+
+**If you use your own API key,** Roody adds no middleman — requests go
+straight from your browser to the provider above.
+
+**If you use an invite code,** requests are relayed through our server so we
+can apply your code's daily limit. The relay forwards your request to the AI
+provider and passes the reply back. It keeps **usage metadata only** — call
+counts, token counts, and estimated cost per code. It never stores or logs
+the content of your messages, your pages, or your audio.
+
+## Optional portal account & waitlist
+
+You can use Roody with just an invite code and no account. If you choose to
+create a portal account (to see your usage at a glance), we store: your
+**email address**, an optional **display name**, your **invite code**, and
+hashed login tokens. If you join the waitlist, we store your email and
+optional name until we send you a code. We never sell or share these, and
+you can ask us to delete them at any time via the contact below.
 
 ## What stays on your device
 

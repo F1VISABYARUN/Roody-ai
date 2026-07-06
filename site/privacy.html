@@ -16,10 +16,11 @@
 <p>  messaging, social media, government sites, and any page containing</p>
 <p>  password or payment-card fields.</p>
 <ul>
-<li>We operate <b>no servers</b> and collect <b>no data</b>. Ever.</li>
-<li>Page excerpts and your messages go <b>only</b> to the AI provider you</li>
+<li>Your <b>conversations are never stored</b> — not by us, not anywhere.</li>
+<li>With your <b>own API key</b>, everything goes directly from your browser to the AI provider — we're not in the middle at all.</li>
+<li>With an <b>invite code</b>, requests pass through our small relay server, which counts usage (number of calls, token counts) to enforce daily limits — it does <b>not</b> store the content of your pages or messages.</li>
+<li>Creating a <b>portal account</b> is optional; if you do, we store only your email, display name, and invite code.</li>
 </ul>
-<p>  configured with <b>your own API key</b>.</p>
 <h2>What Roody reads</h2>
 <p>When — and only when — you summon Roody on a page, it reads the visible text</p>
 <p>of that page so the AI can discuss it with you. If you use voice, your</p>
@@ -34,9 +35,11 @@
 <li>xAI Grok (api.x.ai)</li>
 <li>ElevenLabs voice (api.elevenlabs.io)</li>
 </ul>
-<p>Their handling of that data is governed by their own privacy policies. Roody</p>
-<p>adds no middleman: we have no servers, so we never see, store, or transmit</p>
-<p>any of your data.</p>
+<p>Their handling of that data is governed by their own privacy policies.</p>
+<p><b>If you use your own API key,</b> Roody adds no middleman — requests go straight from your browser to the provider above.</p>
+<p><b>If you use an invite code,</b> requests are relayed through our server so we can apply your code's daily limit. The relay forwards your request to the AI provider and passes the reply back. It keeps <b>usage metadata only</b> — call counts, token counts, and estimated cost per code. It never stores or logs the content of your messages, your pages, or your audio.</p>
+<h2>Optional portal account &amp; waitlist</h2>
+<p>You can use Roody with just an invite code and no account. If you choose to create a portal account (to see your usage at a glance), we store: your <b>email address</b>, an optional <b>display name</b>, your <b>invite code</b>, and hashed login tokens. If you join the waitlist, we store your email and optional name until we send you a code. We never sell or share these, and you can ask us to delete them at any time via the contact below.</p>
 <h2>What stays on your device</h2>
 <p>Stored only in your browser's local extension storage:</p>
 <ul>

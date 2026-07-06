@@ -243,5 +243,48 @@ checkTrue(
   "admin brain/voice selection missing"
 );
 
+console.log("\n— Portal accounts & waitlist (Antigravity's plan + the 4 fixes) —");
+
+const srv2 = fs.readFileSync(__dirname + "/../server/index.js", "utf8");
+checkTrue(
+  "auth tokens are stored HASHED, never plaintext (fix #1)",
+  srv2.includes("function hashTok") && srv2.includes("tok: hashTok(token)") && !srv2.includes("tok: token,"),
+  "plaintext token storage detected"
+);
+checkTrue(
+  "inputs validated + growth caps on waitlist/accounts/tokens (fix #2)",
+  srv2.includes("function validEmail") && srv2.includes("WAITLIST_CAP") &&
+    srv2.includes("ACCOUNTS_PER_CODE") && srv2.includes("TOKENS_PER_USER"),
+  "validation/caps missing"
+);
+checkTrue(
+  "extension's /me endpoint untouched (no collision)",
+  srv2.includes('u.pathname === "/me"') && srv2.includes('u.pathname === "/me/profile"') &&
+    srv2.includes("ok: true, name: info.name, used: s.todayBrain, limit: info.limit"),
+  "/me shape changed — extension dashboard would break"
+);
+checkTrue(
+  "portal served from site/ like the other public pages",
+  srv2.includes('"portal.html"') && fs.existsSync(__dirname + "/../site/portal.html"),
+  "portal route or file missing"
+);
+checkTrue(
+  "portal page embeds no secrets",
+  (() => { const p = fs.readFileSync(__dirname + "/../site/portal.html", "utf8"); return !/ADMIN_KEY|API_KEY|AIza|sk-ant|xai-/.test(p); })(),
+  "possible secret in portal.html"
+);
+checkTrue(
+  "still zero npm dependencies",
+  !fs.existsSync(__dirname + "/../server/node_modules") &&
+    !JSON.parse(fs.readFileSync(__dirname + "/../package.json", "utf8")).dependencies,
+  "a dependency crept in"
+);
+checkTrue(
+  "privacy pages no longer claim 'no servers, no data ever'",
+  !fs.readFileSync(__dirname + "/../PRIVACY.md", "utf8").includes("no servers") &&
+    !fs.readFileSync(__dirname + "/../site/privacy.html", "utf8").includes("no servers"),
+  "outdated no-servers claim still present"
+);
+
 console.log(`\n${fail === 0 ? "🎉" : "💥"} ${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

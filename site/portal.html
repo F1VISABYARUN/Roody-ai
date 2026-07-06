@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roody — Your Portal</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #1c1712; color: #f0e6da; max-width: 560px; margin: 0 auto; padding: 40px 18px; }
+  h1 { color: #e98a3c; font-size: 26px; margin: 0 0 4px; }
+  .sub { color: #a89880; font-size: 14px; margin-bottom: 26px; }
+  .card { background: #262019; border: 1px solid #3a3025; border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+  label { display: block; font-size: 13px; color: #cbb59c; margin: 12px 0 5px; }
+  input { width: 100%; background: #1c1712; border: 1px solid #3a3025; color: #f0e6da; border-radius: 9px; padding: 11px 12px; font-size: 15px; outline: none; }
+  input:focus { border-color: #e98a3c; }
+  button { width: 100%; background: #e98a3c; color: #fff; border: none; border-radius: 10px; padding: 12px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 16px; }
+  button:hover { background: #f09a50; }
+  button.ghost { background: none; border: 1px solid #3a3025; color: #cbb59c; font-weight: 500; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 6px; }
+  .tabs button { margin-top: 0; background: none; border: 1px solid #3a3025; color: #cbb59c; font-weight: 600; }
+  .tabs button.on { background: #e98a3c; border-color: #e98a3c; color: #fff; }
+  .msg { font-size: 13.5px; margin-top: 12px; min-height: 18px; }
+  .msg.err { color: #e0705c; } .msg.ok { color: #7ec97e; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; padding: 7px 0; border-bottom: 1px solid #33291f; font-size: 14.5px; }
+  .row b { color: #f0e6da; } .row span { color: #a89880; }
+  .bar { height: 10px; background: #1c1712; border-radius: 6px; overflow: hidden; margin: 10px 0 4px; border: 1px solid #3a3025; }
+  .bar i { display: block; height: 100%; background: linear-gradient(90deg, #f6b878, #e98a3c); border-radius: 6px; }
+  .chip { display: inline-block; background: #3a2c1e; color: #f6b878; border-radius: 99px; padding: 3px 12px; font-size: 12.5px; font-weight: 700; letter-spacing: .3px; }
+  .hidden { display: none; }
+  a { color: #e98a3c; }
+  .tiny { color: #a89880; font-size: 12px; margin-top: 14px; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <h1>🟠 Roody</h1>
+  <div class="sub">Your portal — usage, credits, and your account.</div>
+
+  <!-- AUTH -->
+  <div id="auth" class="card">
+    <div class="tabs">
+      <button id="tab-login" class="on" onclick="setTab('login')">Sign in</button>
+      <button id="tab-reg" onclick="setTab('reg')">Register</button>
+    </div>
+    <div id="f-reg" class="hidden">
+      <label>Your name</label>
+      <input id="r-name" placeholder="What should Roody call you?" maxlength="60">
+    </div>
+    <label>Email</label>
+    <input id="a-email" type="email" placeholder="you@example.com" maxlength="254">
+    <label>Invite code</label>
+    <input id="a-code" placeholder="ROODY-XXXXXXXX" autocapitalize="characters">
+    <button id="a-go" onclick="go()">Sign in</button>
+    <div id="a-msg" class="msg"></div>
+    <div class="tiny">No invite code yet? <a href="#" onclick="showWait(); return false;">Join the waitlist</a> and we'll send you one.</div>
+  </div>
+
+  <!-- WAITLIST -->
+  <div id="wait" class="card hidden">
+    <b>📬 Join the waitlist</b>
+    <label>Your name</label>
+    <input id="w-name" placeholder="Optional" maxlength="60">
+    <label>Email</label>
+    <input id="w-email" type="email" placeholder="you@example.com" maxlength="254">
+    <button onclick="joinWait()">Join waitlist</button>
+    <div id="w-msg" class="msg"></div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="dash" class="hidden">
+    <div class="card">
+      <div class="row" style="border:none;padding-bottom:2px">
+        <b style="font-size:18px" id="d-name">—</b>
+        <span class="chip" id="d-plan">free</span>
+      </div>
+      <div class="row"><span>Email</span><b id="d-email">—</b></div>
+      <div class="row"><span>Invite code</span><b id="d-code">—</b></div>
+      <div class="row" style="border:none"><span>Joined</span><b id="d-joined">—</b></div>
+    </div>
+
+    <div class="card">
+      <b>Today</b>
+      <div class="bar"><i id="d-bar" style="width:0%"></i></div>
+      <div class="row" style="border:none;padding-top:0"><span id="d-used">0 / 0 messages</span><span id="d-left"></span></div>
+      <div class="row"><span>Voice replies (TTS)</span><b id="d-tts">0</b></div>
+      <div class="row" style="border:none"><span>Voice heard (STT)</span><b id="d-stt">0</b></div>
+    </div>
+
+    <div class="card">
+      <b>All time</b>
+      <div class="row"><span>Messages with Roody</span><b id="d-all">0</b></div>
+      <div class="row" style="border:none"><span>Tokens (in · out)</span><b id="d-tok">0 · 0</b></div>
+    </div>
+
+    <div class="card">
+      <label>Display name</label>
+      <input id="d-newname" maxlength="60">
+      <button onclick="saveName()">Save name</button>
+      <button class="ghost" onclick="logout()">Sign out</button>
+      <div id="d-msg" class="msg"></div>
+    </div>
+  </div>
+
+  <div class="tiny">Roody never stores your conversations — this portal shows usage counts only. <a href="/privacy">Privacy</a></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let mode = "login";
+  const tok = () => localStorage.getItem("roodyToken") || "";
+
+  function setTab(m) {
+    mode = m;
+    $("tab-login").classList.toggle("on", m === "login");
+    $("tab-reg").classList.toggle("on", m === "reg");
+    $("f-reg").classList.toggle("hidden", m !== "reg");
+    $("a-go").textContent = m === "login" ? "Sign in" : "Create account";
+    $("a-msg").textContent = "";
+  }
+  function showWait() { $("wait").classList.remove("hidden"); $("w-email").focus(); }
+
+  async function api(path, opts = {}) {
+    const r = await fetch(path, {
+      method: opts.method || "GET",
+      headers: {
+        "content-type": "application/json",
+        ...(tok() ? { authorization: "Bearer " + tok() } : {}),
+      },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    return { status: r.status, data: await r.json().catch(() => ({})) };
+  }
+
+  async function go() {
+    const email = $("a-email").value.trim();
+    const invite_code = $("a-code").value.trim();
+    const m = $("a-msg"); m.className = "msg"; m.textContent = "…";
+    const path = mode === "login" ? "/auth/login" : "/auth/register";
+    const body = mode === "login" ? { email, invite_code } : { email, invite_code, name: $("r-name").value.trim(), source: "portal" };
+    const { status, data } = await api(path, { method: "POST", body });
+    if (status === 200 && data.token) {
+      localStorage.setItem("roodyToken", data.token);
+      m.className = "msg ok"; m.textContent = "Welcome!";
+      load();
+    } else {
+      m.className = "msg err"; m.textContent = data.error || ("Error " + status);
+    }
+  }
+
+  async function joinWait() {
+    const m = $("w-msg"); m.className = "msg"; m.textContent = "…";
+    const { status, data } = await api("/waitlist", { method: "POST", body: { email: $("w-email").value.trim(), name: $("w-name").value.trim(), source: "portal" } });
+    m.className = status === 200 ? "msg ok" : "msg err";
+    m.textContent = status === 200 ? (data.message || "You're on the list!") : (data.error || "Error");
+  }
+
+  async function load() {
+    if (!tok()) return;
+    const { status, data } = await api("/me/profile");
+    if (status !== 200) { localStorage.removeItem("roodyToken"); return; }
+    $("auth").classList.add("hidden"); $("wait").classList.add("hidden"); $("dash").classList.remove("hidden");
+    const u = data.user, t = data.usage.today, a = data.usage.allTime;
+    $("d-name").textContent = u.name || u.email.split("@")[0];
+    $("d-plan").textContent = u.plan;
+    $("d-email").textContent = u.email;
+    $("d-code").textContent = u.invite_code;
+    $("d-joined").textContent = new Date(u.joined_at).toLocaleDateString();
+    $("d-bar").style.width = Math.min(100, Math.round((t.brain_calls / Math.max(1, t.daily_limit)) * 100)) + "%";
+    $("d-used").textContent = `${t.brain_calls} / ${t.daily_limit} messages`;
+    $("d-left").textContent = `${t.remaining} left today`;
+    $("d-tts").textContent = t.tts_calls;
+    $("d-stt").textContent = t.stt_calls;
+    $("d-all").textContent = a.brain_calls;
+    $("d-tok").textContent = `${a.in_tokens.toLocaleString()} · ${a.out_tokens.toLocaleString()}`;
+    $("d-newname").value = u.name || "";
+  }
+
+  async function saveName() {
+    const m = $("d-msg");
+    const { status } = await api("/auth/update", { method: "POST", body: { name: $("d-newname").value.trim() } });
+    m.className = status === 200 ? "msg ok" : "msg err";
+    m.textContent = status === 200 ? "Saved ✓" : "Couldn't save";
+    if (status === 200) load();
+  }
+
+  async function logout() {
+    await api("/auth/logout", { method: "POST" });
+    localStorage.removeItem("roodyToken");
+    $("dash").classList.add("hidden");
+    $("auth").classList.remove("hidden");
+  }
+
+  load();
+</script>
+</body>
+</html>
