@@ -74,7 +74,22 @@ try { dyn = JSON.parse(fs.readFileSync(DATA_FILE, "utf8")); } catch (_) {}
 if (!dyn.users) dyn.users = {};       // { email: { name, invite_code, plan, joined_at, tokens:[{tok(sha256),exp}] } }
 if (!dyn.waitlist) dyn.waitlist = []; // [{ email, name, source, created_at }]
 function saveDyn() {
-  try { fs.writeFileSync(DATA_FILE, JSON.stringify(dyn, null, 2)); } catch (e) { console.error("save failed:", e.message); }
+  try {
+    // DATA_DIR may point to a folder that doesn't exist yet (fresh hPanel
+    // setup) — create it instead of failing with ENOENT and silently losing
+    // users/codes. Fix diagnosed by Antigravity on the live box.
+    fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
+    fs.writeFileSync(DATA_FILE, JSON.stringify(dyn, null, 2));
+  } catch (e) { console.error("save failed:", e.message); }
+}
+// Is the data file actually writable? Surfaced in /?health so a wrong
+// DATA_DIR shows up as data_writable:false instead of silent data loss.
+function dataWritable() {
+  try {
+    fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
+    fs.accessSync(path.dirname(DATA_FILE), fs.constants.W_OK);
+    return true;
+  } catch (_) { return false; }
 }
 // A brain/voice is only honored if its founder key is actually configured —
 // otherwise the code silently stays on Gemini so nothing breaks.
@@ -426,6 +441,10 @@ const server = http.createServer(async (req, res) => {
       whisper: !!OPENAI_KEY,
       brains: { gemini: !!GEMINI_KEY, claude: !!ANTHROPIC_KEY, grok: !!XAI_KEY },
       voices: { gemini: !!GEMINI_KEY, eleven: !!ELEVEN_KEY },
+      data_file: DATA_FILE,
+      data_writable: dataWritable(),
+      users: Object.keys(dyn.users || {}).length,
+      waitlist: (dyn.waitlist || []).length,
     });
   }
   if (req.method !== "POST") return json(res, 405, { error: "method" });
@@ -639,5 +658,5 @@ const server = http.createServer(async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`roody-proxy v2 on :${PORT} — env codes=${ENV_CODES.size} panel codes=${Object.keys(dyn.codes).length} key=${GEMINI_KEY ? "set" : "MISSING"} admin=${ADMIN_KEY ? "set" : "MISSING"}`);
+  console.log(`roody-proxy v2 on :${PORT} — env codes=${ENV_CODES.size} panel codes=${Object.keys(dyn.codes).length} key=${GEMINI_KEY ? "set" : "MISSING"} admin=${ADMIN_KEY ? "set" : "MISSING"} data=${DATA_FILE} writable=${dataWritable()}`);
 });
