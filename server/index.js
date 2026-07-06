@@ -6,6 +6,11 @@
 //   ADMIN_KEY       = long random string — unlocks /admin
 //   ROODY_CODES     = optional comma-separated bootstrap codes
 //   DAILY_LIMIT     = default messages/day for env + generated codes (50)
+//   OPENAI_API_KEY  = optional — invite-code STT uses Whisper instead of Gemini
+//   ANTHROPIC_API_KEY = optional — lets a code be minted with the Claude brain
+//   XAI_API_KEY     = optional — lets a code be minted with the Grok brain
+//   ELEVENLABS_API_KEY = optional — lets a code be minted with ElevenLabs voice
+//   (a code's brain/voice silently falls back to Gemini if its key is absent)
 //
 // Codes now live in TWO places:
 //   - env ROODY_CODES (survive everything, managed in hPanel)
@@ -25,6 +30,20 @@ const ADMIN_KEY = process.env.ADMIN_KEY || "";
 // stays server-side; the extension never sees which engine transcribed.
 const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_STT_MODEL = process.env.OPENAI_STT_MODEL || "gpt-4o-mini-transcribe";
+// Optional founder keys so a code can be minted to use Claude/Grok as its
+// brain or ElevenLabs as its voice. All server-side; the extension never sees
+// them. A code with no override stays on cheap Gemini.
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || "";
+const XAI_KEY = process.env.XAI_API_KEY || "";
+const ELEVEN_KEY = process.env.ELEVENLABS_API_KEY || "";
+const ELEVEN_VOICE = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM"; // Rachel
+// Which real model each brain choice maps to (the extension always asks for a
+// Gemini model; the proxy swaps in the code's configured brain).
+const BRAIN_MODEL = {
+  gemini: "gemini-2.5-flash",
+  claude: process.env.CLAUDE_MODEL || "claude-sonnet-4-6",
+  grok: process.env.GROK_MODEL || "grok-3-mini-fast",
+};
 const DAILY_LIMIT = parseInt(process.env.DAILY_LIMIT || "50", 10);
 const ENV_CODES = new Set(
   (process.env.ROODY_CODES || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
@@ -33,10 +52,12 @@ const ENV_CODES = new Set(
 // Only the models Roody uses — nobody farms the key as a general endpoint.
 const ALLOWED_MODELS = new Set(["gemini-2.5-flash", "gemini-2.5-flash-preview-tts"]);
 
-// Approximate Gemini pricing, $ per 1M tokens — for the admin cost column.
+// Approximate pricing, $ per 1M tokens — for the admin cost column.
 const PRICE = {
   "gemini-2.5-flash": { in: 0.30, out: 2.50 },
   "gemini-2.5-flash-preview-tts": { in: 0.50, out: 10.00 },
+  "claude-sonnet-4-6": { in: 3.00, out: 15.00 },
+  "grok-3-mini-fast": { in: 0.30, out: 0.50 },
 };
 
 const CORS = {
@@ -52,19 +73,27 @@ try { dyn = JSON.parse(fs.readFileSync(DATA_FILE, "utf8")); } catch (_) {}
 function saveDyn() {
   try { fs.writeFileSync(DATA_FILE, JSON.stringify(dyn, null, 2)); } catch (e) { console.error("save failed:", e.message); }
 }
+// A brain/voice is only honored if its founder key is actually configured —
+// otherwise the code silently stays on Gemini so nothing breaks.
+function resolveBrain(b) { return (b === "claude" && ANTHROPIC_KEY) || (b === "grok" && XAI_KEY) ? b : "gemini"; }
+function resolveVoice(v) { return v === "eleven" && ELEVEN_KEY ? v : "gemini"; }
 function codeInfo(code) {
   if (dyn.codes[code]) {
     const c = dyn.codes[code];
-    return c.disabled ? null : { name: c.name || "", limit: c.limit || DAILY_LIMIT, source: "panel" };
+    return c.disabled ? null : {
+      name: c.name || "", limit: c.limit || DAILY_LIMIT, source: "panel",
+      brain: resolveBrain(c.brain), voice: resolveVoice(c.voice),
+    };
   }
-  if (ENV_CODES.has(code)) return { name: "", limit: DAILY_LIMIT, source: "env" };
+  if (ENV_CODES.has(code)) return { name: "", limit: DAILY_LIMIT, source: "env", brain: "gemini", voice: "gemini" };
   return null;
 }
 function allCodes() {
   const list = [];
-  for (const c of ENV_CODES) list.push({ code: c, ...( { name: "(env)", limit: DAILY_LIMIT, disabled: false, source: "env" } ) });
+  for (const c of ENV_CODES) list.push({ code: c, name: "(env)", limit: DAILY_LIMIT, disabled: false, source: "env", brain: "gemini", voice: "gemini" });
   for (const [c, v] of Object.entries(dyn.codes)) {
-    list.push({ code: c, name: v.name || "", limit: v.limit || DAILY_LIMIT, disabled: !!v.disabled, source: "panel" });
+    list.push({ code: c, name: v.name || "", limit: v.limit || DAILY_LIMIT, disabled: !!v.disabled, source: "panel",
+      brain: resolveBrain(v.brain), voice: resolveVoice(v.voice), wantBrain: v.brain || "gemini", wantVoice: v.voice || "gemini" });
   }
   return list;
 }
@@ -107,6 +136,69 @@ function readBody(req) {
   });
 }
 
+// ---- Provider translation ---------------------------------------------------
+// The extension always speaks "Gemini". These helpers translate a Gemini-shaped
+// request to Claude/Grok and translate the answer back, so the extension never
+// knows which brain actually replied. Same trick as the Whisper STT path.
+function geminiToMessages(body) {
+  const system = (body.systemInstruction?.parts || []).map((p) => p.text).filter(Boolean).join("\n");
+  const messages = (body.contents || []).map((c) => ({
+    role: c.role === "model" ? "assistant" : "user",
+    content: (c.parts || []).map((p) => p.text).filter(Boolean).join(""),
+  })).filter((m) => m.content);
+  const maxTokens = body.generationConfig?.maxOutputTokens || 400;
+  const temperature = body.generationConfig?.temperature;
+  return { system, messages, maxTokens, temperature };
+}
+function textToGemini(txt, inTok, outTok) {
+  return {
+    candidates: [{ content: { parts: [{ text: txt || "" }] } }],
+    usageMetadata: { promptTokenCount: inTok || 0, candidatesTokenCount: outTok || 0 },
+  };
+}
+async function callClaude(body) {
+  const { system, messages, maxTokens, temperature } = geminiToMessages(body);
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model: BRAIN_MODEL.claude, max_tokens: maxTokens, ...(system ? { system } : {}), ...(temperature != null ? { temperature } : {}), messages }),
+  });
+  const j = await r.json();
+  if (!r.ok) return { status: r.status, gemini: { error: j.error || j } };
+  const txt = (j.content || []).map((b) => b.text).filter(Boolean).join("");
+  return { status: 200, gemini: textToGemini(txt, j.usage?.input_tokens, j.usage?.output_tokens), model: BRAIN_MODEL.claude, inTok: j.usage?.input_tokens || 0, outTok: j.usage?.output_tokens || 0 };
+}
+async function callGrok(body) {
+  const { system, messages, maxTokens, temperature } = geminiToMessages(body);
+  const full = system ? [{ role: "system", content: system }, ...messages] : messages;
+  const r = await fetch("https://api.x.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${XAI_KEY}` },
+    body: JSON.stringify({ model: BRAIN_MODEL.grok, max_tokens: maxTokens, ...(temperature != null ? { temperature } : {}), messages: full }),
+  });
+  const j = await r.json();
+  if (!r.ok) return { status: r.status, gemini: { error: j.error || j } };
+  const txt = j.choices?.[0]?.message?.content || "";
+  return { status: 200, gemini: textToGemini(txt, j.usage?.prompt_tokens, j.usage?.completion_tokens), model: BRAIN_MODEL.grok, inTok: j.usage?.prompt_tokens || 0, outTok: j.usage?.completion_tokens || 0 };
+}
+// ElevenLabs voice: pull the text out of the Gemini TTS body, synthesize, and
+// return the MP3 as base64 in Gemini's inlineData shape.
+async function callElevenTTS(body) {
+  const txt = (body.contents?.[0]?.parts || []).map((p) => p.text).filter(Boolean).join("").slice(0, 1200);
+  if (!txt) return { status: 400, gemini: { error: "no-text" } };
+  const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_VOICE}?output_format=mp3_44100_64`, {
+    method: "POST",
+    headers: { "xi-api-key": ELEVEN_KEY, "content-type": "application/json" },
+    body: JSON.stringify({ text: txt, model_id: "eleven_flash_v2_5" }),
+  });
+  if (!r.ok) return { status: r.status, gemini: { error: (await r.text()).slice(0, 200) }, chars: txt.length };
+  const buf = Buffer.from(await r.arrayBuffer());
+  return {
+    status: 200, chars: txt.length,
+    gemini: { candidates: [{ content: { parts: [{ inlineData: { mimeType: "audio/mpeg", data: buf.toString("base64") } }] } }] },
+  };
+}
+
 // ---- Admin dashboard --------------------------------------------------------
 function adminPage(msg) {
   const k = encodeURIComponent(ADMIN_KEY);
@@ -116,9 +208,13 @@ function adminPage(msg) {
       ? `<a href="/admin/toggle?key=${k}&code=${encodeURIComponent(c.code)}">${c.disabled ? "enable" : "disable"}</a>
          · <a href="/admin/del?key=${k}&code=${encodeURIComponent(c.code)}" onclick="return confirm('Delete ${esc(c.code)}?')">delete</a>`
       : `<span style="color:#a89880">env var</span>`;
+    const brainLbl = { gemini: "Gemini", claude: "Claude", grok: "Grok" }[c.brain] || "Gemini";
+    const voiceLbl = c.voice === "eleven" ? "11Labs" : "Gemini";
+    const warn = (c.wantBrain && c.wantBrain !== c.brain) || (c.wantVoice && c.wantVoice !== c.voice) ? " ⚠️" : "";
     return `<tr${c.disabled ? ' style="opacity:.45"' : ""}>
       <td><b>${esc(c.code)}</b>${c.disabled ? " 🚫" : ""}</td>
       <td>${esc(c.name)}</td>
+      <td>${brainLbl} · ${voiceLbl}${warn}</td>
       <td>${s.todayBrain} / ${c.limit}</td>
       <td>${s.todayTts} · ${s.todayStt}</td>
       <td>${s.allBrain}</td>
@@ -134,7 +230,7 @@ function adminPage(msg) {
 h1{color:#e98a3c}table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:8px 10px;text-align:left;border-bottom:1px solid #3a3025}
 th{color:#cbb59c;font-weight:600}a{color:#e98a3c}.k{background:#262019;border-radius:10px;padding:12px 16px;display:inline-block;margin:0 12px 16px 0}
 form{background:#262019;border-radius:12px;padding:14px 16px;margin:8px 0 20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-input{background:#1c1712;border:1px solid #3a3025;color:#f0e6da;border-radius:8px;padding:8px 10px;font-size:14px}
+input,select{background:#1c1712;border:1px solid #3a3025;color:#f0e6da;border-radius:8px;padding:8px 10px;font-size:14px}
 button{background:#e98a3c;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer}
 .msg{color:#7ec97e;font-weight:600;margin-bottom:10px}</style>
 <meta http-equiv="refresh" content="60"></head><body>
@@ -148,9 +244,18 @@ ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}
   <b>🎟 New code:</b>
   <input name="name" placeholder="who is it for? (e.g. Priya)" required>
   <input name="limit" type="number" value="${DAILY_LIMIT}" min="1" max="1000" style="width:80px" title="messages/day">
+  <select name="brain" title="brain — Claude/Grok only work if that founder key is set in hPanel">
+    <option value="gemini">🧠 Gemini (cheap)</option>
+    <option value="claude"${ANTHROPIC_KEY ? "" : " disabled"}>🧠 Claude${ANTHROPIC_KEY ? "" : " (no key)"}</option>
+    <option value="grok"${XAI_KEY ? "" : " disabled"}>🧠 Grok${XAI_KEY ? "" : " (no key)"}</option>
+  </select>
+  <select name="voice" title="voice — ElevenLabs only works if that founder key is set in hPanel">
+    <option value="gemini">🗣 Gemini voice</option>
+    <option value="eleven"${ELEVEN_KEY ? "" : " disabled"}>🗣 ElevenLabs${ELEVEN_KEY ? "" : " (no key)"}</option>
+  </select>
   <button>Generate</button>
 </form>
-<table><tr><th>Code</th><th>Name</th><th>Today</th><th>TTS · STT</th><th>All-time</th><th>Est. cost</th><th>Last used</th><th></th></tr>${rows}</table>
+<table><tr><th>Code</th><th>Name</th><th>Brain · Voice</th><th>Today</th><th>TTS · STT</th><th>All-time</th><th>Est. cost</th><th>Last used</th><th></th></tr>${rows}</table>
 <p style="color:#a89880;font-size:12px;margin-top:16px">Metadata only — conversations are never stored. Panel-minted codes persist to roody-data.json (survives restarts; a full redeploy may reset them — keep VIP codes in the ROODY_CODES env var too). Auto-refreshes every 60s.</p>
 </body></html>`;
 }
@@ -198,14 +303,18 @@ const server = http.createServer(async (req, res) => {
       const back = (m) => { res.writeHead(302, { location: `/admin?key=${encodeURIComponent(ADMIN_KEY)}&m=${encodeURIComponent(m)}` }); res.end(); };
       if (u.pathname === "/admin/new") {
         const code = mintCode();
+        const brain = ["gemini", "claude", "grok"].includes(u.searchParams.get("brain")) ? u.searchParams.get("brain") : "gemini";
+        const voice = ["gemini", "eleven"].includes(u.searchParams.get("voice")) ? u.searchParams.get("voice") : "gemini";
         dyn.codes[code] = {
           name: (u.searchParams.get("name") || "").slice(0, 60),
           limit: Math.max(1, Math.min(1000, parseInt(u.searchParams.get("limit") || DAILY_LIMIT, 10) || DAILY_LIMIT)),
+          brain, voice,
           disabled: false,
           created: Date.now(),
         };
         saveDyn();
-        return back(`Created ${code} for ${dyn.codes[code].name || "—"}`);
+        const note = (brain === "claude" || brain === "grok" || voice === "eleven") ? ` — ${brain}/${voice}` : "";
+        return back(`Created ${code} for ${dyn.codes[code].name || "—"}${note}`);
       }
       if (u.pathname === "/admin/toggle") {
         const c = (u.searchParams.get("code") || "").trim().toUpperCase();
@@ -229,6 +338,8 @@ const server = http.createServer(async (req, res) => {
       daily_limit: DAILY_LIMIT,
       key_set: !!GEMINI_KEY,
       whisper: !!OPENAI_KEY,
+      brains: { gemini: !!GEMINI_KEY, claude: !!ANTHROPIC_KEY, grok: !!XAI_KEY },
+      voices: { gemini: !!GEMINI_KEY, eleven: !!ELEVEN_KEY },
     });
   }
   if (req.method !== "POST") return json(res, 405, { error: "method" });
@@ -310,6 +421,33 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         console.error(`whisper unreachable (${e.message}) — falling back to Gemini STT`);
       }
+    }
+  }
+
+  // Brain via Claude/Grok when the code is configured for it (and the founder
+  // key exists). Translate in and out so the extension stays Gemini-shaped.
+  if (kind === "brain" && info.brain !== "gemini") {
+    try {
+      const out = info.brain === "claude" ? await callClaude(body) : await callGrok(body);
+      if (out.status === 200) {
+        const p = PRICE[out.model] || { in: 0, out: 0 };
+        s.inTok += out.inTok; s.outTok += out.outTok;
+        s.costUSD += (out.inTok * p.in + out.outTok * p.out) / 1e6;
+      }
+      return json(res, out.status, out.gemini);
+    } catch (e) {
+      console.error(`${info.brain} unreachable (${e.message}) — falling back to Gemini`);
+    }
+  }
+  // Voice via ElevenLabs when the code is configured for it.
+  if (kind === "tts" && info.voice === "eleven") {
+    try {
+      const out = await callElevenTTS(body);
+      if (out.status === 200) s.costUSD += ((out.chars || 0) / 1000) * 0.10; // ~$0.10/1k chars
+      if (out.status === 200 || out.status === 400) return json(res, out.status, out.gemini);
+      console.error(`elevenlabs ${out.status} — falling back to Gemini TTS`);
+    } catch (e) {
+      console.error(`elevenlabs unreachable (${e.message}) — falling back to Gemini TTS`);
     }
   }
 

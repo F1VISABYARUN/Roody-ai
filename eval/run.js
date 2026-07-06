@@ -212,5 +212,36 @@ checkTrue(
   "ears setting missing from options"
 );
 
+console.log("\n— Per-code brain/voice (admin-selectable, server-authoritative) —");
+
+const srv = fs.readFileSync(__dirname + "/../server/index.js", "utf8");
+checkTrue(
+  "proxy can route a code's brain to Claude and Grok",
+  srv.includes("api.anthropic.com/v1/messages") && srv.includes("api.x.ai/v1/chat/completions") &&
+    srv.includes('info.brain === "claude" ? await callClaude'),
+  "Claude/Grok brain routing missing from proxy"
+);
+checkTrue(
+  "proxy can route a code's voice to ElevenLabs",
+  srv.includes("api.elevenlabs.io/v1/text-to-speech") && srv.includes('info.voice === "eleven"'),
+  "ElevenLabs voice routing missing"
+);
+checkTrue(
+  "provider replies are translated back to the Gemini shape",
+  srv.includes("function textToGemini") && srv.includes("candidates: [{ content: { parts:"),
+  "response translation missing"
+);
+checkTrue(
+  "a brain/voice falls back to Gemini when its founder key is absent",
+  srv.includes("function resolveBrain") && srv.includes("function resolveVoice"),
+  "missing key-absent fallback guard"
+);
+checkTrue(
+  "admin mint form offers brain and voice dropdowns",
+  srv.includes('name="brain"') && srv.includes('name="voice"') &&
+    srv.includes("brain, voice,") && srv.includes('["gemini", "claude", "grok"].includes'),
+  "admin brain/voice selection missing"
+);
+
 console.log(`\n${fail === 0 ? "🎉" : "💥"} ${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);
