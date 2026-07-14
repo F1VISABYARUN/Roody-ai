@@ -187,8 +187,8 @@ renderMemory();
 setInterval(renderMemory, 3000); // refresh live
 
 $("clearmem").addEventListener("click", async () => {
-  if (!confirm("Clear Roody's notebook of remembered pages?")) return;
-  await chrome.storage.local.set({ roodyMemory: [] });
+  if (!confirm("Erase Roody's memory of your time together (pages + conversation count)?")) return;
+  await chrome.storage.local.set({ roodyMemory: [], roodyTalkCount: 0 });
   renderMemory();
 });
 

@@ -5,7 +5,7 @@ try { importScripts("sanitize.js"); } catch (_) { importScripts("src/sanitize.js
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 // Roody just reads and chats — Sonnet is the sweet spot (smart + ~40% cheaper
 // than Opus). Users can switch to Haiku (cheaper) or Opus (sharper) in settings.
-const MODEL = "claude-sonnet-4-6";
+const MODEL = "gemini-2.5-flash";
 
 // Pull the user's settings (API key + chosen model) from extension storage.
 async function getSettings() {
@@ -187,7 +187,7 @@ async function askRoody({ userText, pageContext, history, mode, site, title, pag
     return {
       ok: false,
       error:
-        "I don't have an Anthropic key yet. Open Roody's settings and paste your key — or pick the Gemini brain in the dropdown instead.",
+        "Roody isn't set up yet — open Settings (⚙) and paste your invite code.",
     };
   }
 
@@ -268,15 +268,12 @@ async function askRoody({ userText, pageContext, history, mode, site, title, pag
       });
     } catch (e) {
       rlog(`❌ Claude network: ${e.message}`);
-      return { ok: false, error: `I couldn't reach the network. (${e.message})` };
+      return { ok: false, error: "I couldn't reach the internet — check your connection and try again?" };
     }
     if (!resp.ok) {
       const body = await resp.text();
-      rlog(`❌ Claude ${resp.status}: ${body.slice(0, 120)}`);
-      return {
-        ok: false,
-        error: `Something went wrong talking to Claude (${resp.status}). ${body.slice(0, 200)}`,
-      };
+      rlog(`❌ Claude ${resp.status}: ${body.slice(0, 200)}`);
+      return { ok: false, error: "My brain hiccuped for a second — say that again?" };
     }
     const data = await resp.json();
     const ms = Math.round(performance.now() - t0);
@@ -399,7 +396,7 @@ async function geminiFetch(model, bodyObj, kind) {
   }
   return null;
 }
-const OUT_OF_CREDITS_MSG = "You've used today's free Roody messages — they refill tomorrow! 🌅 (Or add your own free Gemini key in Settings for unlimited.)";
+const OUT_OF_CREDITS_MSG = "You've used today's free Roody messages — they refill tomorrow! 🌅";
 
 // Alternate brain — Gemini Flash, ~10x cheaper than Sonnet. Same persona,
 // same page context, same chat history shape.
@@ -452,13 +449,13 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
       },
     }, "brain");
   } catch (e) {
-    return { ok: false, error: `Couldn't reach Gemini. (${e.message})` };
+    rlog(`❌ Gemini network: ${e.message}`);
+    return { ok: false, error: "I couldn't reach the internet — check your connection and try again?" };
   }
   if (!routed) {
     return {
       ok: false,
-      error:
-        "Gemini brain selected but no key or invite code — open Roody's settings and paste a free Gemini key (aistudio.google.com/apikey) or your invite code.",
+      error: "Roody isn't set up yet — open Settings (⚙) and paste your invite code.",
     };
   }
   const resp = routed.resp;
@@ -469,10 +466,8 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
     return { ok: false, error: "That invite code isn't active — check it in Settings or ask for a new one." };
   }
   if (!resp.ok) {
-    return {
-      ok: false,
-      error: `Gemini brain error ${resp.status}: ${(await resp.text()).slice(0, 200)}`,
-    };
+    rlog(`❌ Gemini brain ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+    return { ok: false, error: "My brain hiccuped for a second — say that again?" };
   }
   const data = await resp.json();
   // Meter only what the USER pays for — proxied calls are on the founder.
@@ -498,7 +493,7 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
   if (!xaiKey) {
     return {
       ok: false,
-      error: "Grok brain selected but no xAI key — open Roody's settings and paste one from console.x.ai.",
+      error: "Roody isn't set up yet — open Settings (⚙) and paste your invite code.",
     };
   }
   const isVoice = mode === "voice";
@@ -544,12 +539,12 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
     });
   } catch (e) {
     rlog(`❌ Grok network: ${e.message}`);
-    return { ok: false, error: `Couldn't reach Grok. (${e.message})` };
+    return { ok: false, error: "I couldn't reach the internet — check your connection and try again?" };
   }
   if (!resp.ok) {
     const body = await resp.text();
-    rlog(`❌ Grok ${resp.status}: ${body.slice(0, 120)}`);
-    return { ok: false, error: `Grok error ${resp.status}: ${body.slice(0, 200)}` };
+    rlog(`❌ Grok ${resp.status}: ${body.slice(0, 200)}`);
+    return { ok: false, error: "My brain hiccuped for a second — say that again?" };
   }
   const data = await resp.json();
   const ms = Math.round(performance.now() - t0);
@@ -751,10 +746,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           return sendResponse(r);
         }
         if (!geminiAvailable) {
-          // No backup possible — return the real ElevenLabs error so the user
-          // sees it in the bubble instead of silently getting robotic voice.
+          // No backup possible. Raw reason goes to rlog; the user gets the
+          // generic warm-voice-hiccup bubble from content.js.
           rlog(`⚠ ElevenLabs failed and no Gemini backup: ${r.error}`);
-          return sendResponse({ ok: false, error: `ElevenLabs: ${r.error}` });
+          return sendResponse({ ok: false, error: "voice-unavailable" });
         }
         rlog("↻ ElevenLabs failed, trying Gemini TTS as backup");
       }

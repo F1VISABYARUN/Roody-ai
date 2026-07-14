@@ -492,7 +492,7 @@
     <div id="roody-header">
       <div id="roody-headtext">
         <span id="roody-title">Roody</span>
-        <span id="roody-sub">read-only · one switch · conversation flows</span>
+        <span id="roody-sub">your friend on this page</span>
       </div>
       <button id="roody-gear" title="Settings" style="background:none;border:none;font-size:15px;cursor:pointer;opacity:.65;padding:2px 6px">⚙</button>
       <button id="roody-close" title="Close">×</button>
@@ -568,9 +568,16 @@
       if (moved) { e.stopImmediatePropagation(); moved = false; }
     });
     // The panel is display:none while closed, so it can't be measured at drag
-    // time. Re-dock it the moment it becomes visible.
+    // time. Re-dock it the moment it becomes visible — but ONLY on the
+    // none→visible transition. placeRoody itself writes panel.style, so
+    // re-docking on every style mutation would re-trigger this observer in an
+    // infinite loop.
+    let lastPanelDisplay = panel.style.display;
     new MutationObserver(() => {
-      if (orbPos && panel.style.display !== "none") placeRoody(orbPos.x, orbPos.y);
+      const d = panel.style.display;
+      if (d === lastPanelDisplay) return;
+      lastPanelDisplay = d;
+      if (orbPos && d !== "none") placeRoody(orbPos.x, orbPos.y);
     }).observe(panel, { attributes: true, attributeFilter: ["style"] });
     // Restore last saved spot.
     chrome.storage.local.get("roodyOrbPos").then(({ roodyOrbPos: p }) => {
@@ -650,10 +657,6 @@
       }
     });
   } catch (_) {}
-
-  // Auto-chime is now a settings checkbox (off by default). The header has no
-  // toggle for it — keeps the UI dead simple.
-  function reflectListenState() {}
 
   function addBubble(who, text) {
     const b = document.createElement("div");
@@ -761,11 +764,9 @@
         rlog(`🔈 ROBOTIC voice (warm TTS failed: ${String(why).slice(0, 400)})`);
         if (!ttsWarned) {
           ttsWarned = true;
-          addBubble(
-            "roody",
-            "🔈 (warm voice didn't connect: " + String(why).slice(0, 120) +
-              ". Open Settings, check your ElevenLabs/Gemini key, then refresh this tab.)"
-          );
+          // Raw reason is already in the rlog above — the user just gets a
+          // calm one-liner, no provider names, no error JSON.
+          addBubble("roody", "🔈 (my warm voice hiccuped — using a simpler voice for now)");
         }
         return browserSpeak(text, onDone); // graceful fallback
       }
@@ -876,7 +877,7 @@
       // Thrown synchronously when the extension was reloaded/updated while this
       // page stayed open ("Extension context invalidated"). A refresh fixes it.
       rlog(`⚠ ask threw: ${e.message}`);
-      finish("Roody just updated — please refresh this page so I can reconnect.", false);
+      finish("We got disconnected — refresh this page and I'll be right back.", false);
     }
   }
 
@@ -932,7 +933,7 @@
       callRoody(PDF_OPENER_PROMPT, text.slice(0, 2500), (t) => (thinking.textContent = t), () => setMic("idle"));
     } catch (e) {
       studyDoc = null;
-      note.textContent = `I couldn't open that file (${(e && e.message) || "error"}). Mind trying again?`;
+      note.textContent = "I couldn't open that file — mind trying again?";
       setMic("idle");
     }
   }
@@ -1145,7 +1146,7 @@
         // Show final transcript briefly, then hide
         if (hearingEl) {
           hearingEl.style.display = "block";
-          hearingText.textContent = `✓ heard: "${transcript}" (${conf})`;
+          hearingText.textContent = `✓ heard: "${transcript}"`;
           setTimeout(() => { hearingEl.style.display = "none"; }, 3000);
         }
         rlog(`🎤 HEARD: "${transcript}" (conf=${conf})`);
@@ -1269,7 +1270,7 @@
       }
     };
     recRecorder.start();
-    hearingNote("🎧 listening (accurate ears)…");
+    hearingNote("🎧 listening…");
     rlog("🎧 accurate ears: recording");
     recWatchSilence(recStream);
   }
@@ -1568,7 +1569,6 @@
       if (s.roodyEars === "accurate") earsMode = "accurate";
       geminiVoice = !!(s.roodyElevenKey || s.roodyGeminiKey || s.roodyInviteCode);
       applyEnabled(s.roodyEnabled !== false); // default on
-      reflectListenState();
     // Don't react to whatever is already on the page when we load —
     // only to answers that appear from now on.
     lastAnswerSig = readPage().slice(-600);

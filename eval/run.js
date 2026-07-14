@@ -286,5 +286,68 @@ checkTrue(
   "outdated no-servers claim still present"
 );
 
+console.log("\n— v1.0 final polish: no dev machinery in the consumer product —");
+
+const optionsHtml = fs.readFileSync(__dirname + "/../src/options.html", "utf8");
+const devPanel = optionsHtml.slice(optionsHtml.indexOf('id="adminonly"'));
+const consumerView = optionsHtml.slice(0, optionsHtml.indexOf('id="adminonly"'));
+checkTrue(
+  "Google-key field lives in the dev panel, not the consumer view",
+  devPanel.includes('id="gkey"') && !consumerView.includes('id="gkey"'),
+  "gkey visible to normal users"
+);
+checkTrue(
+  "diagnostic log lives in the dev panel, not the consumer view",
+  devPanel.includes('id="logbox"') && !consumerView.includes('id="logbox"'),
+  "log visible to normal users"
+);
+checkTrue(
+  "consumer view has no raw API-key inputs at all",
+  !/type="password"/.test(consumerView),
+  "a password/key field is user-visible"
+);
+const contentNow = fs.readFileSync(__dirname + "/../src/content.js", "utf8");
+checkTrue(
+  "panel subtitle is consumer copy",
+  contentNow.includes("your friend on this page") && !contentNow.includes("one switch · conversation flows"),
+  "dev-flavored subtitle still present"
+);
+checkTrue(
+  "hearing strip has no jargon (confidence score / accurate ears)",
+  !contentNow.includes('(${conf})`') && !contentNow.includes("listening (accurate ears)"),
+  "recognition internals still surfaced in UI"
+);
+checkTrue(
+  "drag observer only re-docks on display transitions (no feedback loop)",
+  contentNow.includes("lastPanelDisplay"),
+  "MutationObserver loop guard missing"
+);
+// Every user-facing error string in the pipeline must be provider-free.
+// Collect the exact strings shown via res.error / addBubble and scan them.
+const jargon = /Anthropic|Claude|Gemini|Grok|ElevenLabs|xAI|aistudio|console\.x|sk-ant|AIza/;
+const userErrorStrings = [
+  ...fs.readFileSync(__dirname + "/../src/background.js", "utf8").matchAll(/error:\s*(?:"([^"]+)"|`([^`]+)`)/g),
+].map((m) => m[1] || m[2]);
+checkTrue(
+  "no provider names / URLs / raw bodies in user-facing brain errors",
+  userErrorStrings.length > 5 && userErrorStrings.every((s) => !jargon.test(s)),
+  "found: " + userErrorStrings.filter((s) => jargon.test(s)).join(" | ")
+);
+checkTrue(
+  "TTS failure bubble is generic (no key advice, no raw why)",
+  contentNow.includes("my warm voice hiccuped") && !contentNow.includes("check your ElevenLabs/Gemini key"),
+  "TTS bubble still leaks providers"
+);
+checkTrue(
+  "default brain matches what invite users actually get",
+  fs.readFileSync(__dirname + "/../src/background.js", "utf8").includes('const MODEL = "gemini-2.5-flash"'),
+  "default model mismatch"
+);
+checkTrue(
+  "manifest is v1.0.0",
+  JSON.parse(fs.readFileSync(__dirname + "/../manifest.json", "utf8")).version === "1.0.0",
+  "version not bumped"
+);
+
 console.log(`\n${fail === 0 ? "🎉" : "💥"} ${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

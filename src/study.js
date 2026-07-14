@@ -127,7 +127,7 @@
         }
       );
     } catch (_) {
-      finish("Roody just updated — reload this tab so I can reconnect.", false);
+      finish("We got disconnected — reload this tab and I'll be right back.", false);
     }
   }
 
@@ -153,7 +153,7 @@
       callRoody(OPENER, (t) => (thinking.textContent = t), null, true);
     } catch (e) {
       studyDoc = null;
-      note.textContent = `I couldn't open that file (${(e && e.message) || "error"}). Mind trying again?`;
+      note.textContent = "I couldn't open that file — mind trying again?";
     }
   }
 
