@@ -826,16 +826,46 @@ function openStudyTab(pdfUrl) {
   chrome.tabs.create({ url });
 }
 
+// Can this install touch file:// pages? Depends on the "Allow access to file
+// URLs" switch on chrome://extensions — off by default.
+function fileAccessAllowed() {
+  return new Promise((resolve) => {
+    try { chrome.extension.isAllowedFileSchemeAccess(resolve); }
+    catch (_) { resolve(false); }
+  });
+}
+
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab || !tab.id) return;
   const url = tab.url || "";
   const looksPdf = /\.pdf($|\?|#)/i.test(url) || /^file:/.test(url);
-  // Browser-internal / file / PDF pages can't run content scripts. Instead of
-  // doing nothing, open Roody's Study tab so the user can still read a PDF.
-  if (!/^https?:\/\//.test(url)) {
+  const isFile = /^file:/.test(url);
+  // Browser-internal pages (chrome://, edge://, the web store) can't run
+  // content scripts at all. Open Roody's Study tab so a PDF is still readable.
+  if (!/^https?:\/\//.test(url) && !isFile) {
     rlog(`📄 can't attach to ${url.slice(0, 40) || "this page"} — opening Study tab`);
     openStudyTab(url);
     return;
+  }
+  // Downloaded files (file://) need the user to flip "Allow access to file
+  // URLs" on chrome://extensions. Without it, show a small toolbar popup that
+  // explains the one-time switch (like other extensions do on PDFs).
+  if (isFile) {
+    const allowed = await fileAccessAllowed();
+    if (!allowed) {
+      try {
+        await chrome.action.setPopup({ tabId: tab.id, popup: "src/popup.html" });
+        await chrome.action.openPopup();
+        rlog("📄 file:// page but file access is off — showing the how-to popup");
+      } catch (e) {
+        rlog(`📄 file access off (${e.message}) — opening Study tab instead`);
+        openStudyTab(url);
+      }
+      return;
+    }
+    // Access granted — clear any guidance popup left on this tab so the icon
+    // summons the orb again, then fall through to the normal inject path.
+    try { await chrome.action.setPopup({ tabId: tab.id, popup: "" }); } catch (_) {}
   }
   // Already injected? Just toggle visibility.
   try {
@@ -847,7 +877,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   try {
     await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ["src/content.css"] });
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["src/content.js"] });
-    rlog(`🟠 summoned on ${new URL(url).hostname}`);
+    rlog(`🟠 summoned on ${isFile ? "a local file" : new URL(url).hostname}`);
   } catch (e) {
     // Injection is blocked on Chrome's PDF viewer and a few hardened pages.
     // Fall back to the Study tab so a PDF is still readable.

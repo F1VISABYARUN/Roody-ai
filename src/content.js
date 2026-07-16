@@ -960,20 +960,38 @@
   // effort — Chrome may not inject us into its PDF viewer, and that's fine:
   // the 📄 button always works).
   (async function autoStudyPdf() {
+    const looksPdf =
+      (document.contentType || "").toLowerCase() === "application/pdf" ||
+      /\.pdf($|\?|#)/i.test(location.pathname + location.search);
+    if (!looksPdf) return;
+    // fetch() refuses file:// URLs, but a classic XHR from a file:// page can
+    // read its own file once "Allow access to file URLs" is on — so try both.
+    function xhrBytes(url) {
+      return new Promise((resolve, reject) => {
+        const x = new XMLHttpRequest();
+        x.open("GET", url);
+        x.responseType = "arraybuffer";
+        x.onload = () => (x.response ? resolve(x.response) : reject(new Error("empty")));
+        x.onerror = () => reject(new Error("xhr failed"));
+        x.send();
+      });
+    }
     try {
-      const looksPdf =
-        (document.contentType || "").toLowerCase() === "application/pdf" ||
-        /\.pdf($|\?|#)/i.test(location.pathname + location.search);
-      if (!looksPdf) return;
-      const buf = await (await fetch(location.href)).arrayBuffer();
+      let buf;
+      try { buf = await (await fetch(location.href)).arrayBuffer(); }
+      catch (_) { buf = await xhrBytes(location.href); }
       const text = await extractPdfText(buf);
-      if (text && text.length > 40) {
-        studyDoc = { name: document.title || "this PDF", text };
-        pageCache = text;
-        const sub = panel.querySelector("#roody-sub");
-        if (sub) sub.textContent = `📄 studying this PDF`;
-      }
-    } catch (_) {}
+      if (!text || text.length <= 40) throw new Error("no extractable text");
+      studyDoc = { name: document.title || "this PDF", text };
+      pageCache = text;
+      const sub = panel.querySelector("#roody-sub");
+      if (sub) sub.textContent = `📄 studying this PDF`;
+    } catch (_) {
+      // Couldn't read the bytes (or it's a scanned PDF) — the orb still works,
+      // the user just loads the file by hand.
+      const sub = panel.querySelector("#roody-sub");
+      if (sub) sub.textContent = "📄 tap the 📄 button and pick this PDF so I can read it";
+    }
   })();
 
   // ---- Live watching: react when new content appears -----------------------
