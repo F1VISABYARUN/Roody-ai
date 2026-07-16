@@ -31,6 +31,8 @@ const ADMIN_KEY = process.env.ADMIN_KEY || "";
 // stays server-side; the extension never sees which engine transcribed.
 const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_STT_MODEL = process.env.OPENAI_STT_MODEL || "gpt-4o-mini-transcribe";
+const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || "tts-1";
+const OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE || "nova"; // alloy, echo, fable, onyx, nova, shimmer
 // Optional founder keys so a code can be minted to use Claude/Grok as its
 // brain or ElevenLabs as its voice. All server-side; the extension never sees
 // them. A code with no override stays on cheap Gemini.
@@ -94,7 +96,11 @@ function dataWritable() {
 // A brain/voice is only honored if its founder key is actually configured —
 // otherwise the code silently stays on Gemini so nothing breaks.
 function resolveBrain(b) { return (b === "claude" && ANTHROPIC_KEY) || (b === "grok" && XAI_KEY) ? b : "gemini"; }
-function resolveVoice(v) { return v === "eleven" && ELEVEN_KEY ? v : "gemini"; }
+function resolveVoice(v) {
+  if (v === "eleven" && ELEVEN_KEY) return "eleven";
+  if (v === "openai" && OPENAI_KEY) return "openai";
+  return "gemini";
+}
 function codeInfo(code) {
   if (dyn.codes[code]) {
     const c = dyn.codes[code];
@@ -248,6 +254,24 @@ async function callElevenTTS(body) {
     gemini: { candidates: [{ content: { parts: [{ inlineData: { mimeType: "audio/mpeg", data: buf.toString("base64") } }] } }] },
   };
 }
+// OpenAI TTS: same translation trick — Gemini-shaped request in, MP3 base64 out.
+// Used as a per-code voice option AND as the automatic failover when Gemini TTS
+// hits its 100 req/day cap on the paid tier (returns 429).
+async function callOpenAITTS(body) {
+  const txt = (body.contents?.[0]?.parts || []).map((p) => p.text).filter(Boolean).join("").slice(0, 4096);
+  if (!txt) return { status: 400, gemini: { error: "no-text" } };
+  const r = await fetch("https://api.openai.com/v1/audio/speech", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${OPENAI_KEY}` },
+    body: JSON.stringify({ model: OPENAI_TTS_MODEL, voice: OPENAI_TTS_VOICE, input: txt, response_format: "mp3" }),
+  });
+  if (!r.ok) return { status: r.status, gemini: { error: (await r.text()).slice(0, 200) }, chars: txt.length };
+  const buf = Buffer.from(await r.arrayBuffer());
+  return {
+    status: 200, chars: txt.length,
+    gemini: { candidates: [{ content: { parts: [{ inlineData: { mimeType: "audio/mpeg", data: buf.toString("base64") } }] } }] },
+  };
+}
 
 // ---- Admin dashboard --------------------------------------------------------
 function adminPage(msg) {
@@ -259,7 +283,7 @@ function adminPage(msg) {
          · <a href="/admin/del?key=${k}&code=${encodeURIComponent(c.code)}" onclick="return confirm('Delete ${esc(c.code)}?')">delete</a>`
       : `<span style="color:#a89880">env var</span>`;
     const brainLbl = { gemini: "Gemini", claude: "Claude", grok: "Grok" }[c.brain] || "Gemini";
-    const voiceLbl = c.voice === "eleven" ? "11Labs" : "Gemini";
+    const voiceLbl = c.voice === "eleven" ? "11Labs" : c.voice === "openai" ? "OpenAI" : "Gemini";
     const warn = (c.wantBrain && c.wantBrain !== c.brain) || (c.wantVoice && c.wantVoice !== c.voice) ? " ⚠️" : "";
     return `<tr${c.disabled ? ' style="opacity:.45"' : ""}>
       <td><b>${esc(c.code)}</b>${c.disabled ? " 🚫" : ""}</td>
@@ -289,6 +313,7 @@ ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}
 <div class="k">Messages today: <b>${totalToday}</b></div>
 <div class="k">Total est. spend: <b>$${totalCost.toFixed(4)} · ₹${(totalCost * 85).toFixed(2)}</b></div>
 <div class="k">Codes: <b>${allCodes().length}</b></div>
+<div class="k"><a href="/admin/test-keys?key=${k}" style="color:#e98a3c;text-decoration:none">🔑 Test keys</a></div>
 <form action="/admin/new" method="get">
   <input type="hidden" name="key" value="${esc(ADMIN_KEY)}">
   <b>🎟 New code:</b>
@@ -299,8 +324,9 @@ ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}
     <option value="claude"${ANTHROPIC_KEY ? "" : " disabled"}>🧠 Claude${ANTHROPIC_KEY ? "" : " (no key)"}</option>
     <option value="grok"${XAI_KEY ? "" : " disabled"}>🧠 Grok${XAI_KEY ? "" : " (no key)"}</option>
   </select>
-  <select name="voice" title="voice — ElevenLabs only works if that founder key is set in hPanel">
-    <option value="gemini">🗣 Gemini voice</option>
+  <select name="voice" title="voice — ElevenLabs/OpenAI only work if that founder key is set in hPanel">
+    <option value="gemini">🗣 Gemini voice (auto-failover to OpenAI if capped)</option>
+    <option value="openai"${OPENAI_KEY ? "" : " disabled"}>🗣 OpenAI TTS (nova)${OPENAI_KEY ? "" : " (no key)"}</option>
     <option value="eleven"${ELEVEN_KEY ? "" : " disabled"}>🗣 ElevenLabs${ELEVEN_KEY ? "" : " (no key)"}</option>
   </select>
   <button>Generate</button>
@@ -405,7 +431,7 @@ const server = http.createServer(async (req, res) => {
       if (u.pathname === "/admin/new") {
         const code = mintCode();
         const brain = ["gemini", "claude", "grok"].includes(u.searchParams.get("brain")) ? u.searchParams.get("brain") : "gemini";
-        const voice = ["gemini", "eleven"].includes(u.searchParams.get("voice")) ? u.searchParams.get("voice") : "gemini";
+        const voice = ["gemini", "eleven", "openai"].includes(u.searchParams.get("voice")) ? u.searchParams.get("voice") : "gemini";
         dyn.codes[code] = {
           name: (u.searchParams.get("name") || "").slice(0, 60),
           limit: Math.max(1, Math.min(1000, parseInt(u.searchParams.get("limit") || DAILY_LIMIT, 10) || DAILY_LIMIT)),
@@ -426,6 +452,73 @@ const server = http.createServer(async (req, res) => {
         const c = (u.searchParams.get("code") || "").trim().toUpperCase();
         if (dyn.codes[c]) { delete dyn.codes[c]; saveDyn(); }
         return back(`${c} deleted`);
+      }
+      // Key health test — runs a minimal live request against each configured API.
+      if (u.pathname === "/admin/test-keys") {
+        const results = [];
+        const check = async (label, fn) => { try { results.push([label, await fn()]); } catch (e) { results.push([label, `❌ ${e.message}`]); } };
+        await check("Gemini brain", async () => {
+          const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: [{ text: "hi" }] }], generationConfig: { maxOutputTokens: 3 } }),
+          });
+          return r.ok ? "✅ OK" : `⚠️ HTTP ${r.status}`;
+        });
+        await check("Gemini TTS", async () => {
+          const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${GEMINI_KEY}`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: [{ text: "hi" }] }] }),
+          });
+          if (r.ok) return "✅ OK";
+          if (r.status === 429) return `⚠️ 429 — daily cap hit · OpenAI TTS backup ${OPENAI_KEY ? "active" : "NO KEY"}`;
+          return `⚠️ HTTP ${r.status}`;
+        });
+        if (OPENAI_KEY) {
+          await check("OpenAI STT (Whisper)", async () => {
+            const r = await fetch("https://api.openai.com/v1/models", { headers: { authorization: `Bearer ${OPENAI_KEY}` } });
+            return r.ok ? "✅ OK" : `⚠️ HTTP ${r.status}`;
+          });
+          await check("OpenAI TTS", async () => {
+            const r = await fetch("https://api.openai.com/v1/audio/speech", {
+              method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${OPENAI_KEY}` },
+              body: JSON.stringify({ model: OPENAI_TTS_MODEL, voice: OPENAI_TTS_VOICE, input: "hi", response_format: "mp3" }),
+            });
+            return r.ok ? `✅ OK (${OPENAI_TTS_VOICE})` : `⚠️ HTTP ${r.status}`;
+          });
+        } else { results.push(["OpenAI STT + TTS", "❌ no OPENAI_API_KEY in hPanel"]); }
+        if (ANTHROPIC_KEY) {
+          await check("Claude brain", async () => {
+            const r = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST", headers: { "content-type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+              body: JSON.stringify({ model: BRAIN_MODEL.claude, max_tokens: 3, messages: [{ role: "user", content: "hi" }] }),
+            });
+            return r.ok ? `✅ OK (${BRAIN_MODEL.claude})` : `⚠️ HTTP ${r.status}`;
+          });
+        } else { results.push(["Claude brain", "❌ no ANTHROPIC_API_KEY"]); }
+        if (XAI_KEY) {
+          await check("Grok brain", async () => {
+            const r = await fetch("https://api.x.ai/v1/chat/completions", {
+              method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${XAI_KEY}` },
+              body: JSON.stringify({ model: BRAIN_MODEL.grok, max_tokens: 3, messages: [{ role: "user", content: "hi" }] }),
+            });
+            return r.ok ? `✅ OK (${BRAIN_MODEL.grok})` : `⚠️ HTTP ${r.status}`;
+          });
+        } else { results.push(["Grok brain", "❌ no XAI_API_KEY"]); }
+        if (ELEVEN_KEY) {
+          await check("ElevenLabs TTS", async () => {
+            const r = await fetch("https://api.elevenlabs.io/v1/voices", { headers: { "xi-api-key": ELEVEN_KEY } });
+            return r.ok ? "✅ OK" : `⚠️ HTTP ${r.status}`;
+          });
+        } else { results.push(["ElevenLabs TTS", "❌ no ELEVENLABS_API_KEY"]); }
+        const rows = results.map(([k, v]) => `<tr><td style="padding:10px 14px;border-bottom:1px solid #3a3025"><b>${esc(k)}</b></td><td style="padding:10px 14px;border-bottom:1px solid #3a3025">${esc(v)}</td></tr>`).join("");
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        return res.end(`<!doctype html><html><head><meta charset="utf-8"><title>Key Test — Roody</title>
+<style>body{font-family:system-ui,sans-serif;background:#1c1712;color:#f0e6da;padding:32px;max-width:640px;margin:0 auto}h1{color:#e98a3c}a{color:#e98a3c}table{width:100%;border-collapse:collapse;font-size:15px}</style>
+</head><body><h1>🔑 Key Health Check</h1>
+<p style="color:#a89880;margin-bottom:20px">Live test · ${new Date().toLocaleString()}</p>
+<table>${rows}</table>
+<p style="margin-top:24px"><a href="/admin?key=${k}">← Back to admin</a></p>
+</body></html>`);
       }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       return res.end(adminPage(u.searchParams.get("m") || ""));
@@ -612,6 +705,17 @@ const server = http.createServer(async (req, res) => {
       console.error(`${info.brain} unreachable (${e.message}) — falling back to Gemini`);
     }
   }
+  // Voice via OpenAI TTS when the code is configured for it.
+  if (kind === "tts" && info.voice === "openai") {
+    try {
+      const out = await callOpenAITTS(body);
+      if (out.status === 200) s.costUSD += ((out.chars || 0) / 1000) * 0.015; // ~$0.015/1k chars
+      if (out.status === 200 || out.status === 400) return json(res, out.status, out.gemini);
+      console.error(`openai tts ${out.status} — falling back to Gemini TTS`);
+    } catch (e) {
+      console.error(`openai tts unreachable (${e.message}) — falling back to Gemini TTS`);
+    }
+  }
   // Voice via ElevenLabs when the code is configured for it.
   if (kind === "tts" && info.voice === "eleven") {
     try {
@@ -638,6 +742,23 @@ const server = http.createServer(async (req, res) => {
     text = await r.text();
   } catch (e) {
     return json(res, 502, { error: "gemini-unreachable", detail: String(e.message || e) });
+  }
+
+  // Gemini TTS failover — if the TTS model is capped (429) or flaking (5xx),
+  // silently re-synthesize with OpenAI so the user hears a voice instead of
+  // silence. Works for ALL codes regardless of voice setting.
+  if (kind === "tts" && (r.status === 429 || r.status >= 500) && OPENAI_KEY) {
+    console.error(`gemini tts ${r.status} — failing over to OpenAI TTS`);
+    try {
+      const out = await callOpenAITTS(body);
+      if (out.status === 200) {
+        s.costUSD += ((out.chars || 0) / 1000) * 0.015;
+        return json(res, 200, out.gemini);
+      }
+      console.error(`openai tts failover ${out.status} — returning original gemini error`);
+    } catch (e) {
+      console.error(`openai tts failover unreachable (${e.message})`);
+    }
   }
 
   // Cost accounting from Gemini's token counts (metadata only).
