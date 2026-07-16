@@ -85,6 +85,7 @@
   let pageCache = ""; // incrementally built — NO scrolling ever
   const seenLines = new Set(); // dedup by exact line, not substring
   let lastCacheSnapshot = ""; // detect meaningful changes
+  let lastPageUrl = location.href; // SPA navigation guard — reset cache on URL change
   let geminiVoice = false; // use Gemini for voice? (set at boot if a key exists)
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -424,8 +425,20 @@
 
   // Incrementally capture new content as it appears — called by
   // MutationObserver. Merges new lines into pageCache without scrolling.
+  // Also detects SPA navigation (URL change without content script re-injection)
+  // and resets the cache so Roody reads the NEW page, not the old one.
   let captureTimer = null;
   function captureIncremental() {
+    // SPA guard: if the URL changed, the old pageCache is from a different page.
+    // Clear it so Roody starts fresh — otherwise it talks about the PREVIOUS page.
+    if (location.href !== lastPageUrl) {
+      lastPageUrl = location.href;
+      pageCache = "";
+      seenLines.clear();
+      lastCacheSnapshot = "";
+      openerSent = false; // allow a new greeting on the new page
+      rlog(`SPA nav → ${location.hostname}${location.pathname} — cache reset`);
+    }
     const fresh = readPage();
     if (!pageCache) {
       pageCache = fresh;
