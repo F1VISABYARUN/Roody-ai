@@ -67,6 +67,11 @@ with an AI model by voice or text. It performs no other function.
   api.elevenlabs.io, api.x.ai): to send the user's messages and page excerpts
   to the AI/voice provider the USER selected with THEIR OWN API key. No data
   is sent anywhere else.
+- file:///* + offscreen: so the user can summon Roody on a PDF they
+  downloaded and discuss it. Inert until the user BOTH enables Chrome's
+  "Allow access to file URLs" switch AND clicks the extension icon on that
+  file; the offscreen document only reads the bytes of that one PDF so its
+  text can be discussed.
 
 ## Data usage disclosures (check these boxes)
 - Does NOT collect user data (we run no servers; data goes only from the

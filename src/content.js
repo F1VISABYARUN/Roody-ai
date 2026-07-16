@@ -189,6 +189,11 @@
   // the content-stream operators. Works on most text PDFs; scanned/image PDFs
   // have no text to extract, so we fall back to "paste it and I'll study it."
   let studyDoc = null; // { name, text } once a PDF is loaded for study
+  // Are we sitting on Chrome's PDF viewer? Its DOM is just the plugin (and our
+  // own panel) — never worth reading as "page text".
+  const isPdfPage =
+    (document.contentType || "").toLowerCase() === "application/pdf" ||
+    /\.pdf($|\?|#)/i.test(location.pathname + location.search);
   let chatContentFound = false; // real chat text extracted → suppress stale tab title
 
   // Byte-accurate string so file offsets line up with the raw bytes.
@@ -342,6 +347,9 @@
   function readPage() {
     // A PDF the user handed us for study wins over whatever's in the DOM.
     if (studyDoc && studyDoc.text) return studyDoc.text.slice(0, 16000);
+    // On a PDF page with nothing loaded yet, the only DOM text is Roody's own
+    // chat panel — reading it makes the brain hallucinate. Send nothing.
+    if (isPdfPage) return "";
     // The page can BECOME sensitive after summon (SPA navigates to a login or
     // checkout view). Re-check on every read; trip the shield if so.
     if (pageIsSensitive()) { tripSensitive(); return ""; }
@@ -508,11 +516,9 @@
       <span id="roody-hearing-text"></span>
     </div>
     <div id="roody-inputrow">
-      <button id="roody-pdf" title="Study a PDF with Roody">📄</button>
       <input id="roody-text" type="text" placeholder="…or just type to Roody" autocomplete="off" />
       <button id="roody-send" title="Send">➤</button>
     </div>
-    <input id="roody-pdf-file" type="file" accept="application/pdf,.pdf" style="display:none" />
   `;
 
   document.body.appendChild(orb);
@@ -938,17 +944,8 @@
     }
   }
 
-  const pdfBtn = panel.querySelector("#roody-pdf");
-  const pdfFile = panel.querySelector("#roody-pdf-file");
-  if (pdfBtn && pdfFile) {
-    pdfBtn.addEventListener("click", () => pdfFile.click());
-    pdfFile.addEventListener("change", () => {
-      const f = pdfFile.files && pdfFile.files[0];
-      pdfFile.value = "";
-      if (f) loadStudyPdf(f);
-    });
-  }
-  // Drag a PDF straight onto the panel.
+  // Drag a PDF straight onto the panel (quiet fallback for scanned/blocked
+  // files — PDFs on the page are read automatically, no button needed).
   panel.addEventListener("dragover", (e) => { e.preventDefault(); });
   panel.addEventListener("drop", (e) => {
     e.preventDefault();
@@ -960,37 +957,34 @@
   // effort — Chrome may not inject us into its PDF viewer, and that's fine:
   // the 📄 button always works).
   (async function autoStudyPdf() {
-    const looksPdf =
-      (document.contentType || "").toLowerCase() === "application/pdf" ||
-      /\.pdf($|\?|#)/i.test(location.pathname + location.search);
-    if (!looksPdf) return;
-    // fetch() refuses file:// URLs, but a classic XHR from a file:// page can
-    // read its own file once "Allow access to file URLs" is on — so try both.
-    function xhrBytes(url) {
-      return new Promise((resolve, reject) => {
-        const x = new XMLHttpRequest();
-        x.open("GET", url);
-        x.responseType = "arraybuffer";
-        x.onload = () => (x.response ? resolve(x.response) : reject(new Error("empty")));
-        x.onerror = () => reject(new Error("xhr failed"));
-        x.send();
-      });
+    if (!isPdfPage) return;
+    // Page-origin requests can't read file:// (and some hosts block CORS), so
+    // after a direct fetch fails, ask the background's offscreen reader for
+    // the bytes — that path works on local files once file access is granted.
+    async function bgBytes(url) {
+      const res = await chrome.runtime.sendMessage({ type: "roody:readPdfBytes", url });
+      if (!res || !res.ok) throw new Error((res && res.error) || "reader failed");
+      const bin = atob(res.b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes.buffer;
     }
     try {
       let buf;
       try { buf = await (await fetch(location.href)).arrayBuffer(); }
-      catch (_) { buf = await xhrBytes(location.href); }
+      catch (_) { buf = await bgBytes(location.href); }
       const text = await extractPdfText(buf);
       if (!text || text.length <= 40) throw new Error("no extractable text");
       studyDoc = { name: document.title || "this PDF", text };
       pageCache = text;
       const sub = panel.querySelector("#roody-sub");
       if (sub) sub.textContent = `📄 studying this PDF`;
-    } catch (_) {
-      // Couldn't read the bytes (or it's a scanned PDF) — the orb still works,
-      // the user just loads the file by hand.
+    } catch (e) {
+      // Scanned/image PDF or the read was blocked — say so honestly instead of
+      // letting Roody read its own chat panel and get confused.
+      rlog(`📄 couldn't auto-read this PDF: ${e.message}`);
       const sub = panel.querySelector("#roody-sub");
-      if (sub) sub.textContent = "📄 tap the 📄 button and pick this PDF so I can read it";
+      if (sub) sub.textContent = "📄 I couldn't read this PDF — drop the file onto my panel and I'll study it";
     }
   })();
 

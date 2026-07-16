@@ -149,20 +149,6 @@
   background: #e98a3c;
   color: #fff;
 }
-#roody-pdf {
-  border: 1px solid #e7d4ba;
-  border-radius: 10px;
-  width: 40px;
-  cursor: pointer;
-  font-size: 17px;
-  background: #fff;
-  color: #3a2c1e;
-  flex: 0 0 auto;
-}
-#roody-pdf:hover {
-  border-color: #e98a3c;
-  background: #fff3e6;
-}
 /* The ONE big voice toggle. */
 #roody-toggle-row {
   padding: 10px 12px 0;

@@ -890,3 +890,40 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     sendResponse({ ok: true });
   }
 });
+
+// ---- Local PDF reader -------------------------------------------------------
+// A content script on a file:// page can't read the file's bytes (page-origin
+// fetch/XHR of file: URLs is blocked), and neither can this service worker.
+// An offscreen extension page CAN, once "Allow access to file URLs" is on —
+// so the orb asks us, we ask the offscreen reader, and relay the bytes back.
+async function ensureOffscreenReader() {
+  try {
+    const contexts = await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] });
+    if (contexts && contexts.length) return;
+  } catch (_) {}
+  try {
+    await chrome.offscreen.createDocument({
+      url: "src/offscreen.html",
+      reasons: ["BLOBS"],
+      justification: "Read the bytes of a local PDF the user summoned Roody on, so it can be discussed.",
+    });
+  } catch (e) {
+    // "Only a single offscreen document" — someone else just created it. Fine.
+    if (!/single offscreen/i.test(e.message || "")) throw e;
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type !== "roody:readPdfBytes") return;
+  (async () => {
+    try {
+      await ensureOffscreenReader();
+      const res = await chrome.runtime.sendMessage({ type: "roody:offscreenRead", url: msg.url });
+      sendResponse(res || { ok: false, error: "no response from reader" });
+    } catch (e) {
+      rlog(`📄 local read failed: ${e.message}`);
+      sendResponse({ ok: false, error: e.message });
+    }
+  })();
+  return true; // async sendResponse
+});
