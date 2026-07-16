@@ -814,18 +814,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // a page injects the orb; later clicks toggle it. content.js does its own
 // privacy check (blocklisted domains / password / payment fields) and refuses
 // to attach on personal pages.
-// Open Roody's standalone Study tab — the escape hatch for pages we can't
-// inject the orb onto (PDF viewer, file://, chrome:// pages). If the current
-// tab is itself a PDF we can reach over the network, pass its URL so the
-// Study page auto-loads it.
-function openStudyTab(pdfUrl) {
-  let url = chrome.runtime.getURL("src/study.html");
-  if (pdfUrl && /^https?:\/\//.test(pdfUrl) && /\.pdf($|\?|#)/i.test(pdfUrl)) {
-    url += "?src=" + encodeURIComponent(pdfUrl);
-  }
-  chrome.tabs.create({ url });
-}
-
 // Can this install touch file:// pages? Depends on the "Allow access to file
 // URLs" switch on chrome://extensions — off by default.
 function fileAccessAllowed() {
@@ -835,38 +823,48 @@ function fileAccessAllowed() {
   });
 }
 
+// When Roody can't attach to a page, arm the small toolbar popup that explains
+// why (and, for downloaded files, how to flip "Allow access to file URLs").
+// openPopup() needs a recent Chrome; if it throws, the popup stays armed and a
+// "!" badge nudges the user to click the icon again — that click opens it.
+async function showHelpPopup(tabId, why, kind) {
+  // Tell the popup which situation it's explaining (file access vs. blocked
+  // page) — it can't always read the tab's URL itself.
+  try { await chrome.storage.local.set({ roodyHelpReason: { tabId, kind } }); } catch (_) {}
+  try { await chrome.action.setPopup({ tabId, popup: "src/popup.html" }); } catch (_) {}
+  try {
+    await chrome.action.openPopup();
+  } catch (_) {
+    try {
+      await chrome.action.setBadgeText({ tabId, text: "!" });
+      await chrome.action.setBadgeBackgroundColor({ tabId, color: "#e98a3c" });
+    } catch (_) {}
+  }
+  rlog(`ℹ can't attach (${why}) — showing the help popup`);
+}
+
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab || !tab.id) return;
   const url = tab.url || "";
-  const looksPdf = /\.pdf($|\?|#)/i.test(url) || /^file:/.test(url);
   const isFile = /^file:/.test(url);
-  // Browser-internal pages (chrome://, edge://, the web store) can't run
-  // content scripts at all. Open Roody's Study tab so a PDF is still readable.
+  // Browser-internal pages (chrome://, the web store) can't run content
+  // scripts at all — explain instead of doing nothing.
   if (!/^https?:\/\//.test(url) && !isFile) {
-    rlog(`📄 can't attach to ${url.slice(0, 40) || "this page"} — opening Study tab`);
-    openStudyTab(url);
+    await showHelpPopup(tab.id, url.slice(0, 40) || "internal page", "blocked");
     return;
   }
-  // Downloaded files (file://) need the user to flip "Allow access to file
-  // URLs" on chrome://extensions. Without it, show a small toolbar popup that
-  // explains the one-time switch (like other extensions do on PDFs).
+  // Downloaded files (file://) need the one-time "Allow access to file URLs"
+  // switch. Without it, the popup walks the user through flipping it.
   if (isFile) {
     const allowed = await fileAccessAllowed();
     if (!allowed) {
-      try {
-        await chrome.action.setPopup({ tabId: tab.id, popup: "src/popup.html" });
-        await chrome.action.openPopup();
-        rlog("📄 file:// page but file access is off — showing the how-to popup");
-      } catch (e) {
-        rlog(`📄 file access off (${e.message}) — opening Study tab instead`);
-        openStudyTab(url);
-      }
+      await showHelpPopup(tab.id, "file access off", "file");
       return;
     }
-    // Access granted — clear any guidance popup left on this tab so the icon
-    // summons the orb again, then fall through to the normal inject path.
-    try { await chrome.action.setPopup({ tabId: tab.id, popup: "" }); } catch (_) {}
   }
+  // Attachable page — clear any leftover popup/badge so the icon summons again.
+  try { await chrome.action.setPopup({ tabId: tab.id, popup: "" }); } catch (_) {}
+  try { await chrome.action.setBadgeText({ tabId: tab.id, text: "" }); } catch (_) {}
   // Already injected? Just toggle visibility.
   try {
     const res = await chrome.tabs.sendMessage(tab.id, { type: "roody:toggle" });
@@ -879,10 +877,9 @@ chrome.action.onClicked.addListener(async (tab) => {
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["src/content.js"] });
     rlog(`🟠 summoned on ${isFile ? "a local file" : new URL(url).hostname}`);
   } catch (e) {
-    // Injection is blocked on Chrome's PDF viewer and a few hardened pages.
-    // Fall back to the Study tab so a PDF is still readable.
-    rlog(`⚠ summon failed: ${e.message}${looksPdf ? " — opening Study tab" : ""}`);
-    if (looksPdf) openStudyTab(url);
+    // Injection is blocked on a few hardened pages — explain in the popup.
+    rlog(`⚠ summon failed: ${e.message}`);
+    await showHelpPopup(tab.id, "injection blocked", "blocked");
   }
 });
 
