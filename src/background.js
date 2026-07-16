@@ -128,7 +128,7 @@ function buildProfileBlock(profile) {
 
 async function askRoody({ userText, pageContext, history, mode, site, title, pageMode }) {
   const { apiKey, xaiKey, model: settingsModel } = await getSettings();
-  const { roodyVoiceCheapBrain, roodyLang, roodyVibe, roodyMemory, roodyProfile } = await chrome.storage.local.get(["roodyVoiceCheapBrain", "roodyLang", "roodyVibe", "roodyMemory", "roodyProfile"]);
+  const { roodyVoiceCheapBrain, roodyLang, roodyVibe, roodyMemory, roodyProfile, roodyLearned } = await chrome.storage.local.get(["roodyVoiceCheapBrain", "roodyLang", "roodyVibe", "roodyMemory", "roodyProfile", "roodyLearned"]);
   // Smart tiering: cheap model for everyday chatter, the user's FULL model
   // for "analyze this" turns. Best quality where it matters, cheap where it
   // doesn't. (Analysis detection duplicated here from the per-brain regex —
@@ -162,7 +162,12 @@ async function askRoody({ userText, pageContext, history, mode, site, title, pag
     }
   }
   const baseSystem = getSystemPrompt(roodyVibe || "normal");
-  const profileBlock = buildProfileBlock(roodyProfile);
+  // Profile (what they told us) + learned note (what Roody noticed over time)
+  // travel together in the stable prefix.
+  const learnedBlock = (roodyLearned || "").trim()
+    ? `What you've learned about the user over time (from past sessions — use it to be personal and anticipate):\n"${String(roodyLearned).trim().slice(0, 700)}"\n\n`
+    : "";
+  const profileBlock = buildProfileBlock(roodyProfile) + learnedBlock;
   const memoryBlock = buildMemoryBlock(roodyMemory);
   // Prompt-caching split:
   //   stable part = persona + vibe + profile (rarely changes → gets cached
@@ -795,6 +800,69 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         await chrome.storage.local.set({ roodyMemory: mem });
         rlog(`📝 session recap saved: "${recap.slice(0, 60)}…"`);
         sendResponse({ ok: true });
+        // Long-term learning: fold this session into the "what I've learned
+        // about you" note (habits, recurring topics, common mistakes).
+        // Throttled to once an hour so it stays cheap and stable.
+        try {
+          const { roodyLearned, roodyLearnedTs } = await chrome.storage.local.get(["roodyLearned", "roodyLearnedTs"]);
+          if (!roodyLearnedTs || Date.now() - roodyLearnedTs > 60 * 60 * 1000) {
+            const learnRouted = await geminiFetch("gemini-2.5-flash", {
+              contents: [{ parts: [{ text:
+                `You keep a tiny private note about a user you assist, to make future help more personal.\n` +
+                `Current note: "${(roodyLearned || "nothing yet").slice(0, 600)}"\n\n` +
+                `New session transcript:\n${transcript.slice(0, 2500)}\n\n` +
+                `Update the note (max 80 words): stable habits, recurring topics, common mistakes, preferences, current goals. ` +
+                `Keep old facts that still matter, drop stale ones. Output ONLY the note text.`
+              } ] }],
+              generationConfig: { temperature: 0.2, maxOutputTokens: 140, thinkingConfig: { thinkingBudget: 0 } },
+            }, "brain");
+            if (learnRouted && learnRouted.resp.ok) {
+              const ldata = await learnRouted.resp.json();
+              const note = (ldata?.candidates?.[0]?.content?.parts || [])
+                .map((p) => p.text).filter(Boolean).join("").trim();
+              if (note) {
+                await chrome.storage.local.set({ roodyLearned: note.slice(0, 700), roodyLearnedTs: Date.now() });
+                rlog(`🧠 learned-about-you note updated (${note.length} chars)`);
+              }
+            }
+          }
+        } catch (_) { /* learning is best-effort */ }
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+  // Typing hint — the user paused mid-draft; suggest ONE better move if there
+  // clearly is one, otherwise stay silent. Cheap brain, tiny output.
+  if (msg?.type === "roody:hint") {
+    (async () => {
+      try {
+        const { draft, context, site } = msg.payload || {};
+        if (!draft) return sendResponse({ ok: false });
+        const { roodyLearned, roodyProfile, roodyLang } = await chrome.storage.local.get(["roodyLearned", "roodyProfile", "roodyLang"]);
+        const ln = langName(roodyLang);
+        const routed = await geminiFetch("gemini-2.5-flash", {
+          contents: [{ parts: [{ text:
+            `You are Roody, a sharp friendly companion watching over a user's shoulder as they type on ${site || "a page"}.\n` +
+            (roodyProfile ? `About them: "${String(roodyProfile).slice(0, 300)}"\n` : "") +
+            (roodyLearned ? `What you've learned about them: "${String(roodyLearned).slice(0, 400)}"\n` : "") +
+            (context ? `What's on the page:\n${String(context).slice(0, 1200)}\n\n` : "") +
+            `They are mid-typing this draft:\n"""${String(draft).slice(0, 1200)}"""\n\n` +
+            `If — and ONLY if — you see a clearly better move (missing info they should include, a sharper way to ask, ` +
+            `a mistake they're about to make, a smarter approach), say it in ONE short friendly spoken sentence starting ` +
+            `with something like "You could" or "Try". ${ln ? `Reply in ${ln}. ` : ""}` +
+            `If the draft is already fine, reply with exactly: SKIP`
+          } ] }],
+          generationConfig: { temperature: 0.4, maxOutputTokens: 80, thinkingConfig: { thinkingBudget: 0 } },
+        }, "brain");
+        if (!routed || !routed.resp.ok) return sendResponse({ ok: false });
+        const data = await routed.resp.json();
+        const hint = (data?.candidates?.[0]?.content?.parts || [])
+          .map((p) => p.text).filter(Boolean).join("").trim();
+        if (!hint || /^SKIP\b/i.test(hint)) return sendResponse({ ok: false });
+        rlog(`💡 hint sent for a ${String(draft).length}-char draft on ${site}`);
+        sendResponse({ ok: true, hint: hint.slice(0, 300) });
       } catch (e) {
         sendResponse({ ok: false, error: e.message });
       }

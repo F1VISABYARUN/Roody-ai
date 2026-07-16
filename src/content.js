@@ -79,6 +79,7 @@
   const TAB_LEADER_TTL_MS = 8000; // how long a tab claims the "active speaker" role
 
   let autoChime = false; // OFF by default — Roody stays quiet unless tapped
+  let typingHints = true; // 💡 watch the user's draft, suggest a better move
   let lastAnswerSig = ""; // fingerprint of the latest answer we've seen
   let reacting = false; // lock so we don't react on top of a reaction
   let lastReactTime = 0;
@@ -1090,6 +1091,63 @@
     setInterval(proactiveCheckIn, PROACTIVE_INTERVAL_MS);
   }
 
+  // ---- Typing hints: "you could do this instead" ---------------------------
+  // Roody watches the draft the user is composing (the chat box on ChatGPT/
+  // Claude/etc., or any big text field) and — after they pause — offers ONE
+  // short improvement if there clearly is one. Cheap brain, strict triggers,
+  // silent when the draft is already fine.
+  const HINT_PAUSE_MS = 2200; // fire only after the user stops typing
+  const HINT_MIN_CHARS = 60; // don't judge half a sentence
+  const HINT_COOLDOWN_MS = 3 * 60 * 1000; // one hint every few minutes, max
+  let hintTimer = null;
+  let lastHintTime = 0;
+  let lastHintedDraft = "";
+
+  function draftFromTarget(el) {
+    if (!el) return "";
+    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
+      if (el.tagName === "INPUT" && el.type !== "text" && el.type !== "search") return "";
+      return el.value || "";
+    }
+    if (el.isContentEditable) return el.innerText || "";
+    return "";
+  }
+
+  async function maybeHint(draft) {
+    if (!typingHints || reacting) return;
+    if (Date.now() - lastHintTime < HINT_COOLDOWN_MS) return;
+    if (draft.length < HINT_MIN_CHARS) return;
+    // Same draft (or barely grown) as last time — stay quiet.
+    if (lastHintedDraft && (draft.startsWith(lastHintedDraft) || lastHintedDraft.startsWith(draft)) &&
+        Math.abs(draft.length - lastHintedDraft.length) < 40) return;
+    if (pageIsSensitive()) return;
+    if (!(await canISpeak())) return;
+    lastHintTime = Date.now();
+    lastHintedDraft = draft;
+    const res = await chrome.runtime.sendMessage({
+      type: "roody:hint",
+      payload: { draft: draft.slice(0, 1200), context: readPage().slice(0, 1500), site: location.hostname },
+    }).catch(() => null);
+    if (!res || !res.ok || !res.hint) return;
+    if (panel.style.display === "none") panel.style.display = "flex";
+    addBubble("roody", "💡 " + res.hint);
+    // Speak it too — a friend leans over and says it, not just a note.
+    // (speak() falls back to the browser voice; skip while voice mode is
+    // mid-conversation so we never talk over the user.)
+    if (!voiceOn) speak(res.hint, () => {});
+    rlog(`💡 typing hint shown (draft ${draft.length} chars)`);
+  }
+
+  document.addEventListener("input", (e) => {
+    if (!typingHints) return;
+    // Ignore typing inside Roody's own panel.
+    if (panel.contains(e.target) || e.target === input) return;
+    const draft = draftFromTarget(e.target);
+    clearTimeout(hintTimer);
+    if (!draft || draft.length < HINT_MIN_CHARS) return;
+    hintTimer = setTimeout(() => maybeHint(draft.trim()), HINT_PAUSE_MS);
+  }, true);
+
   // ---- THE one switch: Voice ON / OFF -------------------------------------
   // ON  = Roody talks first, listens always, you interrupt by talking.
   // OFF = full silence, no listening, no talking.
@@ -1593,9 +1651,10 @@
 
   // ---- Boot -----------------------------------------------------------------
   chrome.storage.local
-    .get(["roodyAutoChime", "roodyGeminiKey", "roodyElevenKey", "roodyInviteCode", "roodyEnabled", "roodyLang", "roodyEars"])
+    .get(["roodyAutoChime", "roodyTypingHints", "roodyGeminiKey", "roodyElevenKey", "roodyInviteCode", "roodyEnabled", "roodyLang", "roodyEars"])
     .then((s) => {
       if (typeof s.roodyAutoChime === "boolean") autoChime = s.roodyAutoChime;
+      typingHints = s.roodyTypingHints !== false; // ON unless switched off
       if (s.roodyLang) srLang = s.roodyLang;
       if (s.roodyEars === "accurate") earsMode = "accurate";
       geminiVoice = !!(s.roodyElevenKey || s.roodyGeminiKey || s.roodyInviteCode);
@@ -1639,6 +1698,10 @@
       if (changes.roodyAutoChime) {
         autoChime = changes.roodyAutoChime.newValue === true;
         rlog(`🔔 auto-chime ${autoChime ? "ON" : "OFF"} (picked up live)`);
+      }
+      if (changes.roodyTypingHints) {
+        typingHints = changes.roodyTypingHints.newValue !== false;
+        rlog(`💡 typing hints ${typingHints ? "ON" : "OFF"} (picked up live)`);
       }
       if (changes.roodyEars) {
         earsMode = changes.roodyEars.newValue === "accurate" ? "accurate" : "browser";

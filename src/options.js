@@ -9,6 +9,7 @@ const langEl = $("lang");
 const earsEl = $("ears");
 const vibeEl = $("vibe");
 const chimeEl = $("autochime");
+const hintsEl = $("typinghints");
 const enabledEl = $("enabled");
 const profileEl = $("profile");
 const profileCountEl = $("profilecount");
@@ -38,7 +39,7 @@ let savedProxyUrl = "";
 chrome.storage.local
   .get([
     "roodyGeminiKey", "roodyVoice", "roodyLang", "roodyVibe", "roodyEnabled",
-    "roodyAutoChime", "roodyProfile", "roodyInviteCode", "roodyProxyUrl", "roodyEars",
+    "roodyAutoChime", "roodyTypingHints", "roodyProfile", "roodyInviteCode", "roodyProxyUrl", "roodyEars",
   ])
   .then((s) => {
     if (s.roodyGeminiKey) gkeyEl.value = s.roodyGeminiKey;
@@ -54,6 +55,7 @@ chrome.storage.local
       chrome.storage.local.set({ roodyVoice: "Kore" }); // persist the snap-back
     }
     chimeEl.checked = s.roodyAutoChime === true; // off by default
+    hintsEl.checked = s.roodyTypingHints !== false; // on by default
     enabledEl.checked = s.roodyEnabled !== false;
     showKeyStatus($("gstatus"), !!s.roodyGeminiKey);
     if (s.roodyProfile) profileEl.value = s.roodyProfile;
@@ -176,6 +178,25 @@ $("clearmem").addEventListener("click", async () => {
   renderMemory();
 });
 
+// The "what Roody has learned about you" note — visible and erasable.
+function renderLearned() {
+  chrome.storage.local.get(["roodyLearned"]).then(({ roodyLearned }) => {
+    const box = $("learnedbox");
+    box.textContent = (roodyLearned || "").trim() ||
+      "";
+    if (!box.textContent) {
+      box.innerHTML = "<em style='color:#97836d'>Nothing yet — Roody learns a little after each conversation.</em>";
+    }
+  });
+}
+renderLearned();
+setInterval(renderLearned, 5000);
+$("clearlearned").addEventListener("click", async () => {
+  if (!confirm("Forget everything Roody has learned about you?")) return;
+  await chrome.storage.local.set({ roodyLearned: "", roodyLearnedTs: 0 });
+  renderLearned();
+});
+
 // Live vibe preview + auto-save
 vibeEl.addEventListener("change", () => {
   $("vibepreview").textContent = VIBE_PREVIEWS[vibeEl.value] || "";
@@ -187,4 +208,5 @@ voiceEl.addEventListener("change", () => chrome.storage.local.set({ roodyVoice: 
 langEl.addEventListener("change", () => chrome.storage.local.set({ roodyLang: langEl.value }));
 earsEl.addEventListener("change", () => chrome.storage.local.set({ roodyEars: earsEl.value }));
 chimeEl.addEventListener("change", () => chrome.storage.local.set({ roodyAutoChime: chimeEl.checked }));
+hintsEl.addEventListener("change", () => chrome.storage.local.set({ roodyTypingHints: hintsEl.checked }));
 enabledEl.addEventListener("change", () => chrome.storage.local.set({ roodyEnabled: enabledEl.checked }));
