@@ -289,6 +289,7 @@ ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}
 <div class="k">Messages today: <b>${totalToday}</b></div>
 <div class="k">Total est. spend: <b>$${totalCost.toFixed(4)} · ₹${(totalCost * 85).toFixed(2)}</b></div>
 <div class="k">Codes: <b>${allCodes().length}</b></div>
+<div class="k">🔑 Key health: <a href="/admin/keytest?key=${esc(ADMIN_KEY)}">Test now</a> <span style="color:#a89880;font-size:12px">(pings Google with the founder key — brain &amp; voice)</span></div>
 <form action="/admin/new" method="get">
   <input type="hidden" name="key" value="${esc(ADMIN_KEY)}">
   <b>🎟 New code:</b>
@@ -426,6 +427,46 @@ const server = http.createServer(async (req, res) => {
         const c = (u.searchParams.get("code") || "").trim().toUpperCase();
         if (dyn.codes[c]) { delete dyn.codes[c]; saveDyn(); }
         return back(`${c} deleted`);
+      }
+      // Live key test — actually calls Google with the founder key so "key
+      // saved" vs "key working" vs "voice quota gone" are distinguishable.
+      if (u.pathname === "/admin/keytest") {
+        if (!GEMINI_KEY) return back("🔑 no GEMINI_API_KEY set in hPanel");
+        const verdicts = [];
+        // 1) Key validity — cheap GET, no quota burned.
+        try {
+          const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models", {
+            headers: { "x-goog-api-key": GEMINI_KEY },
+          });
+          verdicts.push(r.ok ? "key: ✓ valid" : `key: ✗ ${r.status}${r.status === 400 || r.status === 403 ? " (invalid/revoked)" : ""}`);
+          if (!r.ok) return back(`🔑 ${verdicts.join(" · ")}`);
+        } catch (e) { return back(`🔑 key: ✗ network (${e.message})`); }
+        // 2) Brain — one tiny generation.
+        try {
+          const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-goog-api-key": GEMINI_KEY },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: "Reply with OK" }] }],
+              generationConfig: { maxOutputTokens: 5, thinkingConfig: { thinkingBudget: 0 } },
+            }),
+          });
+          verdicts.push(r.ok ? "brain: ✓ OK" : `brain: ✗ ${r.status}${r.status === 429 ? " (quota — refills daily)" : ""}`);
+        } catch (e) { verdicts.push(`brain: ✗ ${e.message}`); }
+        // 3) Voice — one tiny TTS generation (this is the one with the small
+        // free-tier daily cap; a 429 here explains "robotic voice" reports).
+        try {
+          const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent", {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-goog-api-key": GEMINI_KEY },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: "hi" }] }],
+              generationConfig: { responseModalities: ["AUDIO"] },
+            }),
+          });
+          verdicts.push(r.ok ? "voice: ✓ OK" : `voice: ✗ ${r.status}${r.status === 429 ? " (TTS quota used up — refills ~midnight PT; text keeps working)" : ""}`);
+        } catch (e) { verdicts.push(`voice: ✗ ${e.message}`); }
+        return back(`🔑 ${verdicts.join(" · ")}`);
       }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       return res.end(adminPage(u.searchParams.get("m") || ""));
