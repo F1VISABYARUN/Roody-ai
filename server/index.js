@@ -31,6 +31,14 @@ const ADMIN_KEY = process.env.ADMIN_KEY || "";
 // stays server-side; the extension never sees which engine transcribed.
 const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_STT_MODEL = process.env.OPENAI_STT_MODEL || "gpt-4o-mini-transcribe";
+// Voice failover: Gemini's TTS has a small requests-per-day cap (100/day on
+// paid tier 1) — when it 429s, the proxy silently synthesizes with OpenAI
+// instead so users never hear the robotic fallback. Set ROODY_TTS_PRIMARY to
+// "openai" to flip the order (e.g. while Gemini is capped from the start).
+const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts";
+const OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE || "coral"; // warm female, closest to Kore
+const OPENAI_BRAIN_MODEL = process.env.OPENAI_BRAIN_MODEL || "gpt-5-mini";
+const TTS_PRIMARY = (process.env.ROODY_TTS_PRIMARY || "gemini").toLowerCase();
 // Optional founder keys so a code can be minted to use Claude/Grok as its
 // brain or ElevenLabs as its voice. All server-side; the extension never sees
 // them. A code with no override stays on cheap Gemini.
@@ -44,6 +52,7 @@ const BRAIN_MODEL = {
   gemini: "gemini-2.5-flash",
   claude: process.env.CLAUDE_MODEL || "claude-sonnet-4-6",
   grok: process.env.GROK_MODEL || "grok-3-mini-fast",
+  openai: OPENAI_BRAIN_MODEL,
 };
 const DAILY_LIMIT = parseInt(process.env.DAILY_LIMIT || "50", 10);
 const ENV_CODES = new Set(
@@ -59,6 +68,7 @@ const PRICE = {
   "gemini-2.5-flash-preview-tts": { in: 0.50, out: 10.00 },
   "claude-sonnet-4-6": { in: 3.00, out: 15.00 },
   "grok-3-mini-fast": { in: 0.30, out: 0.50 },
+  "gpt-5-mini": { in: 0.25, out: 2.00 },
 };
 
 const CORS = {
@@ -231,6 +241,20 @@ async function callGrok(body) {
   const txt = j.choices?.[0]?.message?.content || "";
   return { status: 200, gemini: textToGemini(txt, j.usage?.prompt_tokens, j.usage?.completion_tokens), model: BRAIN_MODEL.grok, inTok: j.usage?.prompt_tokens || 0, outTok: j.usage?.completion_tokens || 0 };
 }
+// OpenAI brain — same OpenAI-compatible chat shape as Grok, different host.
+async function callOpenAIBrain(body) {
+  const { system, messages, maxTokens, temperature } = geminiToMessages(body);
+  const full = system ? [{ role: "system", content: system }, ...messages] : messages;
+  const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${OPENAI_KEY}` },
+    body: JSON.stringify({ model: BRAIN_MODEL.openai, max_completion_tokens: maxTokens, ...(temperature != null ? { temperature } : {}), messages: full }),
+  });
+  const j = await r.json();
+  if (!r.ok) return { status: r.status, gemini: { error: j.error || j } };
+  const txt = j.choices?.[0]?.message?.content || "";
+  return { status: 200, gemini: textToGemini(txt, j.usage?.prompt_tokens, j.usage?.completion_tokens), model: BRAIN_MODEL.openai, inTok: j.usage?.prompt_tokens || 0, outTok: j.usage?.completion_tokens || 0 };
+}
 // ElevenLabs voice: pull the text out of the Gemini TTS body, synthesize, and
 // return the MP3 as base64 in Gemini's inlineData shape.
 async function callElevenTTS(body) {
@@ -240,6 +264,24 @@ async function callElevenTTS(body) {
     method: "POST",
     headers: { "xi-api-key": ELEVEN_KEY, "content-type": "application/json" },
     body: JSON.stringify({ text: txt, model_id: "eleven_flash_v2_5" }),
+  });
+  if (!r.ok) return { status: r.status, gemini: { error: (await r.text()).slice(0, 200) }, chars: txt.length };
+  const buf = Buffer.from(await r.arrayBuffer());
+  return {
+    status: 200, chars: txt.length,
+    gemini: { candidates: [{ content: { parts: [{ inlineData: { mimeType: "audio/mpeg", data: buf.toString("base64") } }] } }] },
+  };
+}
+// OpenAI voice — the failover when Gemini's TTS daily cap (100/day on paid
+// tier 1) runs out. Same wrapping trick as Whisper STT / ElevenLabs: the
+// extension receives a Gemini-shaped response and can't tell the difference.
+async function callOpenAITTS(body) {
+  const txt = (body.contents?.[0]?.parts || []).map((p) => p.text).filter(Boolean).join("").slice(0, 1200);
+  if (!txt) return { status: 400, gemini: { error: "no-text" } };
+  const r = await fetch("https://api.openai.com/v1/audio/speech", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${OPENAI_KEY}` },
+    body: JSON.stringify({ model: OPENAI_TTS_MODEL, voice: OPENAI_TTS_VOICE, input: txt, response_format: "mp3" }),
   });
   if (!r.ok) return { status: r.status, gemini: { error: (await r.text()).slice(0, 200) }, chars: txt.length };
   const buf = Buffer.from(await r.arrayBuffer());
@@ -258,7 +300,7 @@ function adminPage(msg) {
       ? `<a href="/admin/toggle?key=${k}&code=${encodeURIComponent(c.code)}">${c.disabled ? "enable" : "disable"}</a>
          · <a href="/admin/del?key=${k}&code=${encodeURIComponent(c.code)}" onclick="return confirm('Delete ${esc(c.code)}?')">delete</a>`
       : `<span style="color:#a89880">env var</span>`;
-    const brainLbl = { gemini: "Gemini", claude: "Claude", grok: "Grok" }[c.brain] || "Gemini";
+    const brainLbl = { gemini: "Gemini", claude: "Claude", grok: "Grok", openai: "OpenAI" }[c.brain] || "Gemini";
     const voiceLbl = c.voice === "eleven" ? "11Labs" : "Gemini";
     const warn = (c.wantBrain && c.wantBrain !== c.brain) || (c.wantVoice && c.wantVoice !== c.voice) ? " ⚠️" : "";
     return `<tr${c.disabled ? ' style="opacity:.45"' : ""}>
@@ -299,6 +341,7 @@ ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}
     <option value="gemini">🧠 Gemini (cheap)</option>
     <option value="claude"${ANTHROPIC_KEY ? "" : " disabled"}>🧠 Claude${ANTHROPIC_KEY ? "" : " (no key)"}</option>
     <option value="grok"${XAI_KEY ? "" : " disabled"}>🧠 Grok${XAI_KEY ? "" : " (no key)"}</option>
+    <option value="openai"${OPENAI_KEY ? "" : " disabled"}>🧠 OpenAI${OPENAI_KEY ? "" : " (no key)"}</option>
   </select>
   <select name="voice" title="voice — ElevenLabs only works if that founder key is set in hPanel">
     <option value="gemini">🗣 Gemini voice</option>
@@ -405,7 +448,7 @@ const server = http.createServer(async (req, res) => {
       const back = (m) => { res.writeHead(302, { location: `/admin?key=${encodeURIComponent(ADMIN_KEY)}&m=${encodeURIComponent(m)}` }); res.end(); };
       if (u.pathname === "/admin/new") {
         const code = mintCode();
-        const brain = ["gemini", "claude", "grok"].includes(u.searchParams.get("brain")) ? u.searchParams.get("brain") : "gemini";
+        const brain = ["gemini", "claude", "grok", "openai"].includes(u.searchParams.get("brain")) ? u.searchParams.get("brain") : "gemini";
         const voice = ["gemini", "eleven"].includes(u.searchParams.get("voice")) ? u.searchParams.get("voice") : "gemini";
         dyn.codes[code] = {
           name: (u.searchParams.get("name") || "").slice(0, 60),
@@ -464,8 +507,21 @@ const server = http.createServer(async (req, res) => {
               generationConfig: { responseModalities: ["AUDIO"] },
             }),
           });
-          verdicts.push(r.ok ? "voice: ✓ OK" : `voice: ✗ ${r.status}${r.status === 429 ? " (TTS quota used up — refills ~midnight PT; text keeps working)" : ""}`);
+          verdicts.push(r.ok ? "voice: ✓ OK" : `voice: ✗ ${r.status}${r.status === 429 ? " (TTS cap hit — OpenAI backup takes over)" : ""}`);
         } catch (e) { verdicts.push(`voice: ✗ ${e.message}`); }
+        // 4) Voice backup — the OpenAI TTS that covers Gemini's daily cap.
+        if (OPENAI_KEY) {
+          try {
+            const r = await fetch("https://api.openai.com/v1/audio/speech", {
+              method: "POST",
+              headers: { "content-type": "application/json", authorization: `Bearer ${OPENAI_KEY}` },
+              body: JSON.stringify({ model: OPENAI_TTS_MODEL, voice: OPENAI_TTS_VOICE, input: "hi", response_format: "mp3" }),
+            });
+            verdicts.push(r.ok ? "voice backup (OpenAI): ✓ OK" : `voice backup (OpenAI): ✗ ${r.status}`);
+          } catch (e) { verdicts.push(`voice backup (OpenAI): ✗ ${e.message}`); }
+        } else {
+          verdicts.push("voice backup (OpenAI): — no key");
+        }
         return back(`🔑 ${verdicts.join(" · ")}`);
       }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -480,8 +536,8 @@ const server = http.createServer(async (req, res) => {
       daily_limit: DAILY_LIMIT,
       key_set: !!GEMINI_KEY,
       whisper: !!OPENAI_KEY,
-      brains: { gemini: !!GEMINI_KEY, claude: !!ANTHROPIC_KEY, grok: !!XAI_KEY },
-      voices: { gemini: !!GEMINI_KEY, eleven: !!ELEVEN_KEY },
+      brains: { gemini: !!GEMINI_KEY, claude: !!ANTHROPIC_KEY, grok: !!XAI_KEY, openai: !!OPENAI_KEY },
+      voices: { gemini: !!GEMINI_KEY, eleven: !!ELEVEN_KEY, openai_backup: !!OPENAI_KEY, primary: TTS_PRIMARY },
       data_file: DATA_FILE,
       data_writable: dataWritable(),
       users: Object.keys(dyn.users || {}).length,
@@ -642,7 +698,9 @@ const server = http.createServer(async (req, res) => {
   // key exists). Translate in and out so the extension stays Gemini-shaped.
   if (kind === "brain" && info.brain !== "gemini") {
     try {
-      const out = info.brain === "claude" ? await callClaude(body) : await callGrok(body);
+      const out = info.brain === "claude" ? await callClaude(body)
+        : info.brain === "openai" ? await callOpenAIBrain(body)
+        : await callGrok(body);
       if (out.status === 200) {
         const p = PRICE[out.model] || { in: 0, out: 0 };
         s.inTok += out.inTok; s.outTok += out.outTok;
@@ -664,6 +722,21 @@ const server = http.createServer(async (req, res) => {
       console.error(`elevenlabs unreachable (${e.message}) — falling back to Gemini TTS`);
     }
   }
+  // Voice primary flip: ROODY_TTS_PRIMARY=openai speaks with OpenAI first
+  // (useful while Gemini's daily TTS cap is exhausted); Gemini stays the
+  // fallback so a bad OpenAI day doesn't kill voice either.
+  if (kind === "tts" && TTS_PRIMARY === "openai" && OPENAI_KEY) {
+    try {
+      const out = await callOpenAITTS(body);
+      if (out.status === 200) {
+        s.costUSD += ((out.chars || 0) / 1000) * 0.015; // ~$0.015/1k chars
+        return json(res, 200, out.gemini);
+      }
+      console.error(`openai tts ${out.status} — falling back to Gemini TTS`);
+    } catch (e) {
+      console.error(`openai tts unreachable (${e.message}) — falling back to Gemini TTS`);
+    }
+  }
 
   // Forward to Gemini with the founder's key.
   let r, text;
@@ -679,6 +752,23 @@ const server = http.createServer(async (req, res) => {
     text = await r.text();
   } catch (e) {
     return json(res, 502, { error: "gemini-unreachable", detail: String(e.message || e) });
+  }
+
+  // THE voice failover: Gemini TTS said no (429 = daily/minute cap, 5xx =
+  // preview-model flakiness) → synthesize with OpenAI instead so the user
+  // never hears the robotic browser voice.
+  if (kind === "tts" && !r.ok && (r.status === 429 || r.status >= 500) && OPENAI_KEY && TTS_PRIMARY !== "openai") {
+    try {
+      const out = await callOpenAITTS(body);
+      if (out.status === 200) {
+        s.costUSD += ((out.chars || 0) / 1000) * 0.015; // ~$0.015/1k chars
+        console.error(`gemini tts ${r.status} → served by OpenAI TTS instead`);
+        return json(res, 200, out.gemini);
+      }
+      console.error(`gemini tts ${r.status} AND openai tts ${out.status} — voice unavailable`);
+    } catch (e) {
+      console.error(`gemini tts ${r.status}, openai tts unreachable (${e.message})`);
+    }
   }
 
   // Cost accounting from Gemini's token counts (metadata only).
