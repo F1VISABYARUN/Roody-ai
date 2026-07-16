@@ -905,7 +905,7 @@ async function ensureOffscreenReader() {
     await chrome.offscreen.createDocument({
       url: "src/offscreen.html",
       reasons: ["BLOBS"],
-      justification: "Read the bytes of a local PDF the user summoned Roody on, so it can be discussed.",
+      justification: "Parse the PDF the user summoned Roody on (with bundled PDF.js) so its text can be discussed.",
     });
   } catch (e) {
     // "Only a single offscreen document" — someone else just created it. Fine.
@@ -914,14 +914,16 @@ async function ensureOffscreenReader() {
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type !== "roody:readPdfBytes") return;
+  if (msg?.type !== "roody:pdfText") return;
   (async () => {
     try {
       await ensureOffscreenReader();
-      const res = await chrome.runtime.sendMessage({ type: "roody:offscreenRead", url: msg.url });
+      // Pass through either raw bytes (b64, from a web PDF the orb fetched
+      // itself) or a URL (file://, which only the offscreen page can read).
+      const res = await chrome.runtime.sendMessage({ type: "roody:offscreenRead", url: msg.url, b64: msg.b64 });
       sendResponse(res || { ok: false, error: "no response from reader" });
     } catch (e) {
-      rlog(`📄 local read failed: ${e.message}`);
+      rlog(`📄 pdf read failed: ${e.message}`);
       sendResponse({ ok: false, error: e.message });
     }
   })();

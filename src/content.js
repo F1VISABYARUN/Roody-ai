@@ -920,7 +920,18 @@
     setMic("thinking");
     try {
       const buf = await file.arrayBuffer();
-      const text = await extractPdfText(buf);
+      // Prefer the bundled PDF.js in the offscreen reader (handles Hindi/
+      // Telugu and tricky encodings); fall back to the inline extractor.
+      let text = null;
+      try {
+        const bytes = new Uint8Array(buf);
+        let s = "";
+        const CH = 0x8000;
+        for (let i = 0; i < bytes.length; i += CH) s += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+        const res = await chrome.runtime.sendMessage({ type: "roody:pdfText", b64: btoa(s) });
+        if (res && res.ok) text = res.text;
+      } catch (_) {}
+      if (!text) text = await extractPdfText(buf);
       if (!text || text.length < 40) {
         studyDoc = null;
         note.textContent =
@@ -958,23 +969,31 @@
   // the 📄 button always works).
   (async function autoStudyPdf() {
     if (!isPdfPage) return;
-    // Page-origin requests can't read file:// (and some hosts block CORS), so
-    // after a direct fetch fails, ask the background's offscreen reader for
-    // the bytes — that path works on local files once file access is granted.
-    async function bgBytes(url) {
-      const res = await chrome.runtime.sendMessage({ type: "roody:readPdfBytes", url });
-      if (!res || !res.ok) throw new Error((res && res.error) || "reader failed");
-      const bin = atob(res.b64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      return bytes.buffer;
+    // The real parsing happens in the extension's offscreen page with bundled
+    // PDF.js (handles Hindi/Telugu, hex strings, weird encodings — everything
+    // the inline extractor chokes on). We hand it bytes when we can fetch them
+    // here (web PDFs), or just the URL when we can't (file:// — only the
+    // offscreen page may read local files, once file access is granted).
+    function bufToB64(buf) {
+      const bytes = new Uint8Array(buf);
+      let s = "";
+      const CH = 0x8000;
+      for (let i = 0; i < bytes.length; i += CH) s += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+      return btoa(s);
     }
     try {
-      let buf;
-      try { buf = await (await fetch(location.href)).arrayBuffer(); }
-      catch (_) { buf = await bgBytes(location.href); }
-      const text = await extractPdfText(buf);
-      if (!text || text.length <= 40) throw new Error("no extractable text");
+      let payload = { type: "roody:pdfText", url: location.href };
+      let localBuf = null;
+      try {
+        localBuf = await (await fetch(location.href)).arrayBuffer();
+        payload.b64 = bufToB64(localBuf);
+      } catch (_) { /* file:// or CORS — offscreen reads by URL */ }
+      let text = null;
+      const res = await chrome.runtime.sendMessage(payload).catch(() => null);
+      if (res && res.ok) text = res.text;
+      // Backup: PDF.js said no but we do have bytes — try the inline extractor.
+      if (!text && localBuf) text = await extractPdfText(localBuf);
+      if (!text || text.length <= 40) throw new Error((res && res.error) || "no extractable text");
       studyDoc = { name: document.title || "this PDF", text };
       pageCache = text;
       const sub = panel.querySelector("#roody-sub");

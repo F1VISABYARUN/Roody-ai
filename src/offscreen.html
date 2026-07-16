@@ -2,8 +2,9 @@
 <html>
   <head><meta charset="utf-8" /></head>
   <body>
-    <!-- Invisible reader page: fetches local PDF bytes for the orb.
-         See the Local PDF reader section in background.js. -->
+    <!-- Invisible reader page: loads local PDF bytes and extracts text with
+         PDF.js (bundled, no remote code). See Local PDF reader in background.js. -->
+    <script src="vendor/pdf.min.js"></script>
     <script src="offscreen.js"></script>
   </body>
 </html>
