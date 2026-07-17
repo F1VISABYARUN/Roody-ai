@@ -665,10 +665,10 @@
   }
 
   panel.querySelector("#roody-close").addEventListener("click", () => {
-    stopSpeaking();            // closing always silences Roody, even mid-sentence
-    if (voiceOn) voiceTurnOff();
-    panel.style.display = "none";
-    maybeRecap();
+    stopSpeaking();               // stop the current sentence…
+    panel.style.display = "none"; // …and minimize to the orb — but voice STAYS
+                                  // ON, so reopening resumes with no re-enable.
+    if (!voiceOn) maybeRecap();   // only wrap up when nothing's live
   });
   panel.querySelector("#roody-gear").addEventListener("click", () => {
     try { chrome.runtime.sendMessage({ type: "roody:openOptions" }); } catch (_) {}
@@ -1192,6 +1192,9 @@
     toggleBtn.classList.toggle("on", on);
     toggleIcon.textContent = on ? "🔴" : "🎙️";
     toggleLabel.textContent = on ? "Voice ON — tap to stop" : "Voice OFF — tap to start";
+    // Glow the orb while voice is live so a minimized (panel-hidden) session is
+    // visibly still listening — otherwise closing the panel feels like it's off.
+    orb.classList.toggle("roody-voice-live", on);
   }
   setToggleVisual(false);
 
@@ -1483,19 +1486,14 @@
       voiceTurnOff();
       return;
     }
-    // BARGE-IN: if Roody is speaking and you say a real sentence (not an
-    // echo of Roody's own words, not a bare filler), cut Roody off and answer
-    // the NEW thing — just like interrupting a friend. The ≥3-word gate + echo
-    // filter stop Roody's own trailing voice from self-triggering a turn.
-    if (isRoodySpeaking) {
-      const words = text.split(/\s+/).filter(Boolean).length;
-      if (words < 3 && !INTERRUPT_PATTERN.test(text)) {
-        rlog(`…ignored (Roody speaking, too short to be a real barge-in): "${text}"`);
-        return;
-      }
-      rlog(`⚡ BARGE-IN: "${text}" — cutting Roody off and taking your turn`);
-      stopSpeaking();
-      // fall through — process this utterance as the new turn
+    // While Roody is speaking, do NOT let a captured sentence cut it off — on
+    // speakers, Roody's own voice loops into the mic and gets mis-heard, which
+    // was chopping its replies off mid-sentence. Only the short, specific
+    // interrupt WORDS ("stop"/"wait", handled live at the interim level) act.
+    // To take over, tap ⏹ Stop or the orb, or say "stop" — then talk.
+    if (isRoodySpeaking && !INTERRUPT_PATTERN.test(text)) {
+      rlog(`…ignored (Roody is speaking; say "stop" or tap ⏹ to take over): "${text}"`);
+      return;
     }
     rlog(`→ sending to brain: "${text}"`);
     rememberPage(); // engagement: user spoke to Roody on this page
