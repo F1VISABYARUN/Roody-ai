@@ -595,6 +595,12 @@ const SIDEKICK_ELEVEN_SETTINGS = {
 };
 
 // Text -> speech. Returns base64 PCM (signed 16-bit, mono) + its mime.
+// Each Gemini TTS model has its own small daily quota (Tier 1: 3.1 Flash
+// 100/day, 2.5 Flash 100/day, 2.5 Pro 50/day) — separate buckets. Own-key and
+// invite-code users both cascade through them before falling to the robotic
+// browser voice, same idea as the proxy's server-side cascade.
+const GEMINI_TTS_MODELS = ["gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts"];
+
 async function geminiTTS(text) {
   const { roodyVoice, roodyVibe } = await chrome.storage.local.get(["roodyVoice", "roodyVibe"]);
   // Long inputs make the preview TTS slow (20-40s) and flaky (empty "no-audio"
@@ -623,11 +629,12 @@ async function geminiTTS(text) {
     },
   };
 
-  // One attempt + one retry on 500/503/429 — Gemini TTS is flaky under load.
-  async function attempt(n) {
+  // One attempt + one retry on 500/503 — Gemini TTS is flaky under load.
+  // 429 (quota) is NOT retried here — it rolls to the next model instead.
+  async function attempt(model, n) {
     let routed;
     try {
-      routed = await geminiFetch("gemini-2.5-flash-preview-tts", bodyObj, "tts");
+      routed = await geminiFetch(model, bodyObj, "tts");
     } catch (e) {
       rlog(`❌ TTS network${n > 1 ? " (retry)" : ""}: ${e.message}`);
       return { transient: true, error: `tts-network ${e.message}` };
@@ -639,46 +646,54 @@ async function geminiTTS(text) {
     const resp = routed.resp;
     if (resp.ok) return { resp, via: routed.via };
     const txt = (await resp.text()).slice(0, 400);
-    // 429 = quota exhausted — a wall, not a flake. Retrying in 400ms just
-    // burns another request against an empty bucket; only 500/503 get a retry.
     const transient = resp.status === 500 || resp.status === 503;
-    rlog(`❌ TTS ${resp.status}${n > 1 ? " (retry)" : ""} via ${routed.via === "own" ? "OWN key" : "invite-code proxy"}: ${txt}`);
-    if (resp.status === 429) {
-      rlog(`💳 voice quota exhausted on the ${routed.via === "own" ? "Gemini key in Settings" : "founder key on the proxy"} — text keeps working; voice needs billing/quota on that key`);
-    }
+    rlog(`❌ TTS ${resp.status} (${model})${n > 1 ? " retry" : ""} via ${routed.via === "own" ? "OWN key" : "invite-code proxy"}: ${txt}`);
     return { transient, status: resp.status, error: `tts ${resp.status} ${txt}` };
   }
 
-  // Up to 2 tries. "200 OK but empty audio" (tts-no-audio) counts as a flake
-  // and gets retried too — it's the preview model's most common failure mode.
-  for (let tryN = 1; tryN <= 2; tryN++) {
-    const r = await attempt(tryN);
-    if (!r.resp) {
-      if (r.transient && tryN === 1) {
-        rlog("↻ retrying TTS after transient error…");
-        await new Promise((res) => setTimeout(res, 400));
-        continue;
+  // Cascade across models — a 429 on one (that model's own daily/minute cap)
+  // moves to the next, since each is a separate quota bucket. Within a model,
+  // up to 2 tries: "200 OK but empty audio" (tts-no-audio) counts as a flake
+  // and gets retried too — it's the preview models' most common failure mode.
+  for (let mi = 0; mi < GEMINI_TTS_MODELS.length; mi++) {
+    const model = GEMINI_TTS_MODELS[mi];
+    const isLastModel = mi === GEMINI_TTS_MODELS.length - 1;
+    for (let tryN = 1; tryN <= 2; tryN++) {
+      const r = await attempt(model, tryN);
+      if (!r.resp) {
+        if (r.transient && tryN === 1) {
+          rlog("↻ retrying TTS after transient error…");
+          await new Promise((res) => setTimeout(res, 400));
+          continue;
+        }
+        if (r.status === 429 && !isLastModel) {
+          rlog(`💳 ${model} capped → rolling to ${GEMINI_TTS_MODELS[mi + 1]}`);
+          break; // next model
+        }
+        if (r.status === 429) {
+          rlog("💳 voice quota exhausted on every Gemini TTS model — text keeps working; voice needs billing/quota, or falls back to the simpler voice");
+        }
+        rlog("⚠ Gemini TTS failed → falling back to robotic browser voice");
+        return { ok: false, error: r.error };
       }
-      rlog("⚠ Gemini TTS failed → falling back to robotic browser voice");
-      return { ok: false, error: r.error };
+      const data = await r.resp.json();
+      const ms = Math.round(performance.now() - t0);
+      if (data.usageMetadata && r.via === "own") {
+        addUsage(
+          "gemini-tts",
+          data.usageMetadata.promptTokenCount || 0,
+          data.usageMetadata.candidatesTokenCount || 0
+        );
+      }
+      const part = (data?.candidates?.[0]?.content?.parts || []).find((p) => p.inlineData);
+      if (!part) {
+        rlog(`❌ TTS no audio in response (${ms}ms)${tryN === 1 ? " — retrying" : ""}`);
+        if (tryN === 1) { await new Promise((res) => setTimeout(res, 400)); continue; }
+        break; // try next model rather than giving up outright
+      }
+      rlog(`✓ TTS ${ms}ms via ${model} · ${Math.round(part.inlineData.data.length / 1024)}KB`);
+      return { ok: true, audioBase64: part.inlineData.data, mime: part.inlineData.mimeType };
     }
-    const data = await r.resp.json();
-    const ms = Math.round(performance.now() - t0);
-    if (data.usageMetadata && r.via === "own") {
-      addUsage(
-        "gemini-tts",
-        data.usageMetadata.promptTokenCount || 0,
-        data.usageMetadata.candidatesTokenCount || 0
-      );
-    }
-    const part = (data?.candidates?.[0]?.content?.parts || []).find((p) => p.inlineData);
-    if (!part) {
-      rlog(`❌ TTS no audio in response (${ms}ms)${tryN === 1 ? " — retrying" : ""}`);
-      if (tryN === 1) { await new Promise((res) => setTimeout(res, 400)); continue; }
-      return { ok: false, error: "tts-no-audio" };
-    }
-    rlog(`✓ TTS ${ms}ms · ${Math.round(part.inlineData.data.length / 1024)}KB`);
-    return { ok: true, audioBase64: part.inlineData.data, mime: part.inlineData.mimeType };
   }
   return { ok: false, error: "tts-no-audio" };
 }
