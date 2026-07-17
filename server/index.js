@@ -301,7 +301,7 @@ function adminPage(msg) {
          · <a href="/admin/del?key=${k}&code=${encodeURIComponent(c.code)}" onclick="return confirm('Delete ${esc(c.code)}?')">delete</a>`
       : `<span style="color:#a89880">env var</span>`;
     const brainLbl = { gemini: "Gemini", claude: "Claude", grok: "Grok", openai: "OpenAI" }[c.brain] || "Gemini";
-    const voiceLbl = c.voice === "eleven" ? "11Labs" : "Gemini";
+    const voiceLbl = c.voice === "eleven" ? "11Labs" : c.voice === "openai" ? "OpenAI" : "Gemini";
     const warn = (c.wantBrain && c.wantBrain !== c.brain) || (c.wantVoice && c.wantVoice !== c.voice) ? " ⚠️" : "";
     return `<tr${c.disabled ? ' style="opacity:.45"' : ""}>
       <td><b>${esc(c.code)}</b>${c.disabled ? " 🚫" : ""}</td>
@@ -346,6 +346,7 @@ ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}
   <select name="voice" title="voice — ElevenLabs only works if that founder key is set in hPanel">
     <option value="gemini">🗣 Gemini voice</option>
     <option value="eleven"${ELEVEN_KEY ? "" : " disabled"}>🗣 ElevenLabs${ELEVEN_KEY ? "" : " (no key)"}</option>
+    <option value="openai"${OPENAI_KEY ? "" : " disabled"}>🗣 OpenAI TTS${OPENAI_KEY ? "" : " (no key)"}</option>
   </select>
   <button>Generate</button>
 </form>
@@ -449,7 +450,7 @@ const server = http.createServer(async (req, res) => {
       if (u.pathname === "/admin/new") {
         const code = mintCode();
         const brain = ["gemini", "claude", "grok", "openai"].includes(u.searchParams.get("brain")) ? u.searchParams.get("brain") : "gemini";
-        const voice = ["gemini", "eleven"].includes(u.searchParams.get("voice")) ? u.searchParams.get("voice") : "gemini";
+        const voice = ["gemini", "eleven", "openai"].includes(u.searchParams.get("voice")) ? u.searchParams.get("voice") : "gemini";
         dyn.codes[code] = {
           name: (u.searchParams.get("name") || "").slice(0, 60),
           limit: Math.max(1, Math.min(1000, parseInt(u.searchParams.get("limit") || DAILY_LIMIT, 10) || DAILY_LIMIT)),
@@ -720,6 +721,20 @@ const server = http.createServer(async (req, res) => {
       console.error(`elevenlabs ${out.status} — falling back to Gemini TTS`);
     } catch (e) {
       console.error(`elevenlabs unreachable (${e.message}) — falling back to Gemini TTS`);
+    }
+  }
+  // Voice via OpenAI when a code is minted with OpenAI as its chosen voice
+  // (distinct from the automatic failover below — this makes it the primary).
+  if (kind === "tts" && info.voice === "openai" && OPENAI_KEY) {
+    try {
+      const out = await callOpenAITTS(body);
+      if (out.status === 200) {
+        s.costUSD += ((out.chars || 0) / 1000) * 0.015; // ~$0.015/1k chars
+        return json(res, 200, out.gemini);
+      }
+      console.error(`openai tts ${out.status} — falling back to Gemini TTS`);
+    } catch (e) {
+      console.error(`openai tts unreachable (${e.message}) — falling back to Gemini TTS`);
     }
   }
   // Voice primary flip: ROODY_TTS_PRIMARY=openai speaks with OpenAI first
