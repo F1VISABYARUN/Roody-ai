@@ -103,8 +103,8 @@ function dataWritable() {
 }
 // A brain/voice is only honored if its founder key is actually configured —
 // otherwise the code silently stays on Gemini so nothing breaks.
-function resolveBrain(b) { return (b === "claude" && ANTHROPIC_KEY) || (b === "grok" && XAI_KEY) ? b : "gemini"; }
-function resolveVoice(v) { return v === "eleven" && ELEVEN_KEY ? v : "gemini"; }
+function resolveBrain(b) { return (b === "claude" && ANTHROPIC_KEY) || (b === "grok" && XAI_KEY) || (b === "openai" && OPENAI_KEY) ? b : "gemini"; }
+function resolveVoice(v) { return (v === "eleven" && ELEVEN_KEY) || (v === "openai" && OPENAI_KEY) ? v : "gemini"; }
 function codeInfo(code) {
   if (dyn.codes[code]) {
     const c = dyn.codes[code];
