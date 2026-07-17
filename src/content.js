@@ -524,6 +524,7 @@
         <span id="roody-toggle-icon">🎙️</span>
         <span id="roody-toggle-label">Voice OFF — tap to start</span>
       </button>
+      <button id="roody-stop" title="Stop Roody talking" style="display:none">⏹ Stop</button>
     </div>
     <div id="roody-hearing" style="display:none;padding:4px 12px;font-size:12px;color:#8a7560;background:#fff7ec;border-top:1px solid #f0e2cf;font-style:italic;min-height:18px">
       <span id="roody-hearing-text"></span>
@@ -615,6 +616,13 @@
 
   let openerSent = false; // guarantees Roody only greets you once per page
   orb.addEventListener("click", () => {
+    // If Roody is mid-sentence, the first tap on the orb just shuts it up —
+    // a fast, obvious "quiet" gesture that doesn't also close the panel.
+    if (currentAudio || isRoodySpeaking) {
+      stopSpeaking();
+      rlog("⏹ orb tapped while speaking — Roody silenced");
+      return;
+    }
     const open = panel.style.display === "none";
     panel.style.display = open ? "flex" : "none";
     if (open && !openerSent) {
@@ -657,11 +665,17 @@
   }
 
   panel.querySelector("#roody-close").addEventListener("click", () => {
+    stopSpeaking();            // closing always silences Roody, even mid-sentence
+    if (voiceOn) voiceTurnOff();
     panel.style.display = "none";
     maybeRecap();
   });
   panel.querySelector("#roody-gear").addEventListener("click", () => {
     try { chrome.runtime.sendMessage({ type: "roody:openOptions" }); } catch (_) {}
+  });
+  panel.querySelector("#roody-stop").addEventListener("click", () => {
+    stopSpeaking(); // cut Roody off mid-sentence, no matter what triggered it
+    rlog("⏹ Stop tapped — Roody silenced");
   });
 
   // Toolbar icon clicked again while we're already here → toggle everything.
@@ -763,6 +777,10 @@
     orb.classList.remove("roody-speaking", "roody-stopped");
     if (state === "speaking") orb.classList.add("roody-speaking");
     // idle = back to default orange (no class), not red
+    // The ⏹ Stop button lives while Roody is speaking — the one clear kill
+    // switch, including for proactive/hint speech the Voice toggle never ruled.
+    const stopBtn = panel.querySelector("#roody-stop");
+    if (stopBtn) stopBtn.style.display = state === "speaking" ? "inline-flex" : "none";
   }
 
   // Roody's warm voice: Gemini TTS if available, else the free browser voice.
@@ -1183,6 +1201,7 @@
   // flight via turnSession so late callbacks bail cleanly.
   let voiceOn = false;
   let sr = null;
+  let micNoteShown = false; // one-time file:// mic-reprompt note
   let recentRoodyWords = ""; // for echo filter (second line of defense)
   let isRoodySpeaking = false; // gates SR auto-restart
   let turnSession = 0; // bumped on Voice OFF — late Claude/TTS replies bail
@@ -1464,13 +1483,19 @@
       voiceTurnOff();
       return;
     }
-    // If Roody is currently speaking, only interrupt-words are actioned
-    // (already handled at the interim level). Full sentences during Roody's
-    // turn are ignored so we don't queue up a new brain call while the old
-    // one is playing.
-    if (isRoodySpeaking && !INTERRUPT_PATTERN.test(text)) {
-      rlog(`…ignored (Roody is speaking, not an interrupt word): "${text}"`);
-      return;
+    // BARGE-IN: if Roody is speaking and you say a real sentence (not an
+    // echo of Roody's own words, not a bare filler), cut Roody off and answer
+    // the NEW thing — just like interrupting a friend. The ≥3-word gate + echo
+    // filter stop Roody's own trailing voice from self-triggering a turn.
+    if (isRoodySpeaking) {
+      const words = text.split(/\s+/).filter(Boolean).length;
+      if (words < 3 && !INTERRUPT_PATTERN.test(text)) {
+        rlog(`…ignored (Roody speaking, too short to be a real barge-in): "${text}"`);
+        return;
+      }
+      rlog(`⚡ BARGE-IN: "${text}" — cutting Roody off and taking your turn`);
+      stopSpeaking();
+      // fall through — process this utterance as the new turn
     }
     rlog(`→ sending to brain: "${text}"`);
     rememberPage(); // engagement: user spoke to Roody on this page
@@ -1516,13 +1541,25 @@
     setToggleVisual(true);
     if (panel.style.display === "none") panel.style.display = "flex";
 
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
-      s.getTracks().forEach((t) => t.stop());
-      rlog("✓ mic permission OK (echo-cancellation on)");
-    } catch (e) { rlog(`⚠ mic permission: ${e.message}`); }
+    // Only the accurate/Whisper ears need us to grab the stream ourselves.
+    // Browser SpeechRecognition captures on its own — a preflight getUserMedia
+    // here just DOUBLES the "allow microphone" prompt (badly so on file://
+    // pages, where Chrome can't remember the grant at all).
+    if (earsMode === "accurate") {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
+        s.getTracks().forEach((t) => t.stop());
+        rlog("✓ mic permission OK (echo-cancellation on)");
+      } catch (e) { rlog(`⚠ mic permission: ${e.message}`); }
+    }
+    // Downloaded-file PDFs (file://) have no stable origin, so Chrome re-asks
+    // for the mic every time — nothing we can persist. Say so once.
+    if (/^file:/.test(location.href) && !micNoteShown) {
+      micNoteShown = true;
+      addBubble("roody", "🎤 Heads up: on a downloaded file, Chrome asks for mic access each time. Open the same PDF from a web link and it'll remember.");
+    }
 
     // If Roody already greeted from the orb-open, DON'T greet again — just
     // start listening straight away. This was the double-opener bug that made
