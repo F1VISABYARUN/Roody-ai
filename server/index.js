@@ -35,6 +35,13 @@ const OPENAI_STT_MODEL = process.env.OPENAI_STT_MODEL || "gpt-4o-mini-transcribe
 // paid tier 1) — when it 429s, the proxy silently synthesizes with OpenAI
 // instead so users never hear the robotic fallback. Set ROODY_TTS_PRIMARY to
 // "openai" to flip the order (e.g. while Gemini is capped from the start).
+// Each Gemini TTS model has its own small requests-per-day cap (Tier 1: 3.1
+// Flash 100/day, 2.5 Flash 100/day, 2.5 Pro 50/day) — but they're SEPARATE
+// buckets. Roody tries them in order, so a 429 on one rolls to the next
+// (~250 free calls/day) before ever falling to the paid OpenAI backup.
+const GEMINI_TTS_MODELS = (process.env.GEMINI_TTS_MODELS ||
+  "gemini-3.1-flash-tts-preview,gemini-2.5-flash-preview-tts,gemini-2.5-pro-preview-tts")
+  .split(",").map((s) => s.trim()).filter(Boolean);
 const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts";
 const OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE || "coral"; // warm female, closest to Kore
 const OPENAI_BRAIN_MODEL = process.env.OPENAI_BRAIN_MODEL || "gpt-5-mini";
@@ -60,12 +67,17 @@ const ENV_CODES = new Set(
 );
 
 // Only the models Roody uses — nobody farms the key as a general endpoint.
-const ALLOWED_MODELS = new Set(["gemini-2.5-flash", "gemini-2.5-flash-preview-tts"]);
+const ALLOWED_MODELS = new Set([
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts", "gemini-3.1-flash-tts-preview",
+]);
 
 // Approximate pricing, $ per 1M tokens — for the admin cost column.
 const PRICE = {
   "gemini-2.5-flash": { in: 0.30, out: 2.50 },
   "gemini-2.5-flash-preview-tts": { in: 0.50, out: 10.00 },
+  "gemini-2.5-pro-preview-tts": { in: 1.00, out: 20.00 },
+  "gemini-3.1-flash-tts-preview": { in: 0.50, out: 10.00 },
   "claude-sonnet-4-6": { in: 3.00, out: 15.00 },
   "grok-3-mini-fast": { in: 0.30, out: 0.50 },
   "gpt-5-mini": { in: 0.25, out: 2.00 },
@@ -538,7 +550,7 @@ const server = http.createServer(async (req, res) => {
       key_set: !!GEMINI_KEY,
       whisper: !!OPENAI_KEY,
       brains: { gemini: !!GEMINI_KEY, claude: !!ANTHROPIC_KEY, grok: !!XAI_KEY, openai: !!OPENAI_KEY },
-      voices: { gemini: !!GEMINI_KEY, eleven: !!ELEVEN_KEY, openai_backup: !!OPENAI_KEY, primary: TTS_PRIMARY },
+      voices: { gemini: !!GEMINI_KEY, eleven: !!ELEVEN_KEY, openai_backup: !!OPENAI_KEY, primary: TTS_PRIMARY, tts_cascade: GEMINI_TTS_MODELS },
       data_file: DATA_FILE,
       data_writable: dataWritable(),
       users: Object.keys(dyn.users || {}).length,
@@ -753,18 +765,30 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Forward to Gemini with the founder's key.
-  let r, text;
+  // Forward to Gemini with the founder's key. For TTS, cascade through the
+  // separate-quota TTS models: a 429 (that model's daily/minute cap) rolls to
+  // the next one. Brain calls just use the single requested model.
+  let r, text, usedModel = model;
+  const tryModels = kind === "tts" ? GEMINI_TTS_MODELS : [model];
   try {
-    r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-goog-api-key": GEMINI_KEY },
-        body: JSON.stringify(body),
-      }
-    );
-    text = await r.text();
+    for (let i = 0; i < tryModels.length; i++) {
+      usedModel = tryModels[i];
+      r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${usedModel}:generateContent`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-goog-api-key": GEMINI_KEY },
+          body: JSON.stringify(body),
+        }
+      );
+      text = await r.text();
+      if (r.ok) { if (i > 0) console.error(`gemini tts rolled to ${usedModel} (earlier models capped)`); break; }
+      // Only a 429 (cap) is worth trying the next TTS model; other errors
+      // (400/5xx) won't be fixed by a sibling model — stop and let the OpenAI
+      // failover below handle it.
+      if (r.status !== 429 || i === tryModels.length - 1) break;
+      console.error(`gemini tts ${usedModel} → 429 (capped), trying next model`);
+    }
   } catch (e) {
     return json(res, 502, { error: "gemini-unreachable", detail: String(e.message || e) });
   }
@@ -790,7 +814,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const meta = JSON.parse(text)?.usageMetadata;
     if (meta) {
-      const p = PRICE[model] || { in: 0, out: 0 };
+      const p = PRICE[usedModel] || { in: 0, out: 0 };
       const inTok = meta.promptTokenCount || 0;
       const outTok = meta.candidatesTokenCount || 0;
       s.inTok += inTok; s.outTok += outTok;
