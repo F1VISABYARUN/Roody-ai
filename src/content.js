@@ -598,6 +598,15 @@
     }).catch(() => {});
   })();
 
+  // How see-through the panel is (Settings → Transparency). Drives the
+  // --roody-alpha CSS variable that every glass surface derives from.
+  const DEFAULT_ALPHA = 0.34;
+  function applyOpacity(v) {
+    const a = Math.min(0.95, Math.max(0.1, Number(v) || DEFAULT_ALPHA));
+    panel.style.setProperty("--roody-alpha", String(a));
+    orb.style.setProperty("--roody-alpha", String(a));
+  }
+
   // Honor the "Roody is off" master switch — hide everything and bail.
   function applyEnabled(enabled) {
     orb.style.display = enabled ? "flex" : "none";
@@ -991,9 +1000,10 @@
 
   // ---- Boot -----------------------------------------------------------------
   chrome.storage.local
-    .get(["roodyAutoChime", "roodyEnabled"])
+    .get(["roodyAutoChime", "roodyEnabled", "roodyOpacity"])
     .then((s) => {
       if (typeof s.roodyAutoChime === "boolean") autoChime = s.roodyAutoChime;
+      applyOpacity(s.roodyOpacity);
       applyEnabled(s.roodyEnabled !== false); // default on
       lastAnswerSig = readPage().slice(-600);
       startWatching();
@@ -1011,6 +1021,8 @@
           autoChime = changes.roodyAutoChime.newValue === true;
           rlog(`🔔 auto-suggest ${autoChime ? "ON" : "OFF"} (picked up live)`);
         }
+        // Drag the Settings slider and every open Roody restyles instantly.
+        if (changes.roodyOpacity) applyOpacity(changes.roodyOpacity.newValue);
       });
     }).catch((e) => { rlog(`⚠ boot failed: ${e.message}`); });
 })();

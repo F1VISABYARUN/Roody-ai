@@ -21,6 +21,9 @@ const okeyEl = $("okey");
 const langEl = $("lang");
 const webEl = $("websearch");
 const chimeEl = $("autochime");
+const opacityEl = $("opacity");
+// Keep in sync with DEFAULT_ALPHA in content.js and --roody-alpha in content.css.
+const DEFAULT_OPACITY = 0.34;
 const enabledEl = $("enabled");
 const statusEl = $("status");
 const profileEl = $("profile");
@@ -38,7 +41,7 @@ function showKeyStatus(el, hasIt) {
 chrome.storage.local
   .get([
     "roodyApiKey", "roodyModel", "roodyGeminiKey", "roodyXaiKey", "roodyOpenAIKey",
-    "roodyLang", "roodyWebSearch", "roodyEnabled", "roodyAutoChime",
+    "roodyLang", "roodyWebSearch", "roodyEnabled", "roodyAutoChime", "roodyOpacity",
     "roodyProfile", "roodyInviteCode", "roodyProxyUrl",
   ])
   .then((s) => {
@@ -50,6 +53,7 @@ chrome.storage.local
     if (s.roodyLang) langEl.value = s.roodyLang;
     webEl.checked = s.roodyWebSearch !== false;
     chimeEl.checked = s.roodyAutoChime === true; // off by default
+    opacityEl.value = s.roodyOpacity != null ? s.roodyOpacity : DEFAULT_OPACITY;
     enabledEl.checked = s.roodyEnabled !== false;
     showKeyStatus($("keystatus"), !!s.roodyApiKey);
     showKeyStatus($("gstatus"), !!s.roodyGeminiKey);
@@ -197,6 +201,16 @@ langEl.addEventListener("change", () => chrome.storage.local.set({ roodyLang: la
 webEl.addEventListener("change", () => chrome.storage.local.set({ roodyWebSearch: webEl.checked }));
 chimeEl.addEventListener("change", () => chrome.storage.local.set({ roodyAutoChime: chimeEl.checked }));
 
+// Transparency — save as the user drags so open panels restyle live (the
+// content script listens on storage.onChanged).
+opacityEl.addEventListener("input", () => {
+  chrome.storage.local.set({ roodyOpacity: Number(opacityEl.value) });
+});
+$("opacityreset").addEventListener("click", () => {
+  opacityEl.value = DEFAULT_OPACITY;
+  chrome.storage.local.set({ roodyOpacity: DEFAULT_OPACITY });
+});
+
 // Master ON/OFF — flip live, no save button needed.
 enabledEl.addEventListener("change", () => {
   chrome.storage.local.set({ roodyEnabled: enabledEl.checked });
@@ -269,6 +283,7 @@ $("save").addEventListener("click", async () => {
     roodyLang: langEl.value,
     roodyWebSearch: webEl.checked,
     roodyAutoChime: chimeEl.checked,
+    roodyOpacity: Number(opacityEl.value),
     roodyEnabled: enabledEl.checked,
     roodyProfile: (profileEl.value || "").trim(),
   });

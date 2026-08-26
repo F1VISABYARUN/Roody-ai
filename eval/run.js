@@ -362,6 +362,25 @@ checkTrue(
   content.includes("AI coding assistant"),
   "panel subtitle not updated"
 );
+checkTrue(
+  "panel is transparent glass and the transparency slider is wired live",
+  read("src/content.css").includes("--roody-alpha") &&
+    read("src/content.css").includes("backdrop-filter") &&
+    content.includes("applyOpacity") && content.includes("changes.roodyOpacity") &&
+    read("src/options.js").includes("roodyOpacity"),
+  "transparency control missing or not live-updating"
+);
+checkTrue(
+  "no descendant re-opaques the glass (header/input row stay transparent)",
+  (() => {
+    const css = read("src/content.css");
+    const hdr = css.slice(css.indexOf("#roody-header {"));
+    const row = css.slice(css.indexOf("#roody-inputrow {"));
+    return /background:\s*transparent/.test(hdr.slice(0, 400)) &&
+      /background:\s*transparent/.test(row.slice(0, 400));
+  })(),
+  "a panel child paints an opaque fill over the glass"
+);
 
 // Every user-facing error string in the pipeline must be provider-free.
 const jargon = /Anthropic|Claude|Gemini|Grok|xAI|aistudio|console\.x|sk-ant|AIza/;
