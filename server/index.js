@@ -203,8 +203,19 @@ function geminiToMessages(body) {
     content: (c.parts || []).map((p) => p.text).filter(Boolean).join(""),
   })).filter((m) => m.content);
   const maxTokens = body.generationConfig?.maxOutputTokens || 400;
-  const temperature = body.generationConfig?.temperature;
-  return { system, messages, maxTokens, temperature };
+  // Deliberately NOT forwarding generationConfig.temperature. Newer reasoning
+  // models on both Anthropic and xAI reject any non-default temperature with a
+  // 400 ("Only the default (1) value is supported") instead of clamping it,
+  // which killed every proxied request. Providers' defaults are fine here, and
+  // dropping it server-side also protects older installed extensions that still
+  // send one.
+  return { system, messages, maxTokens, temperature: undefined };
+}
+// Does this Gemini-shaped body carry an image (a screenshot the user attached)?
+// Claude/Grok translation is text-only, so an image would be silently dropped —
+// those requests stay on Gemini, which is multimodal.
+function bodyHasImage(body) {
+  return (body.contents || []).some((c) => (c.parts || []).some((p) => p.inlineData));
 }
 function textToGemini(txt, inTok, outTok) {
   return {
@@ -692,7 +703,10 @@ const server = http.createServer(async (req, res) => {
 
   // Brain via Claude/Grok when the code is configured for it (and the founder
   // key exists). Translate in and out so the extension stays Gemini-shaped.
-  if (kind === "brain" && info.brain !== "gemini") {
+  // Screenshots are the exception: geminiToMessages keeps text parts only, so
+  // routing an image turn to Claude/Grok would drop the picture and answer about
+  // nothing. Those stay on Gemini regardless of the code's configured brain.
+  if (kind === "brain" && info.brain !== "gemini" && !bodyHasImage(body)) {
     try {
       const out = info.brain === "claude" ? await callClaude(body) : await callGrok(body);
       if (out.status === 200) {

@@ -29,8 +29,9 @@ You, on any page ──▶ code · docs · an error · a rendered app
   Roody captures a screenshot of the current tab and sends it to a vision model,
   so it can read diagrams, rendered UIs, and error dialogs — not just text.
 - **🧠 Pick your brain.** Gemini 2.5 Flash by default (cheap &amp; multimodal);
-  Claude and Grok selectable with your own key. A screenshot on a text-only brain
-  is routed to Gemini vision automatically.
+  **OpenAI (GPT-4o / 4.1), Claude, and Grok** selectable with your own key. A
+  screenshot on a text-only brain is routed to Gemini vision automatically, and a
+  missing key falls back to Gemini instead of erroring.
 - **🌏 Answers in your language.** English, Telugu, Hindi, Tamil, and more.
 - **🔒 Read-only by design.** Roody never edits, clicks, or types on the page, and
   it refuses to run on banking, email, chat, and other personal pages.

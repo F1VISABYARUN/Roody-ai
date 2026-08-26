@@ -17,6 +17,7 @@ const keyEl = $("key");
 const modelEl = $("model");
 const gkeyEl = $("gkey");
 const xkeyEl = $("xkey");
+const okeyEl = $("okey");
 const langEl = $("lang");
 const webEl = $("websearch");
 const chimeEl = $("autochime");
@@ -36,7 +37,7 @@ function showKeyStatus(el, hasIt) {
 // Load everything saved.
 chrome.storage.local
   .get([
-    "roodyApiKey", "roodyModel", "roodyGeminiKey", "roodyXaiKey",
+    "roodyApiKey", "roodyModel", "roodyGeminiKey", "roodyXaiKey", "roodyOpenAIKey",
     "roodyLang", "roodyWebSearch", "roodyEnabled", "roodyAutoChime",
     "roodyProfile", "roodyInviteCode", "roodyProxyUrl",
   ])
@@ -45,6 +46,7 @@ chrome.storage.local
     if (s.roodyModel) modelEl.value = s.roodyModel;
     if (s.roodyGeminiKey) gkeyEl.value = s.roodyGeminiKey;
     if (s.roodyXaiKey) xkeyEl.value = s.roodyXaiKey;
+    if (s.roodyOpenAIKey) okeyEl.value = s.roodyOpenAIKey;
     if (s.roodyLang) langEl.value = s.roodyLang;
     webEl.checked = s.roodyWebSearch !== false;
     chimeEl.checked = s.roodyAutoChime === true; // off by default
@@ -52,6 +54,7 @@ chrome.storage.local
     showKeyStatus($("keystatus"), !!s.roodyApiKey);
     showKeyStatus($("gstatus"), !!s.roodyGeminiKey);
     showKeyStatus($("xstatus"), !!s.roodyXaiKey);
+    showKeyStatus($("ostatus"), !!s.roodyOpenAIKey);
     if (s.roodyProfile) profileEl.value = s.roodyProfile;
     profileCountEl.textContent = (profileEl.value || "").length;
     if (s.roodyInviteCode) inviteEl.value = s.roodyInviteCode;
@@ -150,6 +153,14 @@ $("clearmem").addEventListener("click", async () => {
   renderMemory();
 });
 
+// Clear OpenAI key
+$("clearo").addEventListener("click", () => {
+  if (!confirm("Remove the OpenAI key from this browser?")) return;
+  okeyEl.value = "";
+  chrome.storage.local.set({ roodyOpenAIKey: "" });
+  showKeyStatus($("ostatus"), false);
+});
+
 // Clear xAI/Grok key
 $("clearx").addEventListener("click", () => {
   if (!confirm("Remove the xAI (Grok) key from this browser?")) return;
@@ -178,6 +189,7 @@ function autoSaveKey(input, storageKey, statusEl) {
 autoSaveKey(keyEl, "roodyApiKey", $("keystatus"));
 autoSaveKey(gkeyEl, "roodyGeminiKey", $("gstatus"));
 autoSaveKey(xkeyEl, "roodyXaiKey", $("xstatus"));
+autoSaveKey(okeyEl, "roodyOpenAIKey", $("ostatus"));
 
 // Auto-save all dropdowns and checkboxes on change — no Save button needed.
 modelEl.addEventListener("change", () => chrome.storage.local.set({ roodyModel: modelEl.value }));
@@ -253,6 +265,7 @@ $("save").addEventListener("click", async () => {
     roodyModel: modelEl.value,
     roodyGeminiKey: gkeyEl.value.trim(),
     roodyXaiKey: xkeyEl.value.trim(),
+    roodyOpenAIKey: okeyEl.value.trim(),
     roodyLang: langEl.value,
     roodyWebSearch: webEl.checked,
     roodyAutoChime: chimeEl.checked,

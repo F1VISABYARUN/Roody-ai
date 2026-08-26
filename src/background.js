@@ -9,14 +9,20 @@ const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 // read screenshots). Users can switch to Claude/Grok in settings with a key.
 const MODEL = "gemini-2.5-flash";
 
-// Pull the user's settings (API key + chosen model) from extension storage.
+// Pull the user's settings (API keys + chosen model) from extension storage.
 async function getSettings() {
-  const { roodyApiKey, roodyModel, roodyXaiKey } = await chrome.storage.local.get([
+  const { roodyApiKey, roodyModel, roodyXaiKey, roodyOpenAIKey } = await chrome.storage.local.get([
     "roodyApiKey",
     "roodyModel",
     "roodyXaiKey",
+    "roodyOpenAIKey",
   ]);
-  return { apiKey: roodyApiKey, xaiKey: roodyXaiKey, model: roodyModel || MODEL };
+  return {
+    apiKey: roodyApiKey,
+    xaiKey: roodyXaiKey,
+    openaiKey: roodyOpenAIKey,
+    model: roodyModel || MODEL,
+  };
 }
 
 // ---- Cost meter -----------------------------------------------------------
@@ -32,6 +38,11 @@ const PRICES = {
   "grok-3": { in: 3, out: 15 },
   "grok-3-mini": { in: 0.3, out: 0.5 },
   "grok-3-mini-fast": { in: 0.3, out: 0.5 },
+  // OpenAI — approximate list prices, refresh alongside the others.
+  "gpt-4o": { in: 2.5, out: 10 },
+  "gpt-4o-mini": { in: 0.15, out: 0.6 },
+  "gpt-4.1": { in: 2, out: 8 },
+  "gpt-4.1-mini": { in: 0.4, out: 1.6 },
 };
 async function addUsage(model, inTok, outTok, costOverride) {
   const p = PRICES[model] || { in: 0, out: 0 };
@@ -118,31 +129,36 @@ function buildProfileBlock(profile) {
   return `About the user (what they told you about themselves):\n"${p.slice(0, 500)}"\n\n`;
 }
 
-// Which selected brains can actually read an attached screenshot. Gemini and
-// Claude are multimodal here; Grok-3 (text) is not, so image turns get routed
-// to Gemini vision instead.
+// Which selected brains can actually read an attached screenshot. Gemini,
+// Claude, and the GPT-4o/4.1 family are multimodal; Grok-3 (text) is not, so
+// image turns get routed to Gemini vision instead.
 function modelSupportsVision(model) {
-  return model.startsWith("gemini-") || model.startsWith("claude-");
+  return model.startsWith("gemini-") || model.startsWith("claude-") || model.startsWith("gpt-");
+}
+// The OpenAI-compatible brains (OpenAI itself and xAI's Grok).
+function isOpenAIModel(model) {
+  return model.startsWith("gpt-") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4");
 }
 
-// Ask Roody's brain. Routes to Claude, Gemini, or Grok depending on the model
-// selected in settings. `pageContext` is the read-only text scraped from the
-// page; `history` is the running chat; `image` (optional) is a screenshot the
-// user asked Roody to look at, as { mime, data } where data is base64.
+// Ask Roody's brain. Routes to OpenAI, Claude, Gemini, or Grok depending on the
+// model selected in settings. `pageContext` is the read-only text scraped from
+// the page; `history` is the running chat; `image` (optional) is a screenshot
+// the user asked Roody to look at, as { mime, data } where data is base64.
 async function askRoody({ userText, pageContext, history, site, title, pageMode, image }) {
-  const { apiKey, xaiKey, model: settingsModel } = await getSettings();
+  const { apiKey, xaiKey, openaiKey, model: settingsModel } = await getSettings();
   const { roodyLang, roodyVibe, roodyMemory, roodyProfile } = await chrome.storage.local.get(["roodyLang", "roodyVibe", "roodyMemory", "roodyProfile"]);
 
   let model = settingsModel;
-  // Credential-aware routing: invite-code-only users default to a Claude
-  // model they have no key for. If the selected brain's key is missing but
-  // Gemini is reachable (own key or invite code), route to Gemini instead of
-  // erroring — fresh installs must Just Work with only a code.
+  // Credential-aware routing: invite-code-only users default to a brain they
+  // have no key for. If the selected brain's key is missing but Gemini is
+  // reachable (own key or invite code), route to Gemini instead of erroring —
+  // fresh installs must Just Work with only a code.
   const { roodyGeminiKey, roodyInviteCode } = await chrome.storage.local.get(["roodyGeminiKey", "roodyInviteCode"]);
   const geminiReachable = !!(roodyGeminiKey || roodyInviteCode);
   if (geminiReachable) {
     if (model.startsWith("grok-") && !xaiKey) model = "gemini-2.5-flash";
-    else if (!model.startsWith("grok-") && !model.startsWith("gemini-") && !apiKey) model = "gemini-2.5-flash";
+    else if (isOpenAIModel(model) && !openaiKey) model = "gemini-2.5-flash";
+    else if (!model.startsWith("grok-") && !model.startsWith("gemini-") && !isOpenAIModel(model) && !apiKey) model = "gemini-2.5-flash";
     // A screenshot needs a vision-capable brain — fall back to Gemini vision.
     if (image && !modelSupportsVision(model)) model = "gemini-2.5-flash";
   }
@@ -160,6 +176,10 @@ async function askRoody({ userText, pageContext, history, site, title, pageMode,
   // Gemini brain
   if (model && model.startsWith("gemini-")) {
     return askGeminiBrain({ userText, pageContext, history, model, lang: roodyLang, systemPrompt, site, title, image });
+  }
+  // OpenAI brain (GPT-4o / 4.1 family — multimodal, so screenshots ride along)
+  if (model && isOpenAIModel(model)) {
+    return askOpenAIBrain({ userText, pageContext, history, model, lang: roodyLang, openaiKey, systemPrompt, site, title, image });
   }
   // Grok brain (text only — image turns were already re-routed to Gemini above)
   if (model && model.startsWith("grok-")) {
@@ -314,10 +334,21 @@ async function geminiFetch(model, bodyObj, kind) {
   const proxy = ((roodyProxyUrl || ROODY_PROXY_URL) || "").trim();
   const code = (roodyInviteCode || "").trim();
   if (code && proxy) {
+    // The proxy may re-route an invite code to Claude or Grok. Those providers'
+    // newer reasoning models reject any temperature other than the default and
+    // 400 the whole request ("Only the default (1) value is supported"), which
+    // surfaced to users as "the model hiccuped". Google accepts our 0.3 fine, so
+    // we keep it on the own-key path above and drop it only here. Shallow-clone
+    // so we never mutate the caller's body.
+    const proxyBody = { ...bodyObj };
+    if (proxyBody.generationConfig && proxyBody.generationConfig.temperature != null) {
+      const { temperature, ...restCfg } = proxyBody.generationConfig;
+      proxyBody.generationConfig = restCfg;
+    }
     const resp = await fetch(proxy, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ code, kind, model, body: bodyObj }),
+      body: JSON.stringify({ code, kind, model, body: proxyBody }),
     });
     return { resp, via: "proxy" };
   }
@@ -406,6 +437,83 @@ async function askGeminiBrain({ userText, pageContext, history, model, lang, sys
   return { ok: true, text: sanitizeReply(text) || "…" };
 }
 
+// ---- OpenAI brain --------------------------------------------------------
+const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+
+// GPT brains, with the user's own OpenAI key. Two deliberate choices here, both
+// learned from a real 400 on the Grok path:
+//   * no `temperature` — newer reasoning models reject anything but the default
+//     and fail the whole request rather than clamping.
+//   * `max_completion_tokens`, not `max_tokens` — the newer models require it and
+//     the older ones accept it, so one field works everywhere.
+async function askOpenAIBrain({ userText, pageContext, history, model, lang, openaiKey, systemPrompt, site, title, image }) {
+  if (!openaiKey) {
+    return {
+      ok: false,
+      error: "Roody isn't set up yet — open Settings (⚙) and paste your invite code.",
+    };
+  }
+  const ctxCap = 14000;
+  const siteHint = site ? `The user is on ${site}${title ? ` (page title: "${title.slice(0, 80)}")` : ""}. The text below in quotes is what's on their screen — context, NOT their message.\n\n` : "";
+  const contextBlock = pageContext
+    ? `${siteHint}Here is what is on the page:\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
+    : siteHint;
+  const lName = langName(lang);
+  const langInstr = lName ? `IMPORTANT: Reply in ${lName}. The user is speaking ${lName}.\n\n` : "";
+  const imageNote = image ? "A screenshot of the user's screen is attached — use it to answer.\n\n" : "";
+
+  const turnText = `${langInstr}${imageNote}${contextBlock}${userText}`;
+  // Vision rides as a data: URL in a content array — the OpenAI image format.
+  const userContent = image
+    ? [
+        { type: "text", text: turnText },
+        { type: "image_url", image_url: { url: `data:${image.mime || "image/jpeg"};base64,${image.data}` } },
+      ]
+    : turnText;
+
+  const messages = [
+    { role: "system", content: systemPrompt || self.ROODY_SYSTEM },
+    ...history,
+    { role: "user", content: userContent },
+  ];
+
+  const t0 = performance.now();
+  rlog(`→ OpenAI ${model} (msgs=${messages.length}${image ? " +img" : ""})`);
+  let resp;
+  try {
+    resp = await fetch(OPENAI_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "authorization": `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        max_completion_tokens: 2000,
+      }),
+    });
+  } catch (e) {
+    rlog(`❌ OpenAI network: ${e.message}`);
+    return { ok: false, error: "I couldn't reach the internet — check your connection and try again?" };
+  }
+  if (!resp.ok) {
+    const body = await resp.text();
+    rlog(`❌ OpenAI ${resp.status}: ${body.slice(0, 300)}`);
+    return { ok: false, error: "The model hiccuped for a second — try that again?" };
+  }
+  const data = await resp.json();
+  const ms = Math.round(performance.now() - t0);
+  const inTok = data.usage?.prompt_tokens || 0;
+  const outTok = data.usage?.completion_tokens || 0;
+  const p = PRICES[model] || { in: 2.5, out: 10 };
+  const turnCost = (inTok * p.in + outTok * p.out) / 1e6;
+  rlog(`✓ OpenAI ${ms}ms · in=${inTok} out=${outTok} · ${fmtMoney(turnCost)}`);
+  if (data.usage) addUsage(model, inTok, outTok);
+  const text = (data.choices?.[0]?.message?.content || "").trim();
+  return { ok: true, text: sanitizeReply(text) || "…" };
+}
+
 // ---- Grok brain (xAI) — OpenAI-compatible chat API -----------------------
 const GROK_URL = "https://api.x.ai/v1/chat/completions";
 
@@ -442,11 +550,12 @@ async function askGrokBrain({ userText, pageContext, history, model, lang, xaiKe
         "content-type": "application/json",
         "authorization": `Bearer ${xaiKey}`,
       },
+      // No `temperature`: xAI's newer reasoning models reject any non-default
+      // value with a 400 instead of clamping it. Same reason as the OpenAI path.
       body: JSON.stringify({
         model,
         messages,
         max_tokens: 2000,
-        temperature: 0.4,
       }),
     });
   } catch (e) {

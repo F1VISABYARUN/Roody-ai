@@ -177,6 +177,79 @@ checkTrue(
   "screenshot request/intent wiring missing from content.js"
 );
 
+console.log("\n— Temperature 400 regression (proxied brains reject non-default) —");
+
+// A real failure: the proxy re-routes an invite code to Grok/Claude, whose newer
+// reasoning models 400 on any temperature but the default. Every message showed
+// "the model hiccuped". Guard both ends so it can't come back.
+checkTrue(
+  "extension strips temperature when routing through the proxy",
+  bg.includes("proxyBody") && /const \{ temperature, \.\.\.restCfg \}/.test(bg) &&
+    bg.includes("body: proxyBody"),
+  "proxy branch still forwards generationConfig.temperature"
+);
+checkTrue(
+  "server never forwards temperature to Claude/Grok",
+  read("server/index.js").includes("temperature: undefined"),
+  "geminiToMessages still returns a real temperature"
+);
+checkTrue(
+  "OpenAI-compatible paths send no temperature at all",
+  (() => {
+    // Comments legitimately discuss temperature — test the code only.
+    const code = bg.replace(/^\s*\/\/.*$/gm, "");
+    const openaiCall = code.slice(code.indexOf("OPENAI_URL"));
+    const grokCall = code.slice(code.indexOf("GROK_URL"));
+    return !/temperature\s*:/.test(openaiCall.slice(0, 2500)) &&
+      !/temperature\s*:/.test(grokCall.slice(0, 2500));
+  })(),
+  "a temperature is still sent on an OpenAI-compatible brain"
+);
+checkTrue(
+  "OpenAI path uses max_completion_tokens (newer models reject max_tokens)",
+  bg.includes("max_completion_tokens"),
+  "OpenAI request still uses max_tokens"
+);
+
+console.log("\n— OpenAI brain (own key) —");
+
+checkTrue(
+  "background has an OpenAI brain wired into the dispatch",
+  bg.includes("function askOpenAIBrain") && bg.includes("askOpenAIBrain({") && bg.includes("isOpenAIModel"),
+  "OpenAI brain missing or not dispatched"
+);
+checkTrue(
+  "OpenAI vision sends the screenshot as an image_url data URL",
+  bg.includes('type: "image_url"') && bg.includes("base64,${image.data}"),
+  "OpenAI image attach missing"
+);
+checkTrue(
+  "GPT models count as vision-capable",
+  bg.includes('model.startsWith("gpt-")') && bg.includes("function modelSupportsVision"),
+  "gpt- not recognised by modelSupportsVision"
+);
+checkTrue(
+  "OpenAI key is stored, cleared, and lives in the dev panel only",
+  read("src/options.js").includes("roodyOpenAIKey") &&
+    (() => {
+      const h = read("src/options.html");
+      const cut = h.indexOf('id="adminonly"');
+      return h.slice(cut).includes('id="okey"') && !h.slice(0, cut).includes('id="okey"');
+    })(),
+  "OpenAI key wiring missing or user-visible"
+);
+checkTrue(
+  "manifest allows the OpenAI host",
+  read("manifest.json").includes("https://api.openai.com/*"),
+  "OpenAI host permission missing"
+);
+checkTrue(
+  "an image turn on an invite code is kept on the multimodal brain",
+  read("server/index.js").includes("function bodyHasImage") &&
+    read("server/index.js").includes("!bodyHasImage(body)"),
+  "proxy would drop the screenshot when routing to Claude/Grok"
+);
+
 console.log("\n— Voice is fully removed —");
 
 checkTrue(
@@ -306,8 +379,8 @@ checkTrue(
   "default model mismatch"
 );
 checkTrue(
-  "manifest is v2.0.0",
-  JSON.parse(read("manifest.json")).version === "2.0.0",
+  "manifest version is bumped past the 2.0.0 pivot",
+  JSON.parse(read("manifest.json")).version >= "2.0.1",
   "version not bumped"
 );
 

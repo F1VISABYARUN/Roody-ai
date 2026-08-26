@@ -209,11 +209,15 @@
         <option value="claude-sonnet-4-6">Claude Sonnet 4.6 — sharpest, multimodal</option>
         <option value="claude-haiku-4-5">Claude Haiku 4.5 — fast &amp; cheap Claude</option>
         <option value="claude-opus-4-8">Claude Opus 4.8 — heaviest reasoning, costs more</option>
+        <option value="gpt-4o">GPT-4o — OpenAI, multimodal</option>
+        <option value="gpt-4o-mini">GPT-4o mini — OpenAI, fast &amp; cheap</option>
+        <option value="gpt-4.1">GPT-4.1 — OpenAI, strong on code</option>
+        <option value="gpt-4.1-mini">GPT-4.1 mini — OpenAI, cheaper</option>
         <option value="grok-3-mini-fast">Grok 3 Mini Fast — fast (text only)</option>
         <option value="grok-3-mini">Grok 3 Mini — deeper thinking (text only)</option>
         <option value="grok-3">Grok 3 — full Grok (text only)</option>
       </select>
-      <p style="font-size:12px;color:var(--muted);margin:4px 0 0">With only an invite code, Roody uses Gemini regardless — the brain picker applies when you bring your own keys below. Screenshots need a multimodal brain (Gemini or Claude); a Grok turn with a screenshot is routed to Gemini vision automatically.</p>
+      <p style="font-size:12px;color:var(--muted);margin:4px 0 0">With only an invite code, Roody uses Gemini regardless — the brain picker applies when you bring your own keys below. Screenshots need a multimodal brain (Gemini, Claude, or GPT-4o/4.1); a Grok turn with a screenshot is routed to Gemini vision automatically. If the key for the brain you picked is missing, Roody falls back to Gemini instead of erroring.</p>
 
       <label for="key">Anthropic API key <span style="font-weight:400;color:var(--muted)">(for Claude brains)</span></label>
       <div class="row">
@@ -221,6 +225,13 @@
         <button id="clearkey" class="ghost small" title="Remove this key">✕</button>
       </div>
       <p id="keystatus" class="keystatus"></p>
+
+      <label for="okey">OpenAI API key <span style="font-weight:400;color:var(--muted)">(for GPT brains — platform.openai.com/api-keys)</span></label>
+      <div class="row">
+        <input id="okey" type="password" placeholder="sk-..." />
+        <button id="clearo" class="ghost small" title="Remove this key">✕</button>
+      </div>
+      <p id="ostatus" class="keystatus"></p>
 
       <label for="xkey">xAI (Grok) API key <span style="font-weight:400;color:var(--muted)">(for Grok brains — console.x.ai)</span></label>
       <div class="row">
