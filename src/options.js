@@ -23,7 +23,7 @@ const webEl = $("websearch");
 const chimeEl = $("autochime");
 const opacityEl = $("opacity");
 // Keep in sync with DEFAULT_ALPHA in content.js and --roody-alpha in content.css.
-const DEFAULT_OPACITY = 0.34;
+const DEFAULT_OPACITY = 0.18;
 const enabledEl = $("enabled");
 const statusEl = $("status");
 const profileEl = $("profile");

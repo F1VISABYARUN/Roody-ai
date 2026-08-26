@@ -7,7 +7,7 @@
      panel.style.setProperty("--roody-alpha", …) — 0.10 = nearly invisible,
      0.95 = solid. Every surface below derives from it so one slider moves the
      whole panel instead of just the backdrop. */
-  --roody-alpha: 0.34;
+  --roody-alpha: 0.18;
   --roody-glass: rgba(18, 20, 28, var(--roody-alpha));
   --roody-glass-solid: rgba(24, 27, 37, 0.92);
   --roody-border: rgba(255, 255, 255, 0.14);

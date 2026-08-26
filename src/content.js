@@ -600,7 +600,7 @@
 
   // How see-through the panel is (Settings → Transparency). Drives the
   // --roody-alpha CSS variable that every glass surface derives from.
-  const DEFAULT_ALPHA = 0.34;
+  const DEFAULT_ALPHA = 0.18;
   function applyOpacity(v) {
     const a = Math.min(0.95, Math.max(0.1, Number(v) || DEFAULT_ALPHA));
     panel.style.setProperty("--roody-alpha", String(a));
