@@ -1,8 +1,8 @@
 # Roody Privacy Policy
 
-*Last updated: July 2026*
+*Last updated: August 2026*
 
-Roody is a browser extension that acts as an on-demand AI voice companion.
+Roody is a browser extension that acts as an on-demand AI coding assistant.
 This policy explains exactly what data Roody touches and where it goes.
 
 ## The short version
@@ -16,26 +16,28 @@ This policy explains exactly what data Roody touches and where it goes.
   the AI provider — we're not in the middle at all.
 - With an **invite code**, requests pass through our small relay server,
   which counts usage (calls, tokens) to enforce daily limits — it does
-  **not** store the content of your pages or messages.
+  **not** store the content of your pages, messages, or screenshots.
 - Creating a **portal account** is optional; if you do, we store only your
   email, display name, and invite code.
 
 ## What Roody reads
 
 When — and only when — you summon Roody on a page, it reads the visible text
-of that page so the AI can discuss it with you. If you use voice, your
-microphone audio is transcribed by your browser's built-in speech
-recognition.
+of that page so the AI can help you with it. If you ask about something
+visual (or tap the 📷 button), Roody captures a screenshot of the current
+tab and sends that image with your message so the AI can see what you see.
+Screenshots are taken only for a message you send and are never captured in
+the background.
 
 ## Where data goes
 
-Your messages and short page excerpts are sent directly from your browser to
-the AI service **you** selected in settings, using **your** API key:
+Your messages, short page excerpts, and any screenshot you attach are sent
+directly from your browser to the AI service **you** selected in settings,
+using **your** API key:
 
 - Google Gemini (generativelanguage.googleapis.com)
 - Anthropic Claude (api.anthropic.com)
 - xAI Grok (api.x.ai)
-- ElevenLabs voice (api.elevenlabs.io)
 
 Their handling of that data is governed by their own privacy policies.
 
@@ -62,7 +64,7 @@ you can ask us to delete them at any time via the contact below.
 Stored only in your browser's local extension storage:
 
 - Your API keys
-- Your preferences (voice, language, character)
+- Your preferences (reply language, settings)
 - Roody's "notebook" — short snippets of pages where you talked to Roody,
   so it can connect context across tabs
 - A usage/cost counter

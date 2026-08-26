@@ -1,6 +1,7 @@
-// Roody lives here: a calm orb on top of ChatGPT / Claude.
-// It reads the on-page conversation (read-only), watches for new answers,
-// talks with you by voice or text, and never touches anything on the page.
+// Roody lives here: a glass orb you summon on any page. It reads what's on the
+// screen (the page's code/text, and — on request — a screenshot), then answers
+// your questions and writes code, all in the chat. Read-only: it never touches
+// the page. No voice.
 
 (function () {
   if (window.__roodyLoaded) return;
@@ -51,8 +52,8 @@
     if (old) old.remove();
     const t = document.createElement("div");
     t.id = "roody-refusal";
-    t.textContent = "🙈 Roody stays out of personal pages (logins, banking, email, chats). Summon me on a task page!";
-    t.style.cssText = "position:fixed;bottom:24px;right:24px;z-index:2147483647;background:#3a2c1e;color:#fff;padding:12px 16px;border-radius:12px;font:13px/1.4 sans-serif;max-width:300px;box-shadow:0 4px 20px rgba(0,0,0,.35)";
+    t.textContent = "🙈 Roody stays out of personal pages (logins, banking, email, chats). Summon me on a work page!";
+    t.style.cssText = "position:fixed;bottom:24px;right:24px;z-index:2147483647;background:rgba(18,20,28,.9);color:#eef1f7;padding:12px 16px;border-radius:12px;font:13px/1.4 ui-sans-serif,system-ui,sans-serif;max-width:300px;box-shadow:0 8px 30px rgba(0,0,0,.5);backdrop-filter:blur(10px)";
     document.body.appendChild(t);
     setTimeout(() => t.remove(), 5000);
   }
@@ -69,16 +70,15 @@
 
   const history = []; // running chat between the human and Roody
   let exchangeCount = 0; // total exchanges ever — history caps at 20, this doesn't
-  const synth = window.speechSynthesis;
 
   // Tuning knobs.
   const REACT_DEBOUNCE_MS = 1800; // how long the page must be quiet = answer finished
-  const REACT_COOLDOWN_MS = 15000; // min gap between auto-reactions (was 7s, too spammy)
-  const MAX_CONTEXT = 30000; // cap how much text we send to Claude
-  const PROACTIVE_INTERVAL_MS = 180000; // 3 min — voice-first users hated 45s spam
+  const REACT_COOLDOWN_MS = 15000; // min gap between auto-reactions
+  const MAX_CONTEXT = 30000; // cap how much text we send to the model
+  const PROACTIVE_INTERVAL_MS = 180000; // 3 min
   const TAB_LEADER_TTL_MS = 8000; // how long a tab claims the "active speaker" role
 
-  let autoChime = false; // OFF by default — Roody stays quiet unless tapped
+  let autoChime = false; // OFF by default — Roody stays quiet unless asked
   let lastAnswerSig = ""; // fingerprint of the latest answer we've seen
   let reacting = false; // lock so we don't react on top of a reaction
   let lastReactTime = 0;
@@ -86,9 +86,6 @@
   const seenLines = new Set(); // dedup by exact line, not substring
   let lastCacheSnapshot = ""; // detect meaningful changes
   let lastPageUrl = location.href; // SPA navigation guard — reset cache on URL change
-  let geminiVoice = false; // use Gemini for voice? (set at boot if a key exists)
-
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // Send a log line to the background so it shows up in Settings.
   function rlog(line) {
@@ -99,9 +96,9 @@
   rlog(`page=${location.hostname} ua=${navigator.userAgent.slice(0, 60)}`);
 
   // ---- Tab leader election ------------------------------------------------
-  // Only ONE tab across the whole browser can speak/react at a time. Without
-  // this, every open AI tab runs its own Roody, and they all speak on top of
-  // each other every 45s. Uses chrome.storage.local as a shared lock.
+  // Only ONE tab across the whole browser can post a proactive reaction at a
+  // time. Without this, every open tab runs its own Roody and they all chime
+  // at once. Uses chrome.storage.local as a shared lock.
   const TAB_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   async function canISpeak() {
     // Only the visible/focused tab is even eligible. Background tabs stay silent.
@@ -135,60 +132,13 @@
   document.addEventListener("visibilitychange", () => { if (document.hidden) releaseLeadership(); });
   window.addEventListener("beforeunload", releaseLeadership);
 
-  // ---- Audio helpers (turn Gemini's raw PCM into something playable) --------
-  function base64ToBytes(b64) {
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return bytes;
-  }
-  function rateFromMime(mime) {
-    const m = /rate=(\d+)/.exec(mime || "");
-    return m ? parseInt(m[1], 10) : 24000;
-  }
-  // Wrap signed-16-bit mono PCM in a WAV header so an <audio> element can play it.
-  function pcm16ToWav(pcm, sampleRate) {
-    const dataSize = pcm.length;
-    const buf = new ArrayBuffer(44 + dataSize);
-    const v = new DataView(buf);
-    const str = (off, s) => {
-      for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i));
-    };
-    str(0, "RIFF");
-    v.setUint32(4, 36 + dataSize, true);
-    str(8, "WAVE");
-    str(12, "fmt ");
-    v.setUint32(16, 16, true);
-    v.setUint16(20, 1, true); // PCM
-    v.setUint16(22, 1, true); // mono
-    v.setUint32(24, sampleRate, true);
-    v.setUint32(28, sampleRate * 2, true); // byte rate
-    v.setUint16(32, 2, true); // block align
-    v.setUint16(34, 16, true); // bits per sample
-    str(36, "data");
-    v.setUint32(40, dataSize, true);
-    new Uint8Array(buf, 44).set(pcm);
-    return new Blob([buf], { type: "audio/wav" });
-  }
-  function blobToBase64(blob) {
-    return new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onloadend = () => {
-        const s = String(r.result);
-        resolve(s.slice(s.indexOf(",") + 1));
-      };
-      r.onerror = reject;
-      r.readAsDataURL(blob);
-    });
-  }
-
   // ---- PDF study mode -------------------------------------------------------
   // Chrome's built-in PDF viewer keeps the text locked inside a plugin the DOM
   // can't see, so Roody reads PDFs itself: it takes the raw file bytes, inflates
   // the FlateDecode streams with the browser's NATIVE DecompressionStream (zero
   // libraries, no remote code — stays store-compliant), and pulls text out of
   // the content-stream operators. Works on most text PDFs; scanned/image PDFs
-  // have no text to extract, so we fall back to "paste it and I'll study it."
+  // have no text to extract, so we fall back to "paste it and I'll read it."
   let studyDoc = null; // { name, text } once a PDF is loaded for study
   let chatContentFound = false; // real chat text extracted → suppress stale tab title
 
@@ -283,13 +233,6 @@
   }
 
   // ---- Read the page (SMART extraction, ZERO scrolling) --------------------
-  // Different strategy per site type:
-  //   - AI chat sites: find the chat container, extract user/AI turns only
-  //   - Regular pages: find the article/main content, skip menus & UI chrome
-  //   - Fallback: main.innerText tail (old behavior)
-
-  // Site-specific chat container selectors — where the actual conversation
-  // lives on each supported AI chat site. Falls through to generic if none hit.
   const CHAT_CONTAINERS = [
     { host: "chatgpt.com", sel: 'main [role="presentation"], main div[class*="conversation"]' },
     { host: "chat.openai.com", sel: 'main [role="presentation"]' },
@@ -298,7 +241,6 @@
     { host: "perplexity.ai", sel: 'main [class*="thread"]' },
     { host: "www.perplexity.ai", sel: 'main [class*="thread"]' },
     { host: "grok.com", sel: 'main [class*="conversation"], main [class*="thread"]' },
-    { host: "x.com", sel: 'main [aria-label*="conversation"]' },
     { host: "www.kimi.com", sel: 'main [class*="chat"], main [class*="conversation"]' },
     { host: "kimi.com", sel: 'main [class*="chat"]' },
     { host: "chat.deepseek.com", sel: 'main [class*="conversation"], main [class*="chat"]' },
@@ -307,12 +249,10 @@
   // Find the biggest article-like block on a regular page — biggest <article>,
   // <main>, or content-heavy <div>. Skips nav/header/footer/aside/menus.
   function findArticle() {
-    // Try semantic tags first
     const article = document.querySelector("article");
     if (article && article.innerText && article.innerText.length > 300) return article;
     const main = document.querySelector("main");
     if (main && main.innerText && main.innerText.length > 300) {
-      // Strip common UI noise inside main so Roody reads content, not chrome.
       const clone = main.cloneNode(true);
       clone.querySelectorAll(
         "nav, header, footer, aside, script, style, noscript, " +
@@ -324,9 +264,6 @@
       ).forEach((el) => el.remove());
       return clone;
     }
-    // Last resort — body, but strip sidebars first. On Perplexity-style apps
-    // the left panel lists the user's OLD searches; reading it as page text
-    // made Roody talk about last week's query instead of the current answer.
     try {
       const clone = document.body.cloneNode(true);
       clone.querySelectorAll(
@@ -341,7 +278,7 @@
   }
 
   function readPage() {
-    // A PDF the user handed us for study wins over whatever's in the DOM.
+    // A PDF the user handed us wins over whatever's in the DOM.
     if (studyDoc && studyDoc.text) return studyDoc.text.slice(0, 16000);
     // The page can BECOME sensitive after summon (SPA navigates to a login or
     // checkout view). Re-check on every read; trip the shield if so.
@@ -355,20 +292,14 @@
         const container = document.querySelector(chatSite.sel);
         if (container && container.innerText) {
           text = container.innerText.trim();
-          // On chat/search sites the tab title is a stale label (usually the
-          // user's FIRST query). When we got real conversation text, the
-          // title must not be sent — it makes the brain claim the page is
-          // about something it stopped being about an hour ago.
           chatContentFound = text.length > 200;
         }
       }
       if (!text) {
-        // Regular page: find the article, strip UI chrome
         const el = findArticle();
         text = (el.innerText || "").trim();
       }
       if (!text) text = (document.body.innerText || "").trim();
-      // Collapse blank lines — Readability's cheap trick that helps a lot
       text = text.replace(/\n\s*\n+/g, "\n\n").replace(/[ \t]+/g, " ");
       if (text.length > 16000) text = text.slice(-16000);
       return text;
@@ -377,9 +308,8 @@
     }
   }
 
-  // Save a lightweight memory of the current page — only called when the user
-  // actually engages with Roody (voice or text). No LLM cost, just a heuristic
-  // summary: site + title + first 200 chars of extracted content.
+  // Save a lightweight memory of the current page — only when the user actually
+  // engages with Roody. No LLM cost, just site + title + first 200 chars.
   async function rememberPage() {
     try {
       const snippet = readPage().slice(0, 200).replace(/\s+/g, " ").trim();
@@ -391,17 +321,13 @@
       };
       const { roodyMemory, roodyTalkCount } = await chrome.storage.local.get(["roodyMemory", "roodyTalkCount"]);
       const mem = Array.isArray(roodyMemory) ? roodyMemory : [];
-      // If we already remember this URL+title recently, just update ts
       const dupIdx = mem.findIndex((m) => m.site === entry.site && m.title === entry.title);
-      if (dupIdx >= 0) {
-        mem[dupIdx] = entry;
-      } else {
-        mem.push(entry);
-      }
-      while (mem.length > 20) mem.shift(); // keep last 20 only
+      if (dupIdx >= 0) mem[dupIdx] = entry;
+      else mem.push(entry);
+      while (mem.length > 20) mem.shift();
       await chrome.storage.local.set({
         roodyMemory: mem,
-        roodyTalkCount: (roodyTalkCount || 0) + 1, // relationship depth, made visible
+        roodyTalkCount: (roodyTalkCount || 0) + 1,
       });
     } catch (_) {}
   }
@@ -410,27 +336,18 @@
   function recentTask() {
     const t = readPage();
     if (!t) return "";
-    // Studying a PDF: name it and hand over the opening — that's the subject.
     if (studyDoc) return `Document: ${studyDoc.name}\n\n` + t.slice(0, 2200);
-    // On AI chat sites the newest messages are at the BOTTOM → tail is right.
-    // On articles/docs/any normal page the tail is footer junk (references,
-    // "see also", cookie notices) — the actual subject is at the TOP. Reading
-    // the wrong end was why Roody greeted people about page footers.
     const isChatSite = CHAT_CONTAINERS.some((c) => c.host === location.hostname);
     if (isChatSite) return t.slice(-2500);
-    // Regular page: title + the opening of the content = what it's actually about.
     const head = t.slice(0, 2200);
     return (document.title ? `Page: ${document.title}\n\n` : "") + head;
   }
 
   // Incrementally capture new content as it appears — called by
-  // MutationObserver. Merges new lines into pageCache without scrolling.
-  // Also detects SPA navigation (URL change without content script re-injection)
-  // and resets the cache so Roody reads the NEW page, not the old one.
+  // MutationObserver. Merges new lines into pageCache without scrolling. Also
+  // detects SPA navigation and resets the cache so Roody reads the NEW page.
   let captureTimer = null;
   function captureIncremental() {
-    // SPA guard: if the URL changed, the old pageCache is from a different page.
-    // Clear it so Roody starts fresh — otherwise it talks about the PREVIOUS page.
     if (location.href !== lastPageUrl) {
       lastPageUrl = location.href;
       pageCache = "";
@@ -452,7 +369,6 @@
     }
     if (newLines.length > 0) pageCache += "\n" + newLines.join("\n");
     if (pageCache.length > MAX_CONTEXT) pageCache = pageCache.slice(-MAX_CONTEXT);
-    // Keep Set from growing unbounded
     if (seenLines.size > 5000) {
       seenLines.clear();
       pageCache.split("\n").forEach((l) => { const t = l.trim(); if (t) seenLines.add(t); });
@@ -463,9 +379,8 @@
     captureTimer = setTimeout(() => { captureTimer = null; captureIncremental(); }, 800);
   }
 
-  // Detect the page type from cheap heuristics (URL + a couple of DOM signals)
-  // so the brain can act like the right expert. No LLM call, no cost — just a
-  // string the background maps to a mode instruction. Invisible to the user.
+  // Detect the page type from cheap heuristics so the brain acts like the right
+  // expert. No LLM call, no cost — just a string mapped to a mode instruction.
   function detectMode() {
     if (studyDoc) return "learning";
     const host = location.hostname.replace(/^www\./, "");
@@ -492,11 +407,115 @@
     return pageCache;
   }
 
+  // ---- Markdown rendering (dependency-free, XSS-safe) -----------------------
+  // The model answers in Markdown. We build real DOM nodes (never innerHTML on
+  // model text) so code blocks, inline code, bold/italic, and lists render, and
+  // page/model content can't inject markup.
+  function el(tag, className, text) {
+    const e = document.createElement(tag);
+    if (className) e.className = className;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function renderInline(target, text) {
+    let i = 0;
+    const n = text.length;
+    let buf = "";
+    const flush = () => { if (buf) { target.appendChild(document.createTextNode(buf)); buf = ""; } };
+    while (i < n) {
+      const c = text[i];
+      if (c === "`") {
+        const end = text.indexOf("`", i + 1);
+        if (end > i) { flush(); target.appendChild(el("code", "roody-code-inline", text.slice(i + 1, end))); i = end + 1; continue; }
+      }
+      if (c === "*" && text[i + 1] === "*") {
+        const end = text.indexOf("**", i + 2);
+        if (end > i) { flush(); const st = el("strong"); renderInline(st, text.slice(i + 2, end)); target.appendChild(st); i = end + 2; continue; }
+      }
+      if (c === "*") {
+        const end = text.indexOf("*", i + 1);
+        if (end > i) { flush(); const em = el("em"); renderInline(em, text.slice(i + 1, end)); target.appendChild(em); i = end + 1; continue; }
+      }
+      buf += c; i++;
+    }
+    flush();
+  }
+
+  function buildCodeBlock(code, lang) {
+    const wrap = el("div", "roody-codewrap");
+    const bar = el("div", "roody-codebar");
+    bar.appendChild(el("span", "roody-codelang", lang || "code"));
+    const copy = el("button", "roody-copy", "Copy");
+    copy.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(code); copy.textContent = "Copied"; }
+      catch (_) { copy.textContent = "Copy failed"; }
+      setTimeout(() => { copy.textContent = "Copy"; }, 1500);
+    });
+    bar.appendChild(copy);
+    wrap.appendChild(bar);
+    const pre = el("pre", "roody-pre");
+    pre.appendChild(el("code", null, code));
+    wrap.appendChild(pre);
+    return wrap;
+  }
+
+  function renderTextBlock(container, text) {
+    const lines = text.split("\n");
+    let list = null, listType = null, para = [];
+    const flushPara = () => {
+      if (!para.length) return;
+      const p = el("p", "roody-p");
+      renderInline(p, para.join(" "));
+      container.appendChild(p);
+      para = [];
+    };
+    const flushList = () => { if (list) { container.appendChild(list); list = null; listType = null; } };
+    for (const raw of lines) {
+      const line = raw.replace(/\s+$/, "");
+      const ul = /^\s*[-*]\s+(.*)$/.exec(line);
+      const ol = /^\s*\d+[.)]\s+(.*)$/.exec(line);
+      if (ul || ol) {
+        flushPara();
+        const t = ul ? "ul" : "ol";
+        if (listType !== t) { flushList(); list = el(t, "roody-list"); listType = t; }
+        const li = el("li");
+        renderInline(li, ul ? ul[1] : ol[1]);
+        list.appendChild(li);
+        continue;
+      }
+      if (line.trim() === "") { flushPara(); flushList(); continue; }
+      para.push(line.trim());
+    }
+    flushPara();
+    flushList();
+  }
+
+  function renderMarkdownInto(container, md) {
+    container.textContent = "";
+    // Split on ``` fences — odd segments are code blocks.
+    const segments = String(md == null ? "" : md).split("```");
+    segments.forEach((seg, idx) => {
+      if (idx % 2 === 1) {
+        let code = seg, lang = "";
+        const nl = seg.indexOf("\n");
+        if (nl >= 0) {
+          const first = seg.slice(0, nl).trim();
+          if (/^[a-zA-Z0-9+#._-]*$/.test(first)) { lang = first; code = seg.slice(nl + 1); }
+        }
+        code = code.replace(/\n$/, "");
+        container.appendChild(buildCodeBlock(code, lang));
+      } else if (seg) {
+        renderTextBlock(container, seg);
+      }
+    });
+  }
+
   // ---- UI -------------------------------------------------------------------
   const orb = document.createElement("div");
   orb.id = "roody-orb";
-  orb.title = "Talk to Roody";
-  orb.textContent = "🟠";
+  orb.title = "Ask Roody";
+  // No emoji glyph — the glassy look comes from CSS.
 
   const panel = document.createElement("div");
   panel.id = "roody-panel";
@@ -505,24 +524,16 @@
     <div id="roody-header">
       <div id="roody-headtext">
         <span id="roody-title">Roody</span>
-        <span id="roody-sub">your friend on this page</span>
+        <span id="roody-sub">AI coding assistant</span>
       </div>
-      <button id="roody-gear" title="Settings" style="background:none;border:none;font-size:15px;cursor:pointer;opacity:.65;padding:2px 6px">⚙</button>
+      <button id="roody-gear" title="Settings">⚙</button>
       <button id="roody-close" title="Close">×</button>
     </div>
     <div id="roody-log"></div>
-    <div id="roody-toggle-row">
-      <button id="roody-toggle" title="Turn voice ON / OFF">
-        <span id="roody-toggle-icon">🎙️</span>
-        <span id="roody-toggle-label">Voice OFF — tap to start</span>
-      </button>
-    </div>
-    <div id="roody-hearing" style="display:none;padding:4px 12px;font-size:12px;color:#8a7560;background:#fff7ec;border-top:1px solid #f0e2cf;font-style:italic;min-height:18px">
-      <span id="roody-hearing-text"></span>
-    </div>
     <div id="roody-inputrow">
-      <button id="roody-pdf" title="Study a PDF with Roody">📄</button>
-      <input id="roody-text" type="text" placeholder="…or just type to Roody" autocomplete="off" />
+      <button id="roody-pdf" title="Read a PDF with Roody">📄</button>
+      <button id="roody-shot" title="Attach a screenshot of your screen to the next message">📷</button>
+      <textarea id="roody-text" rows="1" placeholder="Ask about the code or the page… (Enter to send, Shift+Enter for a new line)"></textarea>
       <button id="roody-send" title="Send">➤</button>
     </div>
     <input id="roody-pdf-file" type="file" accept="application/pdf,.pdf" style="display:none" />
@@ -532,11 +543,6 @@
   document.body.appendChild(panel);
 
   // ---- Drag Roody anywhere — the panel rides along --------------------------
-  // The old drag bug was that only the orb moved while the panel stayed
-  // bottom-right ("floating orb"). Now one place() moves BOTH: the panel
-  // docks above the orb wherever it lands, flipping below when there's no
-  // room. Position persists across pages; a sub-5px pointer wobble still
-  // counts as a click, so tap-to-open keeps working.
   let orbPos = null; // last custom {x, y}; null = default CSS corner
   function placeRoody(x, y) {
     const W = window.innerWidth, H = window.innerHeight;
@@ -545,7 +551,7 @@
     y = Math.max(4, Math.min(H - oh - 4, y));
     orb.style.left = x + "px"; orb.style.top = y + "px";
     orb.style.right = "auto"; orb.style.bottom = "auto";
-    const pw = panel.offsetWidth || 340;
+    const pw = panel.offsetWidth || 360;
     const ph = panel.offsetHeight || Math.min(H * 0.7, 460);
     let px = Math.max(4, Math.min(W - pw - 4, x + ow - pw));
     let py = y - ph - 12; // dock above the orb…
@@ -580,11 +586,6 @@
     orb.addEventListener("click", (e) => {
       if (moved) { e.stopImmediatePropagation(); moved = false; }
     });
-    // The panel is display:none while closed, so it can't be measured at drag
-    // time. Re-dock it the moment it becomes visible — but ONLY on the
-    // none→visible transition. placeRoody itself writes panel.style, so
-    // re-docking on every style mutation would re-trigger this observer in an
-    // infinite loop.
     let lastPanelDisplay = panel.style.display;
     new MutationObserver(() => {
       const d = panel.style.display;
@@ -592,7 +593,6 @@
       lastPanelDisplay = d;
       if (orbPos && d !== "none") placeRoody(orbPos.x, orbPos.y);
     }).observe(panel, { attributes: true, attributeFilter: ["style"] });
-    // Restore last saved spot.
     chrome.storage.local.get("roodyOrbPos").then(({ roodyOrbPos: p }) => {
       if (p && typeof p.x === "number" && typeof p.y === "number") placeRoody(p.x, p.y);
     }).catch(() => {});
@@ -617,29 +617,24 @@
     }
   });
 
-  // Roody talks first: looks at JUST the latest task on the page and opens up.
+  // Roody opens by looking at what's on the screen and leading with substance.
   const OPENER_PROMPT =
-    "(The user just opened you. Look at what's on their screen right now and say the single most USEFUL thing you notice — the point that matters, a problem you spot, or a sharp observation about what they're doing. Lead with that substance in one or two spoken sentences. Do NOT ask 'what are you working on?' or 'what's on your mind?' — you can already see. No filler, no whole-page summary.)";
+    "(The user just opened you on this page. Look at what's on their screen and lead with the single most useful thing — the bug you spot, the key point, or a sharp observation about what they're doing. One or two sentences in Markdown. Do NOT ask 'what are you working on?' — you can see. No whole-page summary.)";
 
   function openingHello() {
     const recent = recentTask();
     if (!recent) {
-      const hi = "Hey, I'm Roody. What are we looking at?";
-      addBubble("roody", hi);
-      speak(hi);
+      addBubble("roody", "Hey — I'm Roody, your coding assistant. What are we looking at?");
       return;
     }
     const thinking = addBubble("roody", "…");
-    callRoody(OPENER_PROMPT, recent, (t) => (thinking.textContent = t));
+    callRoody(OPENER_PROMPT, recent, (t) => fillBubble(thinking, t));
   }
-  // Session recap — when a conversation wraps, ask the background to distill
-  // it into one line for the notebook ("what we did + where we left off").
-  // Fires at most once per new material, and only after a real exchange.
+
+  // Session recap — when a conversation wraps, ask the background to distill it
+  // into one line for the notebook. Fires at most once per new material.
   let lastRecapLen = 0;
   function maybeRecap() {
-    // Compare the monotonic exchange counter, NOT history.length — history is
-    // capped at 20, so its length stops changing mid-session and would block
-    // every recap after the 10th exchange.
     if (exchangeCount < 1 || exchangeCount === lastRecapLen) return;
     lastRecapLen = exchangeCount;
     try {
@@ -665,206 +660,51 @@
         const hidden = orb.style.display === "none" || panel.style.display === "none";
         if (sensitiveTripped) { refusalToast(); }
         else if (hidden) { orb.style.display = "flex"; panel.style.display = "flex"; }
-        else { panel.style.display = "none"; orb.style.display = "none"; stopEverything(); maybeRecap(); }
+        else { panel.style.display = "none"; orb.style.display = "none"; maybeRecap(); }
         sendResponse({ ok: true });
       }
     });
   } catch (_) {}
 
   function addBubble(who, text) {
-    const b = document.createElement("div");
-    b.className = `roody-bubble roody-${who}`;
-    b.textContent = text;
+    const b = el("div", `roody-bubble roody-${who}`);
+    b.dataset.who = who;
+    fillBubble(b, text);
     log.appendChild(b);
     log.scrollTop = log.scrollHeight;
     return b;
   }
-
-  let currentAudio = null;
-  let speakToken = 0; // bumped on stop so stale TTS replies don't start playing
-  let ttsWarned = false;
-
-  // Pick a female-sounding voice for the browser fallback. Browsers don't expose
-  // a gender flag, so we score by known-female names. Cached after first pick.
-  let pickedFemaleVoice = null;
-  function pickFemaleVoice() {
-    if (pickedFemaleVoice) return pickedFemaleVoice;
-    if (!synth) return null;
-    const voices = synth.getVoices() || [];
-    if (!voices.length) return null; // Chrome loads voices async — try again later
-    const femaleHints = /(female|samantha|victoria|karen|tessa|allison|ava|susan|zira|hazel|fiona|moira|kate|serena|catherine|jenny|aria|emma|sophie|amy|joanna|salli|kimberly|kendra|sara|nora|nicole|google us english|google uk english female)/i;
-    // Prefer English female voices first
-    const enFemale = voices.find((v) => /^en/i.test(v.lang) && femaleHints.test(v.name));
-    if (enFemale) return (pickedFemaleVoice = enFemale);
-    const anyFemale = voices.find((v) => femaleHints.test(v.name));
-    if (anyFemale) return (pickedFemaleVoice = anyFemale);
-    // Last resort: any English voice (likely sounds neutral, beats nothing)
-    return voices.find((v) => /^en/i.test(v.lang)) || null;
-  }
-  // Some browsers load the voice list asynchronously — listen for it.
-  if (synth && typeof synth.onvoiceschanged !== "undefined") {
-    synth.addEventListener("voiceschanged", () => { pickedFemaleVoice = null; pickFemaleVoice(); });
-  }
-
-  function browserSpeak(text, onDone) {
-    if (!synth) {
-      if (onDone) onDone();
-      return;
-    }
-    try {
-      synth.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      const v = pickFemaleVoice();
-      if (v) u.voice = v;
-      u.rate = 1.0;
-      u.pitch = 1.05; // a touch higher = slightly warmer/femme on system voices
-      setOrbState("speaking");
-      setMic("speaking");
-      u.onend = () => {
-        setOrbState("idle");
-        if (micState === "speaking") setMic("idle");
-        if (onDone) onDone();
-      };
-      synth.speak(u);
-    } catch (_) {
-      setOrbState("idle");
-      if (micState === "speaking") setMic("idle");
-      if (onDone) onDone();
-    }
-  }
-
-  // Stop Roody talking, right now.
-  function stopSpeaking() {
-    speakToken++;
-    isRoodySpeaking = false;
-    try { if (synth) synth.cancel(); } catch (_) {}
-    try {
-      if (currentAudio) {
-        if (typeof currentAudio.close === "function") {
-          currentAudio.close();
-        } else {
-          currentAudio.pause();
-          currentAudio.currentTime = 0;
-        }
-        currentAudio = null;
-      }
-    } catch (_) {}
-    setOrbState("idle");
-  }
-
-  // Orb glow: green = speaking, red = stopped/idle, default orange otherwise.
-  function setOrbState(state) {
-    orb.classList.remove("roody-speaking", "roody-stopped");
-    if (state === "speaking") orb.classList.add("roody-speaking");
-    // idle = back to default orange (no class), not red
-  }
-
-  // Roody's warm voice: Gemini TTS if available, else the free browser voice.
-  // onDone fires when Roody finishes speaking (used to auto-listen in voice mode).
-  function speak(text, onDone) {
-    if (!text) {
-      if (onDone) onDone();
-      return;
-    }
-    if (!geminiVoice) { rlog("🔈 ROBOTIC voice (no premium key set — add ElevenLabs or Gemini key in Settings)"); return browserSpeak(text, onDone); }
-    rlog("→ requesting warm voice from background");
-    const myToken = speakToken;
-    chrome.runtime.sendMessage({ type: "roody:tts", payload: { text } }, async (res) => {
-      if (myToken !== speakToken) return; // user pressed stop while we waited
-      if (chrome.runtime.lastError || !res || !res.ok || !res.audioBase64) {
-        const why = (chrome.runtime.lastError && chrome.runtime.lastError.message) ||
-                    (res && res.error) || "no response";
-        rlog(`🔈 ROBOTIC voice (warm TTS failed: ${String(why).slice(0, 400)})`);
-        if (!ttsWarned) {
-          ttsWarned = true;
-          // Raw reason is already in the rlog above — the user just gets a
-          // calm one-liner, no provider names, no error JSON.
-          addBubble("roody", "🔈 (my warm voice hiccuped — using a simpler voice for now)");
-        }
-        return browserSpeak(text, onDone); // graceful fallback
-      }
-      const sizeKB = Math.round((res.audioBase64.length * 3) / 4 / 1024);
-      rlog(`🔊 Roody warm voice playing (${res.mime}, ${sizeKB}KB)`);
-      try {
-        // ElevenLabs returns MP3 (audio/mpeg) — play as-is.
-        // Gemini returns raw PCM with rate hint in mime — wrap in WAV header.
-        const isPcm = /pcm|L16/i.test(res.mime || "");
-        const rawBytes = base64ToBytes(res.audioBase64);
-        const blob = isPcm
-          ? pcm16ToWav(rawBytes, rateFromMime(res.mime))
-          : new Blob([rawBytes], { type: res.mime || "audio/mpeg" });
-
-        stopSpeaking(); // clear anything currently playing first
-        setOrbState("speaking");
-        setMic("speaking");
-
-        // Use AudioContext.decodeAudioData for playback. The standard
-        // new Audio(blobURL) path silently fails on some sites (claude.ai)
-        // due to CSP or autoplay restrictions, causing a hidden fallback to
-        // the robotic browser voice with no log entry.
-        const arrayBuf = await blob.arrayBuffer();
-        const actx = new (window.AudioContext || window.webkitAudioContext)();
-        currentAudio = actx;
-        let audioBuf;
-        try {
-          audioBuf = await actx.decodeAudioData(arrayBuf);
-        } catch (decodeErr) {
-          try { actx.close(); } catch (_) {}
-          if (currentAudio === actx) currentAudio = null;
-          throw decodeErr;
-        }
-        const src = actx.createBufferSource();
-        src.buffer = audioBuf;
-        src.connect(actx.destination);
-        src.onended = () => {
-          try { actx.close(); } catch (_) {}
-          if (currentAudio === actx) currentAudio = null;
-          setOrbState("idle");
-          if (micState === "speaking") setMic("idle");
-          if (onDone) onDone();
-        };
-        src.start(0);
-        rlog(`▶ AudioContext playback started (${(audioBuf.duration).toFixed(1)}s)`);
-      } catch (e) {
-        rlog(`⚠ AudioContext failed (${e.message}) → robotic fallback`);
-        browserSpeak(text, onDone);
-      }
-    });
+  // Set/replace a bubble's content. User bubbles stay plain text; Roody bubbles
+  // render Markdown.
+  function fillBubble(b, text) {
+    if (b.dataset && b.dataset.who === "you") b.textContent = text == null ? "" : String(text);
+    else renderMarkdownInto(b, text);
+    try { if (b.parentNode === log) log.scrollTop = log.scrollHeight; } catch (_) {}
   }
 
   // ---- Talking to Roody's brain --------------------------------------------
-  // onText fills the bubble; onSpoken (optional) fires after Roody finishes
-  // speaking — used by hands-free voice mode to auto-listen next. `mode` is
-  // "voice" when this comes from the voice loop (triggers speed-tuned settings
-  // in the background: no web search, smaller context, shorter reply, etc).
-  function callRoody(userText, pageContext, onText, onSpoken, mode, opts) {
-    const skipHistory = opts && opts.skipHistory;
-    const noSpeak = opts && opts.noSpeak; // text bubble only — used by rituals
+  // onText fills the bubble. opts: { skipHistory, image } where image is a
+  // screenshot { mime, data } to send with this turn.
+  function callRoody(userText, pageContext, onText, opts) {
+    opts = opts || {};
+    const skipHistory = opts.skipHistory;
+    const image = opts.image || null;
     let settled = false;
-    const finish = (text, speakIt) => {
+    const finish = (text, ok) => {
       if (settled) return;
       settled = true;
       clearTimeout(watchdog);
       onText(text);
-      if (speakIt) {
-        if (!skipHistory) {
-          history.push({ role: "user", content: userText });
-          history.push({ role: "assistant", content: text });
-          if (history.length > 20) history.splice(0, history.length - 20);
-          exchangeCount++; // monotonic — history.length freezes at the 20-cap
-        }
-        if (noSpeak) {
-          if (onSpoken) onSpoken();
-        } else {
-          speak(text, onSpoken);
-        }
-      } else if (onSpoken) {
-        onSpoken();
+      if (ok && !skipHistory) {
+        history.push({ role: "user", content: userText });
+        history.push({ role: "assistant", content: text });
+        if (history.length > 20) history.splice(0, history.length - 20);
+        exchangeCount++; // monotonic — history.length freezes at the 20-cap
       }
     };
 
-    // Safety net: if the brain doesn't answer in 30s (asleep service worker,
-    // dead network, lost message channel) — say so instead of spinning on "…".
+    // Safety net: if the brain doesn't answer in 30s — say so instead of
+    // spinning on "…".
     const watchdog = setTimeout(() => {
       rlog("⏱ brain timed out (no reply in 30s)");
       finish("That took too long and I didn't hear back — try once more?", false);
@@ -872,7 +712,7 @@
 
     try {
       chrome.runtime.sendMessage(
-        { type: "roody:ask", payload: { userText, pageContext, history, mode, site: location.hostname, title: chatContentFound ? "" : document.title, pageMode: detectMode() } },
+        { type: "roody:ask", payload: { userText, pageContext, history, site: location.hostname, title: chatContentFound ? "" : document.title, pageMode: detectMode(), image } },
         (res) => {
           if (chrome.runtime.lastError) {
             rlog(`⚠ ask failed: ${chrome.runtime.lastError.message}`);
@@ -894,60 +734,94 @@
     }
   }
 
+  // ---- Screenshot ----------------------------------------------------------
+  // Ask the background to capture the visible tab. Returns { mime, data } or null.
+  function grabScreenshot() {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: "roody:screenshot" }, (res) => {
+          if (chrome.runtime.lastError || !res || !res.ok) {
+            const why = (chrome.runtime.lastError && chrome.runtime.lastError.message) || (res && res.error) || "no response";
+            rlog(`⚠ screenshot failed: ${String(why).slice(0, 200)}`);
+            resolve(null);
+            return;
+          }
+          resolve({ mime: res.mime, data: res.data });
+        });
+      } catch (e) { rlog(`⚠ screenshot threw: ${e.message}`); resolve(null); }
+    });
+  }
+
+  // "attach a screenshot to my next message" — set by the 📷 button, and
+  // auto-triggered when the user's wording is clearly about something visual.
+  let attachShot = false;
+  const VISUAL_INTENT = /\b(screenshot|on[-\s]?screen|on my screen|this (image|picture|photo|diagram|chart|graph|screen|ui|design|mockup|layout|render)|what('?s| is) (shown|on screen)|what do you see|look at (this|my) (screen|image|picture|page)|see (this|my) screen|the (image|picture|diagram|chart|screenshot)|visually)\b/i;
+  const shotBtn = panel.querySelector("#roody-shot");
+  function updateShotBtn() { if (shotBtn) shotBtn.classList.toggle("on", attachShot); }
+  if (shotBtn) shotBtn.addEventListener("click", () => { attachShot = !attachShot; updateShotBtn(); });
+
   // You asked Roody something.
-  function send(userText) {
+  async function send(userText) {
     userText = (userText || "").trim();
     if (!userText) return;
-    rememberPage(); // engagement: user talked to Roody on this page
+    rememberPage();
     addBubble("you", userText);
     input.value = "";
+    autoGrow();
+    const wantShot = attachShot || VISUAL_INTENT.test(userText);
+    attachShot = false; updateShotBtn();
     const thinking = addBubble("roody", "…");
-    setMic("thinking");
     const ctx = buildContext();
-    callRoody(
-      userText,
-      ctx,
-      (t) => (thinking.textContent = t),
-      () => setMic("idle") // back to a tap-to-talk mic when Roody's done speaking
-    );
+    let image = null;
+    if (wantShot) {
+      fillBubble(thinking, "📸 capturing your screen…");
+      image = await grabScreenshot();
+      fillBubble(thinking, "…");
+      if (!image) addBubble("roody", "_(couldn't grab a screenshot — answering from the page text)_");
+    }
+    callRoody(userText, ctx, (t) => fillBubble(thinking, t), { image });
+  }
+
+  // Auto-grow the textarea up to a few lines.
+  function autoGrow() {
+    try {
+      input.style.height = "auto";
+      input.style.height = Math.min(input.scrollHeight, 120) + "px";
+    } catch (_) {}
   }
 
   panel.querySelector("#roody-send").addEventListener("click", () => send(input.value));
+  input.addEventListener("input", autoGrow);
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") send(input.value);
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input.value); }
   });
 
-  // ---- Study a PDF ----------------------------------------------------------
+  // ---- Read a PDF -----------------------------------------------------------
   const PDF_OPENER_PROMPT =
-    "(The user just loaded a PDF to study. Immediately give the useful decode in 2-3 spoken sentences: what this document is, the ONE key idea that matters most, and one thing people usually get wrong or should focus on. Then, in a short half-sentence, offer to go deeper or quiz them. Lead with substance — do NOT ask 'how do you want to use it?')";
+    "(The user just loaded a PDF. In 2-3 sentences of Markdown, give the useful decode: what this document is, the one idea that matters most, and one thing people usually get wrong or should focus on. Then briefly offer to go deeper or quiz them. Lead with substance.)";
 
   async function loadStudyPdf(file) {
     if (!file) return;
     const note = addBubble("roody", `📄 Reading ${file.name}…`);
-    setMic("thinking");
     try {
       const buf = await file.arrayBuffer();
       const text = await extractPdfText(buf);
       if (!text || text.length < 40) {
         studyDoc = null;
-        note.textContent =
-          `Hmm, I couldn't pull readable text out of ${file.name} — it's probably a scanned/image PDF. Copy-paste the part you want and I'll study it with you.`;
-        setMic("idle");
+        fillBubble(note, `Hmm, I couldn't pull readable text out of ${file.name} — it's probably a scanned/image PDF. Copy-paste the part you want and I'll read it with you.`);
         return;
       }
       studyDoc = { name: file.name, text };
       pageCache = text;
       seenLines.clear();
       const sub = panel.querySelector("#roody-sub");
-      if (sub) sub.textContent = `📄 studying ${file.name}`;
-      note.textContent =
-        `📄 Got it — I read ${file.name} (${text.length.toLocaleString()} characters). Ask me anything, or say "quiz me."`;
+      if (sub) sub.textContent = `📄 reading ${file.name}`;
+      fillBubble(note, `📄 Got it — I read ${file.name} (${text.length.toLocaleString()} characters). Ask me anything.`);
       const thinking = addBubble("roody", "…");
-      callRoody(PDF_OPENER_PROMPT, text.slice(0, 2500), (t) => (thinking.textContent = t), () => setMic("idle"));
+      callRoody(PDF_OPENER_PROMPT, text.slice(0, 2500), (t) => fillBubble(thinking, t));
     } catch (e) {
       studyDoc = null;
-      note.textContent = "I couldn't open that file — mind trying again?";
-      setMic("idle");
+      fillBubble(note, "I couldn't open that file — mind trying again?");
     }
   }
 
@@ -961,7 +835,6 @@
       if (f) loadStudyPdf(f);
     });
   }
-  // Drag a PDF straight onto the panel.
   panel.addEventListener("dragover", (e) => { e.preventDefault(); });
   panel.addEventListener("drop", (e) => {
     e.preventDefault();
@@ -969,9 +842,6 @@
     if (f && /pdf/i.test((f.type || "") + " " + (f.name || ""))) loadStudyPdf(f);
   });
 
-  // If Roody was summoned on a PDF URL, try to read it automatically (best
-  // effort — Chrome may not inject us into its PDF viewer, and that's fine:
-  // the 📄 button always works).
   (async function autoStudyPdf() {
     try {
       const looksPdf =
@@ -984,24 +854,24 @@
         studyDoc = { name: document.title || "this PDF", text };
         pageCache = text;
         const sub = panel.querySelector("#roody-sub");
-        if (sub) sub.textContent = `📄 studying this PDF`;
+        if (sub) sub.textContent = `📄 reading this PDF`;
       }
     } catch (_) {}
   })();
 
   // ---- Live watching: react when new content appears -----------------------
   const REACTION_PROMPT =
-    "(A new answer just appeared on the page. You're reading along with the user. React naturally in ONE short spoken sentence — like a friend looking over their shoulder. Be helpful: if something looks wrong, point it out. If it's interesting, say so. If you spot a bug, warn them. If it's a good answer, celebrate. Make a joke if the moment calls for it. Keep it to one or two sentences, spoken aloud.)";
+    "(New content just appeared on the page and you're reading along. React in ONE short Markdown sentence — if something looks wrong or buggy, point it out; if it's a good result, note it; otherwise stay quiet-useful. Never narrate what they can already see.)";
 
   const PROACTIVE_PROMPTS = [
-    "(You're their best friend hanging out while they work. Glance at what's on screen and say ONE thing — a genuinely useful tip, a playful tease about what they're doing, or a quick idea they might not have thought of. Be specific to what's actually on screen. One sentence, spoken, friend-energy.)",
-    "(Best friend check-in: look at what they're doing. If something's off, warn them like a friend — 'hold up, that's gonna bite you.' If they seem stuck or idle, throw out a quick idea to unstick them. If it's going well, hype them or crack a joke. One sentence, spoken.)",
-    "(You've been quietly reading along. Say something that makes them smile OR gives them a genuinely useful thought — a connection to something they did earlier, a better approach, or just a funny observation about the situation. One sentence, spoken, never generic.)",
+    "(Glance at what's on screen and say ONE genuinely useful thing — a bug you spot, a simpler approach, or a risk they haven't noticed. Be specific to what's actually on screen. One or two sentences of Markdown.)",
+    "(Check-in: look at what they're doing. If something's off, flag it clearly. If they seem stuck, suggest a concrete next step. One or two sentences of Markdown, no filler.)",
+    "(You've been reading along. Offer one sharp observation or connection to something earlier that helps them — a better pattern, an edge case, a gotcha. One or two sentences of Markdown, never generic.)",
   ];
 
   async function reactToNewAnswer() {
     if (reacting) return;
-    if (!(await canISpeak())) return; // another tab is the active speaker
+    if (!(await canISpeak())) return; // another tab is the active one
     reacting = true;
     orb.classList.add("roody-thinking");
     if (panel.style.display === "none") panel.style.display = "flex";
@@ -1009,27 +879,23 @@
     const thinking = addBubble("roody", "…");
     const ctx = recentTask();
     callRoody(REACTION_PROMPT, ctx, (t) => {
-      thinking.textContent = t;
+      fillBubble(thinking, t);
       orb.classList.remove("roody-thinking");
       reacting = false;
       lastReactTime = Date.now();
-    }, undefined, undefined, { skipHistory: true });
+    }, { skipHistory: true });
   }
 
-  // Proactive check-in: Roody glances at what you're doing and says something
-  // useful without being asked. Only fires when auto-chime is on, tab is visible,
-  // this tab is the leader, and the page has changed significantly.
   async function proactiveCheckIn() {
-    if (!autoChime || reacting || voiceOn) return;
+    if (!autoChime || reacting) return;
     if (Date.now() - lastReactTime < REACT_COOLDOWN_MS) return;
-    if (document.hidden) return; // don't speak from background tabs
-    // Require a meaningful change — 800 chars can differ by a cursor blink
+    if (document.hidden) return;
     const current = readPage().slice(-1200);
     if (!lastCacheSnapshot) { lastCacheSnapshot = current; return; }
     const diffLen = Math.abs(current.length - lastCacheSnapshot.length);
     const changedALot = diffLen > 200 || current.slice(-200) !== lastCacheSnapshot.slice(-200);
     if (!changedALot) return;
-    if (!(await canISpeak())) return; // another tab is the active speaker
+    if (!(await canISpeak())) return;
     lastCacheSnapshot = current;
 
     reacting = true;
@@ -1038,16 +904,15 @@
     const thinking = addBubble("roody", "…");
     const prompt = PROACTIVE_PROMPTS[Math.floor(Math.random() * PROACTIVE_PROMPTS.length)];
     callRoody(prompt, recentTask(), (t) => {
-      thinking.textContent = t;
+      fillBubble(thinking, t);
       orb.classList.remove("roody-thinking");
       reacting = false;
       lastReactTime = Date.now();
-    }, undefined, undefined, { skipHistory: true });
+    }, { skipHistory: true });
   }
 
   function onSettled() {
     if (!autoChime || reacting) return;
-    if (voiceOn) return;
     if (Date.now() - lastReactTime < REACT_COOLDOWN_MS) return;
     captureIncremental();
     const sig = readPage().slice(-600);
@@ -1066,498 +931,51 @@
       timer = setTimeout(onSettled, REACT_DEBOUNCE_MS);
     });
     obs.observe(main, { childList: true, subtree: true, characterData: true });
-
-    // Proactive check-in timer — Roody periodically glances at what you're
-    // doing and says something useful. Only when auto-chime is ON.
     setInterval(proactiveCheckIn, PROACTIVE_INTERVAL_MS);
   }
 
-  // ---- THE one switch: Voice ON / OFF -------------------------------------
-  // ON  = Roody talks first, listens always, you interrupt by talking.
-  // OFF = full silence, no listening, no talking.
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const toggleBtn = panel.querySelector("#roody-toggle");
-  const toggleIcon = panel.querySelector("#roody-toggle-icon");
-  const toggleLabel = panel.querySelector("#roody-toggle-label");
-  // micState is kept for orb/CSS hooks elsewhere; meanings here are advisory.
-  let micState = "idle";
-  function setMic(state) { micState = state; }
-  function setToggleVisual(on) {
-    toggleBtn.classList.toggle("on", on);
-    toggleIcon.textContent = on ? "🔴" : "🎙️";
-    toggleLabel.textContent = on ? "Voice ON — tap to stop" : "Voice OFF — tap to start";
-  }
-  setToggleVisual(false);
-
-  // ---- The voice loop -----------------------------------------------------
-  // Continuous SpeechRecognition. When ON, Roody listens; we PAUSE the mic
-  // while Roody speaks to kill self-echo. Toggle OFF cancels everything in
-  // flight via turnSession so late callbacks bail cleanly.
-  let voiceOn = false;
-  let sr = null;
-  let recentRoodyWords = ""; // for echo filter (second line of defense)
-  let isRoodySpeaking = false; // gates SR auto-restart
-  let turnSession = 0; // bumped on Voice OFF — late Claude/TTS replies bail
-  // Short interrupt words the user can say to CUT ROODY OFF while it's talking.
-  // Matches optional name prefix — "roody stop", "hey rudy wait", plus common
-  // speech-recognition mishearings of "Roody" (rory, ruby, rudi, woody, buddy).
-  const INTERRUPT_PATTERN = /^(hey |ok |okay )?(roody|rudy|rudi|rory|ruby|woody|buddy|rudey)?[\s,]*(stop|wait|pause|shush|hush|hold on|hang on|shut up|quiet|be quiet|silence|nope|no wait|cancel|nevermind|never mind|enough)[\s.,!?]*$/i;
-  // Full voice-off by voice: "roody go to sleep", "roody voice off", "bye roody".
-  const VOICE_OFF_PATTERN = /^(hey |ok |okay )?(roody|rudy|rudi|rory|ruby|woody|buddy|rudey)?[\s,]*(go to sleep|sleep now|turn off|voice off|power down|good ?night|goodbye|bye bye)[\s.,!?]*$/i;
-
-  let srLang = "en-US"; // updated from settings at boot + on change
-
-  function buildSR() {
-    if (!SR) { rlog("❌ SpeechRecognition unavailable in this browser"); return null; }
-    const r = new SR();
-    r.lang = srLang;
-    // continuous + interim = the recognition stays alive and streams partials,
-    // which is far more reliable than the stop-after-one-phrase mode that was
-    // silently dropping whole utterances.
-    r.continuous = true;
-    r.interimResults = true;
-    r.maxAlternatives = 1;
-    let gotResult = false;
-    r.onstart = () => {
-      rlog("🎤 SR start (listening)");
-      const h = document.getElementById("roody-hearing");
-      const ht = document.getElementById("roody-hearing-text");
-      if (h) { h.style.display = "block"; ht.textContent = "🎤 listening…"; }
-    };
-    r.onaudiostart = () => rlog("🎤 audio capture began");
-    r.onspeechstart = () => {
-      rlog("🎤 speech detected — you started talking");
-      const ht = document.getElementById("roody-hearing-text");
-      if (ht) ht.textContent = "🎤 hearing you…";
-    };
-    r.onspeechend = () => rlog("🎤 speech ended");
-    r.onresult = (e) => {
-      const hearingEl = document.getElementById("roody-hearing");
-      const hearingText = document.getElementById("roody-hearing-text");
-      // Walk results from resultIndex; show interims live, act on finals.
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const res = e.results[i];
-        const transcript = (res[0].transcript || "").trim();
-        if (!res.isFinal) {
-          if (transcript && hearingEl) {
-            hearingEl.style.display = "block";
-            hearingText.textContent = `🎤 hearing: "${transcript}"`;
-          }
-          // BARGE-IN: if Roody is speaking and user says a short interrupt
-          // word, cut Roody off immediately — don't wait for final transcript.
-          if (isRoodySpeaking && INTERRUPT_PATTERN.test(transcript)) {
-            rlog(`⚡ INTERRUPT detected: "${transcript}" — cutting Roody off`);
-            stopSpeaking();
-            if (hearingEl) hearingText.textContent = "⚡ stopped";
-            return;
-          }
-          continue;
-        }
-        const conf = (res[0].confidence || 0).toFixed(2);
-        if (!transcript) continue;
-        gotResult = true;
-        // Show final transcript briefly, then hide
-        if (hearingEl) {
-          hearingEl.style.display = "block";
-          hearingText.textContent = `✓ heard: "${transcript}"`;
-          setTimeout(() => { hearingEl.style.display = "none"; }, 3000);
-        }
-        rlog(`🎤 HEARD: "${transcript}" (conf=${conf})`);
-        onUserSpoke(transcript);
-        return;
-      }
-    };
-    r.onnomatch = () => rlog("🎤 no match — heard sound but couldn't make out words");
-    r.onerror = (e) => rlog(`⚠ SR error: ${e.error || "unknown"}`);
-    r.onend = () => {
-      const h = document.getElementById("roody-hearing");
-      const ht = document.getElementById("roody-hearing-text");
-      if (!gotResult) {
-        rlog("🎤 SR ended (no transcript — speech backend returned nothing)");
-        if (h) { h.style.display = "block"; ht.textContent = "🎤 didn't catch that — try again"; setTimeout(() => { h.style.display = "none"; }, 2500); }
-      } else {
-        rlog("🎤 SR ended");
-      }
-      // Keep the mic active even during Roody's speech so we can hear
-      // barge-in interrupts ("stop", "wait"). Echo cancellation + the
-      // INTERRUPT_PATTERN filter keep it from picking up Roody's own voice.
-      if (!voiceOn) return;
-      setTimeout(() => {
-        if (!voiceOn) return;
-        sr = buildSR();
-        try { sr && sr.start(); rlog("🎤 SR restart (fresh)"); }
-        catch (e) { rlog(`⚠ SR restart failed: ${e.message}`); }
-      }, 300);
-    };
-    return r;
-  }
-
-  function startListening() {
-    if (!voiceOn) return;
-    if (earsMode === "accurate") return recStartListening();
-    if (!sr) sr = buildSR();
-    if (!sr) {
-      addBubble("roody", "This browser can't listen hands-free — you can still type to me.");
-      voiceTurnOff();
-      return;
-    }
-    try { sr.start(); } catch (_) {}
-  }
-
-  function stopListening() {
-    recStopListening();
-    if (!sr) return;
-    try { sr.onend = null; sr.stop(); } catch (_) {}
-    sr = null;
-  }
-
-  // ---- Accurate ears (Whisper) ----------------------------------------------
-  // Instead of the browser's SpeechRecognition (instant but flaky with accents
-  // and multilingual speech), record the utterance with MediaRecorder, stop on
-  // ~1.5s of silence, and send the audio through the roody:stt route — Gemini
-  // on an own key, Whisper via the proxy when the server has an OpenAI key.
-  // Same loop the editor extension uses. Costs ~1s extra per turn; no interim
-  // transcripts, so voice barge-in doesn't work in this mode.
-  let earsMode = "browser"; // "browser" | "accurate" (roodyEars setting)
-  let recStream = null;
-  let recRecorder = null;
-  function hearingNote(text, hideAfterMs) {
-    const h = document.getElementById("roody-hearing");
-    const ht = document.getElementById("roody-hearing-text");
-    if (!h || !ht) return;
-    h.style.display = "block";
-    ht.textContent = text;
-    if (hideAfterMs) setTimeout(() => { h.style.display = "none"; }, hideAfterMs);
-  }
-  async function recStartListening() {
-    if (!voiceOn || recRecorder) return;
-    try {
-      recStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
-    } catch (e) {
-      rlog(`⚠ accurate ears: mic denied (${e.message}) — falling back to browser ears`);
-      earsMode = "browser";
-      startListening();
-      return;
-    }
-    const chunks = [];
-    recRecorder = new MediaRecorder(recStream, { mimeType: "audio/webm;codecs=opus" });
-    recRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-    recRecorder.onstop = async () => {
-      if (recStream) { recStream.getTracks().forEach((t) => t.stop()); recStream = null; }
-      recRecorder = null;
-      if (!voiceOn) return; // turned off mid-recording — discard
-      const blob = new Blob(chunks, { type: "audio/webm" });
-      if (blob.size < 4000) { // too tiny = silence → just listen again
-        if (voiceOn && !isRoodySpeaking) recStartListening();
-        return;
-      }
-      hearingNote("🎧 transcribing…");
-      try {
-        const wavB64 = await webmToWavB64(blob);
-        chrome.runtime.sendMessage(
-          { type: "roody:stt", payload: { audioBase64: wavB64, mime: "audio/wav" } },
-          (res) => {
-            if (chrome.runtime.lastError || !res || !res.ok) {
-              const why = (chrome.runtime.lastError && chrome.runtime.lastError.message) || (res && res.error) || "no response";
-              rlog(`⚠ accurate ears: STT failed (${String(why).slice(0, 200)})`);
-              hearingNote("🎧 didn't catch that — try again", 2500);
-              if (voiceOn && !isRoodySpeaking) recStartListening();
-              return;
-            }
-            const heard = (res.text || "").trim();
-            if (!heard) {
-              hearingNote("🎧 didn't catch that — try again", 2500);
-              if (voiceOn && !isRoodySpeaking) recStartListening();
-              return;
-            }
-            rlog(`🎧 HEARD (accurate): "${heard}"`);
-            hearingNote(`✓ heard: "${heard}"`, 3000);
-            onUserSpoke(heard);
-          }
-        );
-      } catch (e) {
-        rlog(`⚠ accurate ears: audio processing failed (${e.message})`);
-        if (voiceOn && !isRoodySpeaking) recStartListening();
-      }
-    };
-    recRecorder.start();
-    hearingNote("🎧 listening…");
-    rlog("🎧 accurate ears: recording");
-    recWatchSilence(recStream);
-  }
-  // Stop recording after: speech was heard, then ~1.5s of quiet. Max 15s.
-  function recWatchSilence(stream) {
-    const actx = new (window.AudioContext || window.webkitAudioContext)();
-    const src = actx.createMediaStreamSource(stream);
-    const analyser = actx.createAnalyser();
-    analyser.fftSize = 2048;
-    src.connect(analyser);
-    const buf = new Float32Array(analyser.fftSize);
-    let heardSpeech = false;
-    let quietSince = 0;
-    const startedAt = Date.now();
-    const tick = () => {
-      if (!recRecorder || recRecorder.state !== "recording") {
-        try { actx.close(); } catch (_) {}
-        return;
-      }
-      analyser.getFloatTimeDomainData(buf);
-      let rms = 0;
-      for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
-      rms = Math.sqrt(rms / buf.length);
-      const now = Date.now();
-      if (rms > 0.015) { heardSpeech = true; quietSince = 0; }
-      else if (heardSpeech && !quietSince) quietSince = now;
-      const longQuiet = heardSpeech && quietSince && now - quietSince > 1500;
-      const tooLong = now - startedAt > 15000;
-      if (longQuiet || tooLong) {
-        try { actx.close(); } catch (_) {}
-        try { recRecorder.stop(); } catch (_) {}
-        return;
-      }
-      requestAnimationFrame(tick);
-    };
-    tick();
-  }
-  function recStopListening() {
-    if (recRecorder && recRecorder.state === "recording") {
-      const r = recRecorder;
-      recRecorder = null; // onstop sees null → discards
-      try { r.onstop = null; r.stop(); } catch (_) {}
-    }
-    if (recStream) { recStream.getTracks().forEach((t) => t.stop()); recStream = null; }
-    recRecorder = null;
-  }
-  // Decode whatever MediaRecorder produced into mono 16-bit WAV base64 — the
-  // format both Gemini STT and Whisper reliably accept.
-  async function webmToWavB64(blob) {
-    const arrayBuf = await blob.arrayBuffer();
-    const actx = new (window.AudioContext || window.webkitAudioContext)();
-    const audio = await actx.decodeAudioData(arrayBuf);
-    const ch = audio.getChannelData(0); // mono
-    const rate = audio.sampleRate;
-    const pcm = new Uint8Array(ch.length * 2);
-    const view = new DataView(pcm.buffer);
-    for (let i = 0; i < ch.length; i++) {
-      const s = Math.max(-1, Math.min(1, ch[i]));
-      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-    }
-    try { actx.close(); } catch (_) {}
-    return blobToBase64(pcm16ToWav(pcm, rate));
-  }
-
-  // Cheap echo filter: was that 'user speech' actually Roody's voice echoing
-  // back through the speakers? If most of it appears in what Roody just said,
-  // skip it. Not perfect — true barge-in needs Deepgram + echo cancellation —
-  // but works well in normal use.
-  function isProbablyEcho(text) {
-    if (!recentRoodyWords) return false;
-    const t = (text || "").toLowerCase().trim();
-    if (t.length < 6) return false;
-    const haystack = recentRoodyWords.toLowerCase();
-    // If a 12-char chunk appears verbatim in Roody's recent speech → echo.
-    for (let i = 0; i + 12 <= t.length; i += 4) {
-      if (haystack.includes(t.slice(i, i + 12))) return true;
-    }
-    return false;
-  }
-
-  function onUserSpoke(rawText) {
-    const text = (rawText || "").trim();
-    if (!voiceOn) { rlog("…ignored (voiceOn=false)"); return; }
-    if (!text) { rlog("…ignored (empty)"); return; }
-    if (isProbablyEcho(text)) { rlog(`…ignored as ECHO of Roody's last reply: "${text}"`); return; }
-    // Full voice-off by voice — works any time, even mid-speech.
-    if (VOICE_OFF_PATTERN.test(text)) {
-      rlog(`😴 voice-off command: "${text}"`);
-      addBubble("roody", "😴 Going quiet — tap the mic when you want me back.");
-      voiceTurnOff();
-      return;
-    }
-    // If Roody is currently speaking, only interrupt-words are actioned
-    // (already handled at the interim level). Full sentences during Roody's
-    // turn are ignored so we don't queue up a new brain call while the old
-    // one is playing.
-    if (isRoodySpeaking && !INTERRUPT_PATTERN.test(text)) {
-      rlog(`…ignored (Roody is speaking, not an interrupt word): "${text}"`);
-      return;
-    }
-    rlog(`→ sending to brain: "${text}"`);
-    rememberPage(); // engagement: user spoke to Roody on this page
-    stopListening();
-    stopSpeaking();
-    addBubble("you", text);
-    const thinking = addBubble("roody", "…");
-    setMic("thinking");
-    const sentAt = performance.now();
-    const mySession = turnSession;
-    isRoodySpeaking = true; // claim the speaking lane immediately
-    callRoody(
-      text,
-      recentTask(),
-      (t) => {
-        if (mySession !== turnSession) { rlog("…dropped reply (Voice was turned OFF)"); return; }
-        const ms = Math.round(performance.now() - sentAt);
-        rlog(`🧠 brain replied in ${ms}ms (${t.length} chars)`);
-        thinking.textContent = t;
-        recentRoodyWords = t;
-      },
-      () => {
-        // This fires after Roody finishes speaking the reply (or fails to).
-        isRoodySpeaking = false;
-        if (mySession !== turnSession) { rlog("…suppressed listen-resume (Voice OFF)"); return; }
-        rlog("🔊 Roody finished speaking → resume listening");
-        setMic("idle");
-        if (voiceOn) startListening();
-      },
-      "voice" // speed-tuned: no web search, short reply, trimmed history
-    );
-  }
-
-  async function voiceTurnOn() {
-    if (voiceOn) return;
-    if (!SR && earsMode !== "accurate") {
-      rlog("❌ Can't turn voice on — no SpeechRecognition support");
-      addBubble("roody", "This browser can't do hands-free voice — try Chrome. You can still type to me.");
-      return;
-    }
-    rlog("===== VOICE ON =====");
-    voiceOn = true;
-    setToggleVisual(true);
-    if (panel.style.display === "none") panel.style.display = "flex";
-
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
-      s.getTracks().forEach((t) => t.stop());
-      rlog("✓ mic permission OK (echo-cancellation on)");
-    } catch (e) { rlog(`⚠ mic permission: ${e.message}`); }
-
-    // If Roody already greeted from the orb-open, DON'T greet again — just
-    // start listening straight away. This was the double-opener bug that made
-    // two API calls fire and the second TTS 500.
-    if (openerSent) {
-      rlog("⤳ Roody already greeted — starting to listen straight away");
-      startListening();
-      return;
-    }
-
-    // First-ever greeting: Roody opens the conversation, then listens after.
-    openerSent = true;
-    const mySession = turnSession;
-    isRoodySpeaking = true;
-    const thinking = addBubble("roody", "…");
-    callRoody(
-      OPENER_PROMPT,
-      recentTask() || "(nothing visible yet)",
-      (t) => {
-        if (mySession !== turnSession) return;
-        thinking.textContent = t;
-        recentRoodyWords = t;
-      },
-      () => {
-        isRoodySpeaking = false;
-        if (mySession !== turnSession) return;
-        if (voiceOn) startListening();
-      },
-      "voice"
-    );
-  }
-
-  function voiceTurnOff() {
-    rlog("===== VOICE OFF =====");
-    voiceOn = false;
-    turnSession++; // any in-flight Claude/TTS callbacks will now bail
-    isRoodySpeaking = false;
-    reacting = false; // release the reaction lock too
-    setToggleVisual(false);
-    stopSpeaking();
-    stopListening();
-    setMic("idle");
-    releaseLeadership(); // let other tabs take over
-    maybeRecap(); // conversation over → remember what we did
-    const h = document.getElementById("roody-hearing");
-    if (h) h.style.display = "none";
-  }
-
-  // Debounce the toggle so rapid clicks can't double-fire voiceTurnOn while
-  // the previous one is still awaiting getUserMedia — that's the "loop" bug.
-  let toggleLock = false;
-  toggleBtn.addEventListener("click", async () => {
-    if (toggleLock) return;
-    toggleLock = true;
-    try {
-      if (voiceOn) voiceTurnOff();
-      else await voiceTurnOn();
-    } finally {
-      setTimeout(() => { toggleLock = false; }, 500);
-    }
-  });
-
-  // Keep the legacy stopEverything callable for other paths (auto-chime, etc.)
-  function stopEverything() {
-    stopSpeaking();
-    if (voiceOn) voiceTurnOff();
-    setMic("idle");
-  }
-
-  // Page became sensitive mid-session (login/checkout appeared) — Roody
-  // packs up and leaves: voice off, mic off, UI hidden, one-line explanation.
+  // Page became sensitive mid-session (login/checkout appeared) — Roody packs
+  // up and leaves: UI hidden, one-line explanation.
   let sensitiveTripped = false;
   function tripSensitive() {
     if (sensitiveTripped) return;
     sensitiveTripped = true;
     rlog("🙈 sensitive fields appeared — Roody disabling on this page");
-    try { stopEverything(); } catch (_) {}
     orb.style.display = "none";
     panel.style.display = "none";
     refusalToast();
   }
 
-  // ---- Daily rituals (the Hook loop) ----------------------------------------
-  // Morning hello: first browser-open of the day, Roody greets you with one
-  // line referencing yesterday's notebook. Found-something: returning to a
-  // site you've worked on before, Roody SOMETIMES (30%) has an observation
-  // waiting — the variable reward. Both are text bubbles (autoplay rules
-  // block audio before the user interacts with the page).
-  const MORNING_PROMPT =
-    "(First time the user opened their browser today. Greet them like a best friend starting the day — ONE warm short line that references what they were working on recently (check your notebook). Like 'Morning! Still fighting that visa form?' Then stop. Max two sentences.)";
+  // ---- Daily rituals --------------------------------------------------------
+  // Returning to a page you've worked on before, Roody SOMETIMES (30%) has an
+  // observation waiting. Text-only.
   const FOUND_PROMPT =
-    "(The user just came back to a page they've worked on before. You were 'reading while they were away' — give ONE genuinely useful or interesting observation about what's on the page, casually. If something looks off, flag it. Max two sentences.)";
+    "(The user just came back to a page they've worked on before. Give ONE genuinely useful or interesting observation about what's on the page — if something looks off, flag it. One or two sentences of Markdown.)";
+  const MORNING_PROMPT =
+    "(First time the user opened their browser today. Greet them in one short line that references what they were working on recently — check your notebook — then offer to pick it back up. Max two sentences of Markdown.)";
 
   async function dailyRituals() {
     try {
-      // In click-to-summon mode the summon greeting already served as the
-      // hello — skip rituals to avoid double greetings and double API calls.
-      // (Kept for a future auto-appear mode.)
       if (openerSent) return;
       if (document.hidden) return;
-      if (orb.style.display === "none") return; // Roody is disabled
+      if (orb.style.display === "none") return;
       const today = new Date().toISOString().slice(0, 10);
       const { roodyLastHello, roodyMemory, roodyLastFound } = await chrome.storage.local.get([
         "roodyLastHello", "roodyMemory", "roodyLastFound",
       ]);
       const mem = Array.isArray(roodyMemory) ? roodyMemory : [];
 
-      // Morning hello — once per day, only if there's a notebook to reference.
       if (roodyLastHello !== today && mem.length > 0) {
         if (!(await canISpeak())) return;
         await chrome.storage.local.set({ roodyLastHello: today });
         rlog("🌅 morning hello");
-        openerSent = true; // counts as the greeting — no double-opener later
+        openerSent = true;
         panel.style.display = "flex";
         const thinking = addBubble("roody", "…");
-        callRoody(MORNING_PROMPT, recentTask() || "(nothing on screen yet)", (t) => {
-          thinking.textContent = t;
-        }, undefined, undefined, { skipHistory: true, noSpeak: true });
+        callRoody(MORNING_PROMPT, recentTask() || "(nothing on screen yet)", (t) => fillBubble(thinking, t), { skipHistory: true });
         return;
       }
 
-      // Found-something — returning to a site you've engaged Roody on before.
-      // SOMETIMES (30%), max once an hour. Variability is the point.
       if (mem.some((m) => m.site === location.hostname) && Math.random() < 0.3) {
         const now = Date.now();
         if (roodyLastFound && now - roodyLastFound < 3600000) return;
@@ -1566,67 +984,33 @@
         rlog("👀 found-something moment");
         panel.style.display = "flex";
         const thinking = addBubble("roody", "…");
-        callRoody(FOUND_PROMPT, recentTask() || "(nothing on screen yet)", (t) => {
-          thinking.textContent = t;
-        }, undefined, undefined, { skipHistory: true, noSpeak: true });
+        callRoody(FOUND_PROMPT, recentTask() || "(nothing on screen yet)", (t) => fillBubble(thinking, t), { skipHistory: true });
       }
     } catch (e) { rlog(`⚠ rituals: ${e.message}`); }
   }
 
   // ---- Boot -----------------------------------------------------------------
   chrome.storage.local
-    .get(["roodyAutoChime", "roodyGeminiKey", "roodyElevenKey", "roodyInviteCode", "roodyEnabled", "roodyLang", "roodyEars"])
+    .get(["roodyAutoChime", "roodyEnabled"])
     .then((s) => {
       if (typeof s.roodyAutoChime === "boolean") autoChime = s.roodyAutoChime;
-      if (s.roodyLang) srLang = s.roodyLang;
-      if (s.roodyEars === "accurate") earsMode = "accurate";
-      geminiVoice = !!(s.roodyElevenKey || s.roodyGeminiKey || s.roodyInviteCode);
       applyEnabled(s.roodyEnabled !== false); // default on
-    // Don't react to whatever is already on the page when we load —
-    // only to answers that appear from now on.
-    lastAnswerSig = readPage().slice(-600);
-    startWatching();
-    // The user just SUMMONED Roody (clicked the toolbar icon) — open the
-    // panel and greet right away. That click IS the invitation.
-    if (!openerSent) {
-      openerSent = true;
-      panel.style.display = "flex";
-      openingHello();
-    }
-    // Rituals only matter for long-lived pages after the greeting.
-    setTimeout(dailyRituals, 6000);
+      lastAnswerSig = readPage().slice(-600);
+      startWatching();
+      // The user just SUMMONED Roody — open the panel and greet right away.
+      if (!openerSent) {
+        openerSent = true;
+        panel.style.display = "flex";
+        openingHello();
+      }
+      setTimeout(dailyRituals, 6000);
 
-    // React to the master switch flipping in settings without a refresh.
-    // Also live-update the warm-voice flag when either TTS key is added/cleared
-    // — otherwise pages opened BEFORE the key was set stay stuck on robotic
-    // voice forever (the boot-time read of geminiVoice never re-runs).
-    chrome.storage.onChanged.addListener((changes) => {
-      if (changes.roodyEnabled) applyEnabled(changes.roodyEnabled.newValue !== false);
-      if (changes.roodyElevenKey || changes.roodyGeminiKey || changes.roodyInviteCode) {
-        chrome.storage.local
-          .get(["roodyElevenKey", "roodyGeminiKey", "roodyInviteCode"])
-          .then(({ roodyElevenKey, roodyGeminiKey, roodyInviteCode }) => {
-            const before = geminiVoice;
-            geminiVoice = !!(roodyElevenKey || roodyGeminiKey || roodyInviteCode);
-            ttsWarned = false; // let the next failure re-surface, if any
-            if (before !== geminiVoice) {
-              rlog(`🔈 warm voice ${geminiVoice ? "ENABLED" : "DISABLED"} (key change picked up live)`);
-            }
-          });
-      }
-      if (changes.roodyLang) {
-        srLang = changes.roodyLang.newValue || "en-US";
-        rlog(`🌍 language changed to ${srLang}`);
-      }
-      if (changes.roodyAutoChime) {
-        autoChime = changes.roodyAutoChime.newValue === true;
-        rlog(`🔔 auto-chime ${autoChime ? "ON" : "OFF"} (picked up live)`);
-      }
-      if (changes.roodyEars) {
-        earsMode = changes.roodyEars.newValue === "accurate" ? "accurate" : "browser";
-        rlog(`👂 ears mode: ${earsMode} (picked up live)`);
-        if (voiceOn) { stopListening(); startListening(); }
-      }
-    });
-  }).catch((e) => { rlog(`⚠ boot failed: ${e.message}`); });
+      chrome.storage.onChanged.addListener((changes) => {
+        if (changes.roodyEnabled) applyEnabled(changes.roodyEnabled.newValue !== false);
+        if (changes.roodyAutoChime) {
+          autoChime = changes.roodyAutoChime.newValue === true;
+          rlog(`🔔 auto-suggest ${autoChime ? "ON" : "OFF"} (picked up live)`);
+        }
+      });
+    }).catch((e) => { rlog(`⚠ boot failed: ${e.message}`); });
 })();

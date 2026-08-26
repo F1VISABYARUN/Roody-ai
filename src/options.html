@@ -4,31 +4,45 @@
     <meta charset="utf-8" />
     <title>Roody — settings</title>
     <style>
+      :root {
+        --bg: #12141c;
+        --panel: #1a1d27;
+        --panel2: #20242f;
+        --text: #e8ebf2;
+        --muted: #9aa3b2;
+        --accent: #7c9bff;
+        --accent-strong: #6a86ff;
+        --border: rgba(255, 255, 255, 0.1);
+        --ok: #7ee0a8;
+      }
       body {
-        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-        background: #fffaf3;
-        color: #3a2c1e;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--text);
         max-width: 560px;
         margin: 30px auto;
         padding: 0 22px 60px;
         line-height: 1.5;
       }
-      h1 { color: #e98a3c; margin-bottom: 4px; }
-      h2 { color: #6b4a2b; font-size: 16px; margin-top: 28px; border-bottom: 1px solid #f0e2cf; padding-bottom: 6px; }
-      .sub { color: #8a7560; margin-top: 0; }
+      h1 { color: var(--accent); margin-bottom: 4px; }
+      h2 { color: var(--text); font-size: 16px; margin-top: 28px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+      .sub { color: var(--muted); margin-top: 0; }
       label { display: block; font-weight: 600; margin: 14px 0 6px; }
-      input, select {
+      input, select, textarea {
         width: 100%;
         padding: 10px;
-        border: 1px solid #e7d4ba;
+        border: 1px solid var(--border);
         border-radius: 10px;
         font-size: 14px;
         box-sizing: border-box;
+        background: var(--panel2);
+        color: var(--text);
       }
+      input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
       .row { display: flex; gap: 8px; align-items: stretch; }
       .row input { flex: 1; }
       button {
-        background: #e98a3c;
+        background: var(--accent-strong);
         color: #fff;
         border: none;
         border-radius: 10px;
@@ -37,69 +51,65 @@
         font-weight: 600;
         cursor: pointer;
       }
-      button.ghost { background: #fff; color: #b03a2e; border: 1px solid #f3d2cf; }
+      button:hover { background: var(--accent); }
+      button.ghost { background: transparent; color: #ff9b9b; border: 1px solid rgba(255, 120, 120, 0.35); }
       button.small { padding: 8px 12px; font-size: 13px; }
       .note {
-        background: #fbe9d6;
+        background: var(--panel);
+        border: 1px solid var(--border);
         border-radius: 10px;
         padding: 12px 14px;
         font-size: 13px;
         margin-top: 14px;
       }
-      .ok { background: #eaf3e6; }
-      .warn { background: #fff1d6; border-left: 4px solid #e98a3c; }
-      .stat { color: #4a8a3c; font-weight: 600; }
-      a { color: #e98a3c; }
+      .ok { border-color: rgba(126, 224, 168, 0.3); }
+      .warn { border-left: 4px solid var(--accent); }
+      .stat { color: var(--ok); font-weight: 600; }
+      a { color: var(--accent); }
       .toggle {
         display: flex;
         align-items: center;
         gap: 10px;
         font-weight: 700;
         font-size: 15px;
-        background: #fbe9d6;
+        background: var(--panel);
+        border: 1px solid var(--border);
         padding: 12px;
         border-radius: 10px;
         margin-top: 14px;
       }
       .toggle input { width: auto; transform: scale(1.3); }
-      .keystatus { font-size: 12px; color: #8a7560; margin: 4px 0 0; }
-      .keystatus.has { color: #4a8a3c; }
-      details.adv { margin-top: 34px; border-top: 2px dashed #f0e2cf; padding-top: 14px; }
+      .keystatus { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
+      .keystatus.has { color: var(--ok); }
+      details.adv { margin-top: 34px; border-top: 2px dashed var(--border); padding-top: 14px; }
       details.adv > summary {
-        cursor: pointer; font-weight: 700; color: #8a7560; font-size: 14px;
+        cursor: pointer; font-weight: 700; color: var(--muted); font-size: 14px;
         list-style: none; user-select: none;
       }
       details.adv > summary::before { content: "▸ "; }
       details.adv[open] > summary::before { content: "▾ "; }
-      .cards2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
-      @media (max-width: 520px) { .cards2 { grid-template-columns: 1fr; } }
       .pcard {
-        background: #fff; border: 1.5px solid #f0e2cf; border-radius: 16px;
-        padding: 16px; display: flex; flex-direction: column; gap: 8px;
+        background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+        padding: 16px; display: flex; flex-direction: column; gap: 8px; margin-top: 12px;
       }
-      .pcard.hot { border-color: #e98a3c; box-shadow: 0 2px 12px rgba(233,138,60,.12); }
-      .pcard h3 { margin: 0; font-size: 15px; color: #3a2c1e; }
-      .pcard .tag {
-        align-self: flex-start; font-size: 11px; font-weight: 700; color: #fff;
-        background: #e98a3c; border-radius: 20px; padding: 2px 10px;
-      }
-      .pcard .tag.alt { background: #6a8560; }
-      .pcard p { margin: 0; font-size: 12.5px; color: #8a7560; }
+      .pcard.hot { border-color: var(--accent); box-shadow: 0 2px 16px rgba(124, 155, 255, 0.14); }
+      .pcard p { margin: 0; font-size: 12.5px; color: var(--muted); }
       .getkey {
-        display: inline-block; font-size: 12.5px; font-weight: 700; color: #e98a3c;
-        text-decoration: none; border: 1.5px solid #f3ddc4; border-radius: 10px;
+        display: inline-block; font-size: 12.5px; font-weight: 700; color: var(--accent);
+        text-decoration: none; border: 1px solid var(--border); border-radius: 10px;
         padding: 7px 12px; text-align: center;
       }
-      .getkey:hover { background: #fff3e4; }
+      .getkey:hover { background: rgba(124, 155, 255, 0.12); }
+      code { background: var(--panel2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; font-size: 12.5px; }
     </style>
   </head>
   <body>
-    <h1>Roody 🟠</h1>
-    <p class="sub">Your AI voice companion — click the Roody icon on any page to summon it.</p>
+    <h1>Roody &lt;/&gt;</h1>
+    <p class="sub">Your AI coding assistant — click the Roody icon on any page to summon it. It reads the page (and your screen), answers questions, and writes code in the chat.</p>
 
     <label class="toggle">
       <input id="enabled" type="checkbox" checked />
-      🟠 Roody is ON (uncheck to hide the orb everywhere)
+      Roody is ON (uncheck to hide the orb everywhere)
     </label>
 
     <!-- ═══════════ SIMPLE VIEW — this is all a normal user needs ═══════════ -->
@@ -108,34 +118,32 @@
     <h2>🔑 Power Roody</h2>
     <div class="pcard hot">
       <h3>🎟 Invite code</h3>
-      <p>Paste the code you got from the Roody team — brain and voice are on us. Free daily messages, refills every morning.</p>
+      <p>Paste the code you got from the Roody team — the model is on us. Free daily messages, refills every morning.</p>
       <div class="row">
         <input id="invitecode" type="text" placeholder="ROODY-XXXXXXXX" autocomplete="off" />
         <button id="clearinvite" class="ghost small" title="Remove code">✕</button>
       </div>
       <p id="invitestatus" class="keystatus" style="margin:0"></p>
     </div>
-    <div id="usagebox" style="display:none;background:#fff;border:1.5px solid #f0e2cf;border-radius:16px;padding:14px 16px;margin-top:12px">
+    <div id="usagebox" style="display:none;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:14px 16px;margin-top:12px">
       <div id="usagehello" style="font-weight:700;margin-bottom:6px"></div>
-      <div style="background:#f0e2cf;border-radius:8px;height:12px;overflow:hidden">
-        <div id="usagefill" style="background:linear-gradient(90deg,#ffb26b,#e98a3c);height:100%;width:0%;transition:width .4s"></div>
+      <div style="background:var(--panel2);border-radius:8px;height:12px;overflow:hidden">
+        <div id="usagefill" style="background:linear-gradient(90deg,#7c9bff,#6a86ff);height:100%;width:0%;transition:width .4s"></div>
       </div>
-      <div id="usagetext" style="font-size:12px;color:#8a7560;margin-top:6px"></div>
+      <div id="usagetext" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
     </div>
 
     <!-- ABOUT ME -->
     <h2>👤 About You</h2>
-    <p style="font-size:13px;color:#8a7560;margin:0 0 8px">Tell Roody your name and what you're up to — it remembers you on every page. Example: <em>"I'm Priya, studying for GATE, I speak English and Telugu."</em></p>
-    <textarea id="profile" rows="3" placeholder="Hi Roody, I'm…" style="width:100%;padding:10px;border:1px solid #e7d4ba;border-radius:10px;font-size:14px;box-sizing:border-box;font-family:inherit;resize:vertical;" maxlength="500"></textarea>
-    <div style="font-size:12px;color:#8a7560;margin-top:4px"><span id="profilecount">0</span>/500 · saves automatically</div>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 8px">Tell Roody what you're working on and your stack — it remembers you on every page. Example: <em>"I'm building a React + TypeScript app, prefer functional components, and I'm learning Rust."</em></p>
+    <textarea id="profile" rows="3" placeholder="Hi Roody, I'm…" maxlength="500"></textarea>
+    <div style="font-size:12px;color:var(--muted);margin-top:4px"><span id="profilecount">0</span>/500 · saves automatically</div>
 
     <!-- PERSONALIZE -->
     <h2>🎨 Personalize</h2>
-    <label for="lang">🌍 Language (you speak, Roody replies)</label>
+    <label for="lang">🌍 Reply language <span style="font-weight:400;color:var(--muted)">(Roody answers in this language)</span></label>
     <select id="lang">
-      <option value="en-US">English (US)</option>
-      <option value="en-GB">English (UK)</option>
-      <option value="en-IN">English (India)</option>
+      <option value="en-US">English</option>
       <option value="te-IN">తెలుగు (Telugu)</option>
       <option value="hi-IN">हिन्दी (Hindi)</option>
       <option value="ta-IN">தமிழ் (Tamil)</option>
@@ -149,54 +157,17 @@
       <option value="zh-CN">中文 (Chinese)</option>
     </select>
 
-    <label for="ears">👂 Roody's ears (how it hears you)</label>
-    <select id="ears">
-      <option value="browser">Instant — browser mic (default, fastest)</option>
-      <option value="accurate">Accurate — better with accents &amp; Telugu (adds ~1s)</option>
-    </select>
-
-    <label for="voice">🗣 Roody's voice</label>
-    <select id="voice">
-      <option value="Kore">Kore — calm &amp; firm ⭐ (recommended)</option>
-      <option value="Aoede">Aoede — breezy &amp; light</option>
-      <option value="Leda">Leda — youthful &amp; warm</option>
-      <option value="Zephyr">Zephyr — bright</option>
-      <option value="Callirrhoe">Callirrhoe — easy-going</option>
-      <option value="Autonoe">Autonoe — bright &amp; energetic</option>
-      <option value="Despina">Despina — smooth</option>
-      <option value="Erinome">Erinome — clear</option>
-      <option value="Laomedeia">Laomedeia — upbeat</option>
-      <option value="Achernar">Achernar — soft &amp; gentle</option>
-      <option value="Vindemiatrix">Vindemiatrix — gentle</option>
-      <option value="Sulafat">Sulafat — warm</option>
-    </select>
-
-    <label for="vibe">🎭 Character sidekick <span style="font-weight:400;color:#8a7560">(jumps in every few replies)</span></label>
-    <select id="vibe">
-      <option value="normal">None — just Roody, no sidekick</option>
-      <option value="minion">🍌 Minion — banana chaos, confused by everything</option>
-      <option value="roadrunner">🏃 Road Runner — meep meep! zooms through everything</option>
-      <option value="coyote">💣 Wile E. Coyote — elaborate plans that always backfire</option>
-      <option value="pinkpanther">🩷 Pink Panther — smooth, sneaky, cool jazzy energy</option>
-      <option value="woody">🤠 Woody — "there's a snake in my boot!" loyal cowboy leader</option>
-      <option value="rapunzel">👸 Rapunzel — adventurous optimist, everything is magical</option>
-      <option value="snowwhite">🍎 Snow White — sings to the birds, sweet and kind</option>
-      <option value="tom">🐱 Tom Cat — scheming, chasing, always crashing into things</option>
-      <option value="jerry">🐭 Jerry Mouse — clever, sneaky, always outsmarting everyone</option>
-    </select>
-    <p id="vibepreview" style="font-size:12px;color:#8a7560;margin:6px 0 0;font-style:italic"></p>
-
     <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:14px">
       <input id="autochime" type="checkbox" style="width:auto" />
-      💬 Let Roody speak up on its own sometimes
-      <span style="font-weight:400;color:#8a7560">(off by default)</span>
+      💬 Let Roody offer suggestions on its own sometimes
+      <span style="font-weight:400;color:var(--muted)">(off by default)</span>
     </label>
 
     <!-- HISTORY -->
     <h2>📓 You &amp; Roody</h2>
-    <div id="talkstats" style="font-size:15px;color:#e98a3c;font-weight:700;margin:0 0 6px"></div>
-    <p style="font-size:13px;color:#8a7560;margin:0 0 8px">Pages you've talked about together — this is Roody's memory of your time together. It lives only on this computer.</p>
-    <div id="memorybox" style="background:#fff;border:1px solid #e7d4ba;border-radius:10px;padding:10px;font-size:13px;max-height:200px;overflow-y:auto;color:#3a2c1e"></div>
+    <div id="talkstats" style="font-size:15px;color:var(--accent);font-weight:700;margin:0 0 6px"></div>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 8px">Pages you've worked on together — Roody's memory of your sessions. It lives only on this computer.</p>
+    <div id="memorybox" style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px;font-size:13px;max-height:200px;overflow-y:auto;color:var(--text)"></div>
     <div style="margin-top:8px"><button id="clearmem" class="ghost small">🗑 Erase my history</button></div>
 
     <!-- ═══════════ DEV PANEL — hidden entirely. Founder opens the options
@@ -206,7 +177,7 @@
 
       <h2>🆓 Your own Google key</h2>
       <div class="pcard">
-        <p>Free Gemini API key from Google — unlimited daily use on Google's free tier, no invite code needed.</p>
+        <p>Free Gemini API key from Google — unlimited daily use on Google's free tier, no invite code needed. Gemini is multimodal, so screenshots work on this key.</p>
         <a class="getkey" href="https://aistudio.google.com/apikey" target="_blank">Get my free key ↗</a>
         <div class="row">
           <input id="gkey" type="password" placeholder="AIza..." />
@@ -221,90 +192,50 @@
         <div class="note" style="margin-top:10px">
           <div style="display:flex; gap:8px; margin-bottom:8px">
             <button id="reflog" class="small">↻ Refresh</button>
-            <button id="copylog" class="small" style="background:#6b4a2b">📋 Copy</button>
+            <button id="copylog" class="small">📋 Copy</button>
             <button id="clearlog" class="ghost small">Clear</button>
             <label style="margin:0 0 0 auto; font-weight:400; font-size:12px; display:flex; align-items:center; gap:6px">
               <input id="autorefresh" type="checkbox" style="width:auto" checked /> auto-refresh
             </label>
           </div>
-          <textarea id="logbox" readonly style="width:100%;height:200px;font-family:ui-monospace,Menlo,monospace;font-size:12px;border:1px solid #e7d4ba;border-radius:8px;padding:8px;background:#fff7ec;color:#3a2c1e;white-space:pre;overflow:auto"></textarea>
+          <textarea id="logbox" readonly style="width:100%;height:200px;font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:pre;overflow:auto"></textarea>
         </div>
       </details>
 
       <h2>🧠 Brain (the thinking)</h2>
       <label for="model">Which brain?</label>
       <select id="model">
-        <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash — default, cheap &amp; good ⭐</option>
-        <option value="claude-sonnet-4-6">Claude Sonnet 4.6 — sharpest, warm</option>
+        <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash — default, cheap &amp; multimodal ⭐</option>
+        <option value="claude-sonnet-4-6">Claude Sonnet 4.6 — sharpest, multimodal</option>
         <option value="claude-haiku-4-5">Claude Haiku 4.5 — fast &amp; cheap Claude</option>
         <option value="claude-opus-4-8">Claude Opus 4.8 — heaviest reasoning, costs more</option>
-        <option value="grok-3-mini-fast">Grok 3 Mini Fast — funny, edgy, fast</option>
-        <option value="grok-3-mini">Grok 3 Mini — funnier, deeper thinking</option>
-        <option value="grok-3">Grok 3 — full Grok, sharpest xAI brain</option>
+        <option value="grok-3-mini-fast">Grok 3 Mini Fast — fast (text only)</option>
+        <option value="grok-3-mini">Grok 3 Mini — deeper thinking (text only)</option>
+        <option value="grok-3">Grok 3 — full Grok (text only)</option>
       </select>
-      <p style="font-size:12px;color:#8a7560;margin:4px 0 0">With only an invite code, Roody uses Gemini regardless — the brain picker applies when you bring your own keys below.</p>
+      <p style="font-size:12px;color:var(--muted);margin:4px 0 0">With only an invite code, Roody uses Gemini regardless — the brain picker applies when you bring your own keys below. Screenshots need a multimodal brain (Gemini or Claude); a Grok turn with a screenshot is routed to Gemini vision automatically.</p>
 
-      <label for="key">Anthropic API key <span style="font-weight:400;color:#8a7560">(for Claude brains)</span></label>
+      <label for="key">Anthropic API key <span style="font-weight:400;color:var(--muted)">(for Claude brains)</span></label>
       <div class="row">
         <input id="key" type="password" placeholder="sk-ant-..." />
         <button id="clearkey" class="ghost small" title="Remove this key">✕</button>
       </div>
       <p id="keystatus" class="keystatus"></p>
 
-      <label for="xkey">xAI (Grok) API key <span style="font-weight:400;color:#8a7560">(for Grok brains — console.x.ai)</span></label>
+      <label for="xkey">xAI (Grok) API key <span style="font-weight:400;color:var(--muted)">(for Grok brains — console.x.ai)</span></label>
       <div class="row">
         <input id="xkey" type="password" placeholder="xai-..." />
         <button id="clearx" class="ghost small" title="Remove this key">✕</button>
       </div>
       <p id="xstatus" class="keystatus"></p>
 
-      <h2>🎙️ Premium voice (ElevenLabs)</h2>
-      <div class="note ok" style="margin-bottom:8px">
-        Optional: an ElevenLabs key (10k chars/month free at <a href="https://elevenlabs.io" target="_blank">elevenlabs.io</a>)
-        gives a sub-second, indistinguishable-from-human voice. If set, Roody
-        prefers it and falls back to Gemini TTS.
-      </div>
-      <label for="ekey">ElevenLabs API key</label>
-      <div class="row">
-        <input id="ekey" type="password" placeholder="sk_..." />
-        <button id="cleare" class="ghost small" title="Remove this key">✕</button>
-      </div>
-      <p id="estatus" class="keystatus"></p>
-
-      <label for="evoice">ElevenLabs voice</label>
-      <select id="evoice">
-        <option value="21m00Tcm4TlvDq8ikWAM">Rachel — calm, warm ⭐ (paid plan only)</option>
-        <option value="EXAVITQu4vr4xnSDxMaL">Sarah — soft, friendly (paid plan only)</option>
-        <option value="AZnzlk1XvdvUeBnXmlld">Domi — strong, confident (paid plan only)</option>
-        <option value="MF3mGyEYCl7XYWbV9V6O">Elli — youthful, bright (paid plan only)</option>
-        <option value="XB0fDUnXU5powFXDhCwa">Charlotte — gentle, expressive (paid plan only)</option>
-        <option value="9BWtsMINqrJLrRacOk9x">Aria — natural, conversational (paid plan only)</option>
-        <option value="custom">Other → paste a custom voice ID below</option>
-      </select>
-      <input id="evoicecustom" type="text" placeholder="Custom voice ID (only if 'Other' selected)" style="margin-top:6px" />
-      <div style="display:flex; gap:8px; margin-top:8px; align-items:center; flex-wrap:wrap">
-        <button id="evoicefetch" class="small">↻ Load voices my key can use</button>
-        <button id="evoicepreview" class="small" style="background:#6b4a2b">🔊 Preview this voice</button>
-        <span id="evoicefetchstatus" style="font-size:12px;color:#8a7560"></span>
-      </div>
-      <div class="note warn" style="margin-top:6px; font-size:12px">
-        <strong>Free ElevenLabs plan?</strong> The library voices above only work
-        via API on paid plans — click "Load voices my key can use" to pick from
-        the voices your account can actually use.
-      </div>
-
       <h2>⚙️ Behavior</h2>
       <label style="display:flex;align-items:center;gap:8px;font-weight:600">
         <input id="websearch" type="checkbox" style="width:auto" checked />
-        🌐 Let Roody look things up on the web (own Claude key, text mode only)
-      </label>
-      <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-top:10px">
-        <input id="cheapvoice" type="checkbox" style="width:auto" checked />
-        💸 Use the cheap brain for voice mode
-        <span style="font-weight:400;color:#8a7560">(3× cheaper, plenty smart for short spoken replies)</span>
+        🌐 Let Roody look things up on the web (own Claude key only)
       </label>
 
-      <label style="margin-top:14px">Proxy URL override <span style="font-weight:400;color:#8a7560">(where invite-code requests go — leave empty for default)</span></label>
+      <label style="margin-top:14px">Proxy URL override <span style="font-weight:400;color:var(--muted)">(where invite-code requests go — leave empty for default)</span></label>
       <input id="proxyurl" type="text" placeholder="https://…" style="font-size:12px" />
 
       <h2>💰 Spend (only your own keys — invite-code usage costs you nothing)</h2>
@@ -312,13 +243,12 @@
         <strong>Estimated total spend:</strong>
         <div style="font-size:18px;font-weight:700;margin-top:6px">
           <span id="spendusd">$0.0000</span>
-          <span style="color:#6a8560">·</span>
+          <span style="color:var(--muted)">·</span>
           <span id="spendinr">₹0.00</span>
         </div>
-        <div id="spendcalls" style="color:#6a8560;font-size:13px;margin-top:2px"></div>
-        <div id="elevencredits" style="color:#6a8560;font-size:13px;margin-top:2px"></div>
-        <div style="font-size:11px;color:#8a7560;margin-top:6px">INR at ~₹85/$1 (approximate). ElevenLabs free tier = credits, not money.</div>
-        <button id="resetspend" class="small" style="margin-top:8px;background:#8a7560">Reset counter</button>
+        <div id="spendcalls" style="color:var(--muted);font-size:13px;margin-top:2px"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">INR at ~₹85/$1 (approximate).</div>
+        <button id="resetspend" class="small" style="margin-top:8px">Reset counter</button>
       </div>
 
       <h2>🔒 Keys &amp; privacy</h2>
@@ -328,7 +258,7 @@
         a key is like a credit card. If one leaks, regenerate it at
         <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a> /
         <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com</a>.
-        Roody only ever <strong>reads</strong> pages — it never edits, and it
+        Roody only ever <strong>reads</strong> pages — it never edits them, and it
         refuses to run on banking, email, chat, and other personal pages.
       </div>
     </div>
@@ -336,12 +266,12 @@
     <!-- FOOTER -->
     <h2>📱 Where Roody works</h2>
     <div class="note">
-      <strong>Any task page</strong> — articles, docs, courses, code, AI chats.
-      Click the 🟠 Roody icon in your toolbar to summon it; click again to
-      dismiss. Roody politely refuses personal pages (banking, payments,
-      email, chats, social media).<br /><br />
+      <strong>Any work page</strong> — code on GitHub, Stack Overflow, docs,
+      editors, articles, and AI chats. Click the Roody icon in your toolbar to
+      summon it; click again to dismiss. Roody politely refuses personal pages
+      (banking, payments, email, chats, social media).<br /><br />
       ✅ Chrome / Edge / Brave on desktop (Windows, Mac, Linux)<br />
-      ❌ Mobile — phone browsers don't run extensions (a Roody app comes later)
+      ❌ Mobile — phone browsers don't run extensions
     </div>
 
     <div style="margin-top: 22px; display:flex; gap: 10px; align-items: center">
@@ -349,9 +279,9 @@
       <span id="status" class="stat"></span>
     </div>
 
-    <p style="margin-top:18px;font-size:12px;color:#8a7560">
+    <p style="margin-top:18px;font-size:12px;color:var(--muted)">
       Roody never stores your conversations.
-      <a href="https://midnightblue-wolf-859857.hostingersite.com/privacy" target="_blank" style="color:#b06a2c">Privacy policy</a>
+      <a href="https://midnightblue-wolf-859857.hostingersite.com/privacy" target="_blank">Privacy policy</a>
     </p>
 
     <script src="options.js"></script>

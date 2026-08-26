@@ -1,105 +1,76 @@
-# Roody 🟠
+# Roody &lt;/&gt;
 
-**A calm, read-only AI voice that lives in your code.**
+**A transparent, read-only AI coding assistant that lives on any page.**
 
-Roody is a Chrome extension that puts a little orb on top of ChatGPT and Claude.
-It reads along with **any** conversation on your screen — code, a recipe, an
-essay, a plan, a science question — and **talks** with you like a human, by voice
-or text. It's a curious co-thinker: it reacts, asks questions, expands your
-thinking, **catches mistakes** (especially in code), and helps you **breathe and
-reframe** when you're stuck in a frustrating loop.
-
-It's not just a bug-finder — it's a companion for whatever you're thinking
-through. When it *is* code, it gets extra sharp about errors and loops.
-
-The one hard rule: **Roody never edits your code.** It reads, it thinks with you,
-it suggests in words. The changes are always yours to make. That's the trust.
+Roody is a Chrome extension that puts a glass orb on top of whatever you're
+working on. It reads what's on your screen — the code and text on the page, and,
+when you ask, a **screenshot** of the actual screen — then answers your questions
+and **writes code**, all in the chat. No voice, no clutter: you type, it replies
+in formatted Markdown with real, runnable code blocks.
 
 ```
-You, coding ──▶ ChatGPT / Claude in the browser
-                      │
-                 🟠 Roody (orb overlay)
-                      │  reads the page (read-only)
-                      │  you talk → it talks back (voice)
-                      ▼
-                 Claude (Roody's brain)
-                 finds mistakes · asks questions · keeps you calm
+You, on any page ──▶ code · docs · an error · a rendered app
+                          │
+                     </> Roody (glass orb overlay)
+                          │  reads the page (read-only)
+                          │  optionally captures a screenshot
+                          ▼
+                     Gemini / Claude / Grok (Roody's brain)
+                     answers questions · writes code · spots bugs
 ```
 
-## What works today (Phase 0)
+## What Roody does
 
-- 🟠 An orb that appears on every major AI site: **ChatGPT, Claude, Gemini,
-  Perplexity, Grok (grok.com &amp; x.com), Kimi, DeepSeek**
-- 👀 Roody reads the conversation/code on the page (read-only)
-- 👂 **Live watching** — when ChatGPT/Claude finishes a new answer, Roody notices
-  it on its own and chimes in (toggle the 👂 in Roody's header to mute)
-- 📜 **Auto-scroll reading** — Roody scrolls the thread to load the full history
-  before reading, so it sees the whole conversation, not just the bottom
-- 🎧 **Hands-free voice mode** — tap the headset, then just talk back and forth
-  with Roody like a phone call. Say "stop" (or tap ⏹) to end it.
-- ⏹️ **Stop button** — cut Roody off mid-sentence anytime
-- 🌐 **Web search** — Roody can look things up for current, real facts (toggle
-  in settings)
-- 💰 **Cost meter** in settings — see your estimated spend
-- 🗣️ Talk to Roody by voice or by typing — it speaks back
-- 🎙️ **Warm voice via Gemini** (optional) — add a Google Gemini key and Roody
-  gets a natural voice (TTS) and better listening (STT). No key? It falls back
-  to the free browser voice automatically.
-- 🧠 **Brain: Claude** (`claude-sonnet-4-6` by default — smart and ~40% cheaper
-  than Opus, the sweet spot for a read-and-chat buddy; Haiku for cheapest, Opus
-  for sharpest, both selectable)
-- 🔒 Read-only by design — there is no code path that edits the page
-
-### Roody's brain vs Roody's voice
-
-These are deliberately separate so you can use the best of each:
-
-| | Powered by | What it does |
-|---|---|---|
-| **Brain** | Claude | Reads your code, finds bugs, asks the smart questions |
-| **Voice** | Gemini (or free browser) | Speaks Roody's words, listens to yours |
-
-The Anthropic key drives the brain; the optional Gemini key drives the voice
-(`gemini-2.5-flash-preview-tts` for speaking, `gemini-2.5-flash` for listening).
-
-### How the live watching works
-
-A `MutationObserver` watches the page for changes. When the page goes quiet for
-~1.8s (the answer has stopped streaming), Roody treats that as "a new answer
-finished," reads it, and reacts. A fingerprint + cooldown stop it from reacting
-twice to the same thing, and the 👂 toggle turns it off entirely.
+- **</> Answers &amp; writes code.** Ask about a bug, an error, or an approach —
+  Roody replies in the chat with real code in copy-able, syntax-friendly blocks.
+- **👀 Reads the page with you.** Code on GitHub, Stack Overflow, docs, editors,
+  articles, and PDFs. Summon Roody and ask "what's wrong here?"
+- **📷 Sees your screen.** Tap the camera (or ask about something visual) and
+  Roody captures a screenshot of the current tab and sends it to a vision model,
+  so it can read diagrams, rendered UIs, and error dialogs — not just text.
+- **🧠 Pick your brain.** Gemini 2.5 Flash by default (cheap &amp; multimodal);
+  Claude and Grok selectable with your own key. A screenshot on a text-only brain
+  is routed to Gemini vision automatically.
+- **🌏 Answers in your language.** English, Telugu, Hindi, Tamil, and more.
+- **🔒 Read-only by design.** Roody never edits, clicks, or types on the page, and
+  it refuses to run on banking, email, chat, and other personal pages.
 
 ## Install (developer mode)
 
 1. Open `chrome://extensions` and turn on **Developer mode** (top right).
 2. Click **Load unpacked** and select this folder (`Roody-ai`).
-3. Click the Roody icon in the toolbar → paste your
-   [Anthropic API key](https://console.anthropic.com/) → **Save**.
-4. Open ChatGPT or Claude. Click the orb in the bottom-right and say hi.
+3. Click the Roody icon in the toolbar → paste your **invite code** (or a free
+   [Gemini API key](https://aistudio.google.com/apikey)) in Settings.
+4. Open any work page, click the orb, and ask away.
 
-## Roadmap
+## How it works
 
-- **Phase 1 — Eyes on your files.** Read-only folder access (File System Access
-  API) so Roody can read your local project, not just the page.
-- **Phase 2 — Warmer voice.** Optional premium text-to-speech for a real "Roody
-  voice."
-- **Phase 3 — The companion brain.** Frustration-loop detection ("breathe, let's
-  reframe"), proactive mistake-spotting, and prompt-crafting help.
-- **Phase 4 — Side panel.** A dedicated home for Roody beyond the overlay.
+- **Click-to-summon.** Nothing loads until you click the toolbar icon; the content
+  script is injected on demand (`activeTab` + `scripting`), so there's no
+  always-on page access.
+- **Page reading.** `readPage()` extracts the visible article/code/chat text,
+  stripping nav and chrome; `detectMode()` tags the page (code / research /
+  writing / …) so Roody acts like the right kind of expert.
+- **Screenshots.** The background captures the visible tab with
+  `chrome.tabs.captureVisibleTab` and attaches the image to the model request
+  (Gemini `inlineData` / Claude image block). Only ever for a message you send.
+- **Brains.** With an invite code, requests ride the founder's credits proxy
+  (Gemini); with your own key, they go straight to the provider.
 
 ## Files
 
 | File | What it is |
 |------|------------|
 | `manifest.json` | Extension manifest (MV3) |
-| `src/persona.js` | Roody's personality (the system prompt) |
-| `src/background.js` | Calls Claude, keeps the API key server-side of the page |
-| `src/content.js` | The orb, the chat panel, voice in/out, page reading |
-| `src/content.css` | Roody's calm look |
-| `src/options.html/js` | Settings — API key + model |
+| `src/persona.js` | Roody's personality (the coding-assistant system prompt) |
+| `src/background.js` | Calls the model, captures screenshots, routes brains |
+| `src/content.js` | The orb, the chat panel, Markdown rendering, page reading |
+| `src/content.css` | Roody's transparent glass look |
+| `src/study.html/js` | Standalone "Read with Roody" tab for PDFs |
+| `src/options.html/js` | Settings — invite code, language, keys (dev panel) |
 
 ## Notes
 
-- Your API key is stored locally in the browser (`chrome.storage.local`) and is
-  only sent to Anthropic. For a production release we'd move calls behind a small
-  proxy so the key never lives in the browser at all.
+- Keys and your invite code are stored locally (`chrome.storage.local`) and only
+  sent to the AI provider you chose. See [PRIVACY.md](PRIVACY.md).
+- Run the regression suite with `node eval/run.js`.

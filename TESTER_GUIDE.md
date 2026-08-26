@@ -1,12 +1,12 @@
-# Welcome to Roody 🟠 — Tester Setup (5 minutes)
+# Welcome to Roody &lt;/&gt; — Tester Setup (5 minutes)
 
-You're one of the first people ever to use Roody. It's an AI best friend that
-lives in your browser — summon it on any page, it reads along and TALKS with
-you. Real voice, both ways.
+You're one of the first people ever to use Roody. It's an AI coding assistant
+that lives in your browser — summon it on any page, it reads what's on your
+screen, and it answers your questions and writes code, right in the chat.
 
 ## 1. Install (1 min)
 
-1. Unzip `Roody-v0.3.0.zip` somewhere it can stay (don't delete the folder later)
+1. Unzip the Roody zip somewhere it can stay (don't delete the folder later)
 2. Open Chrome → go to `chrome://extensions`
 3. Turn ON **Developer mode** (toggle, top-right)
 4. Click **Load unpacked** → select the unzipped folder
@@ -15,34 +15,34 @@ you. Real voice, both ways.
 ## 2. Enter your invite code (30 seconds)
 
 1. Right-click the Roody icon in the toolbar → **Options**
-2. Find the **🎟 Invite Code** section at the top
+2. Find the **🎟 Invite code** section at the top
 3. Paste the code you were given (looks like `ROODY-XXXXXX`) — it saves
    automatically
 
-That's it — the code gives you 50 free messages a day. No API keys, no
-signups.
+That's it — the code gives you free messages a day. No API keys, no signups.
 
 *(Power-user alternative: skip the code and paste your own free Gemini API
-key from aistudio.google.com/apikey into the Gemini field — that gives you
-unlimited use on Google's free tier.)*
+key from aistudio.google.com/apikey into the Google-key field in the dev panel
+— that gives you unlimited use on Google's free tier.)*
 
 ## 3. Summon Roody (30 sec)
 
-1. Go to any interesting page — an article, docs, a tutorial, an AI chat
-2. **Click the orange Roody icon** in the toolbar
-3. The orb appears and Roody greets you about the page — out loud 🔊
-4. Tap **Voice ON** and just talk: *"what's this page about?"*
-   — or type in the box if you're somewhere quiet
-5. Say **"Roody stop"** any time to cut it off mid-sentence
+1. Go to any work page — code on GitHub, a Stack Overflow answer, docs, an editor
+2. **Click the Roody icon** in the toolbar
+3. The glass orb appears and Roody leads with what it notices about the page
+4. Type your question in the box: *"what's the bug here?"* — press Enter to send
+   (Shift+Enter for a new line)
+5. Tap **📷** (or ask about something visual) to attach a screenshot of your
+   screen so Roody can see diagrams, rendered UIs, or error dialogs
 
 ## Things to try
 
-- *"Explain this page like I'm 15"*
-- *"I'm stuck — throw me some ideas"*
-- *"Roast this article"*
-- Settings → **Character Sidekick** → pick 🍌 Minion → ask anything
-- Settings → **Language** → తెలుగు Telugu → talk in Telugu
-- Tell Roody about yourself in Settings → **About You** — it remembers
+- *"What's wrong with this function?"* on a code page
+- *"Write me a debounce helper in TypeScript"*
+- *"Explain this error and how to fix it"*
+- 📷 then *"what does this diagram show?"*
+- Settings → **Reply language** → తెలుగు Telugu → get answers in Telugu
+- Tell Roody about your stack in Settings → **About You** — it remembers
 
 ## Where Roody WON'T work (on purpose)
 
@@ -52,7 +52,8 @@ protection, not a bug.
 
 ## When something breaks (it might — you're first!)
 
-1. Right-click Roody icon → Options → scroll to **Logs** → 📋 Copy
+1. Right-click Roody icon → Options → open the page with `#dev` on the URL →
+   scroll to **Diagnostic log** → 📋 Copy
 2. Send the log + what you expected vs what happened
 3. Screenshots welcome
 

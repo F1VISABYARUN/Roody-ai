@@ -1,7 +1,7 @@
-// Roody's standalone Study tab. Opens when you click Roody on a page it can't
+// Roody's standalone Read tab. Opens when you click Roody on a page it can't
 // attach the orb to (Chrome's PDF viewer, file://, chrome:// pages). It reads a
 // PDF with the shared extractor (pdf.js), then talks it through with you using
-// the same brain (roody:ask) and warm voice (roody:tts) as the on-page orb.
+// the same brain (roody:ask) as the on-page orb. Answers render as Markdown.
 (function () {
   const $ = (id) => document.getElementById(id);
   const log = $("log");
@@ -10,101 +10,111 @@
   const sub = $("sub");
   const pdfBtn = $("pdf");
   const pdfFile = $("pdf-file");
-  const micBtn = $("mic");
 
   const history = [];
   let studyDoc = null; // { name, text }
-  let speakToken = 0;
+
+  // ---- Markdown rendering (dependency-free, XSS-safe) ----------------------
+  function el(tag, className, text) {
+    const e = document.createElement(tag);
+    if (className) e.className = className;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function renderInline(target, text) {
+    let i = 0; const n = text.length; let buf = "";
+    const flush = () => { if (buf) { target.appendChild(document.createTextNode(buf)); buf = ""; } };
+    while (i < n) {
+      const c = text[i];
+      if (c === "`") { const end = text.indexOf("`", i + 1); if (end > i) { flush(); target.appendChild(el("code", "md-code-inline", text.slice(i + 1, end))); i = end + 1; continue; } }
+      if (c === "*" && text[i + 1] === "*") { const end = text.indexOf("**", i + 2); if (end > i) { flush(); const st = el("strong"); renderInline(st, text.slice(i + 2, end)); target.appendChild(st); i = end + 2; continue; } }
+      if (c === "*") { const end = text.indexOf("*", i + 1); if (end > i) { flush(); const em = el("em"); renderInline(em, text.slice(i + 1, end)); target.appendChild(em); i = end + 1; continue; } }
+      buf += c; i++;
+    }
+    flush();
+  }
+  function buildCodeBlock(code, lang) {
+    const wrap = el("div", "md-codewrap");
+    const bar = el("div", "md-codebar");
+    bar.appendChild(el("span", "md-codelang", lang || "code"));
+    const copy = el("button", "md-copy", "Copy");
+    copy.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(code); copy.textContent = "Copied"; }
+      catch (_) { copy.textContent = "Copy failed"; }
+      setTimeout(() => { copy.textContent = "Copy"; }, 1500);
+    });
+    bar.appendChild(copy);
+    wrap.appendChild(bar);
+    const pre = el("pre", "md-pre");
+    pre.appendChild(el("code", null, code));
+    wrap.appendChild(pre);
+    return wrap;
+  }
+  function renderTextBlock(container, text) {
+    const lines = text.split("\n");
+    let list = null, listType = null, para = [];
+    const flushPara = () => { if (!para.length) return; const p = el("p", "md-p"); renderInline(p, para.join(" ")); container.appendChild(p); para = []; };
+    const flushList = () => { if (list) { container.appendChild(list); list = null; listType = null; } };
+    for (const raw of lines) {
+      const line = raw.replace(/\s+$/, "");
+      const ul = /^\s*[-*]\s+(.*)$/.exec(line);
+      const ol = /^\s*\d+[.)]\s+(.*)$/.exec(line);
+      if (ul || ol) {
+        flushPara();
+        const t = ul ? "ul" : "ol";
+        if (listType !== t) { flushList(); list = el(t, "md-list"); listType = t; }
+        const li = el("li"); renderInline(li, ul ? ul[1] : ol[1]); list.appendChild(li);
+        continue;
+      }
+      if (line.trim() === "") { flushPara(); flushList(); continue; }
+      para.push(line.trim());
+    }
+    flushPara(); flushList();
+  }
+  function renderMarkdownInto(container, md) {
+    container.textContent = "";
+    const segments = String(md == null ? "" : md).split("```");
+    segments.forEach((seg, idx) => {
+      if (idx % 2 === 1) {
+        let code = seg, lang = "";
+        const nl = seg.indexOf("\n");
+        if (nl >= 0) { const first = seg.slice(0, nl).trim(); if (/^[a-zA-Z0-9+#._-]*$/.test(first)) { lang = first; code = seg.slice(nl + 1); } }
+        code = code.replace(/\n$/, "");
+        container.appendChild(buildCodeBlock(code, lang));
+      } else if (seg) {
+        renderTextBlock(container, seg);
+      }
+    });
+  }
 
   // ---- Chat bubbles ---------------------------------------------------------
   function bubble(who, text) {
     const b = document.createElement("div");
     b.className = "bubble " + who;
-    b.textContent = text;
+    b.dataset.who = who;
+    fillBubble(b, text);
     log.appendChild(b);
     log.scrollTop = log.scrollHeight;
     return b;
   }
-
-  // ---- Audio helpers (mirror content.js) ------------------------------------
-  function base64ToBytes(b64) {
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return bytes;
-  }
-  function rateFromMime(mime) {
-    const m = /rate=(\d+)/.exec(mime || "");
-    return m ? parseInt(m[1], 10) : 24000;
-  }
-  function pcm16ToWav(pcm, sampleRate) {
-    const dataSize = pcm.length;
-    const buf = new ArrayBuffer(44 + dataSize);
-    const v = new DataView(buf);
-    const str = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
-    str(0, "RIFF"); v.setUint32(4, 36 + dataSize, true); str(8, "WAVE");
-    str(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
-    v.setUint16(22, 1, true); v.setUint32(24, sampleRate, true);
-    v.setUint32(28, sampleRate * 2, true); v.setUint16(32, 2, true);
-    v.setUint16(34, 16, true); str(36, "data"); v.setUint32(40, dataSize, true);
-    new Uint8Array(buf, 44).set(pcm);
-    return new Blob([buf], { type: "audio/wav" });
-  }
-
-  let currentAudio = null;
-  function stopSpeaking() {
-    speakToken++;
-    try { if (currentAudio) currentAudio.close(); } catch (_) {}
-    currentAudio = null;
-    try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (_) {}
-  }
-  function browserSpeak(text, onDone) {
-    try {
-      const u = new SpeechSynthesisUtterance(text);
-      u.rate = 1.0; u.pitch = 1.05;
-      u.onend = () => onDone && onDone();
-      window.speechSynthesis.speak(u);
-    } catch (_) { onDone && onDone(); }
-  }
-  function speak(text, onDone) {
-    if (!text) return onDone && onDone();
-    const myToken = ++speakToken;
-    chrome.runtime.sendMessage({ type: "roody:tts", payload: { text } }, async (res) => {
-      if (myToken !== speakToken) return;
-      if (chrome.runtime.lastError || !res || !res.ok || !res.audioBase64) {
-        return browserSpeak(text, onDone);
-      }
-      try {
-        const isPcm = /pcm|L16/i.test(res.mime || "");
-        const rawBytes = base64ToBytes(res.audioBase64);
-        const blob = isPcm ? pcm16ToWav(rawBytes, rateFromMime(res.mime))
-                           : new Blob([rawBytes], { type: res.mime || "audio/mpeg" });
-        stopSpeaking();
-        const actx = new (window.AudioContext || window.webkitAudioContext)();
-        currentAudio = actx;
-        const audioBuf = await actx.decodeAudioData(await blob.arrayBuffer());
-        const src = actx.createBufferSource();
-        src.buffer = audioBuf;
-        src.connect(actx.destination);
-        src.onended = () => { try { actx.close(); } catch (_) {} if (currentAudio === actx) currentAudio = null; onDone && onDone(); };
-        src.start(0);
-      } catch (_) { browserSpeak(text, onDone); }
-    });
+  function fillBubble(b, text) {
+    if (b.dataset && b.dataset.who === "you") b.textContent = text == null ? "" : String(text);
+    else renderMarkdownInto(b, text);
+    log.scrollTop = log.scrollHeight;
   }
 
   // ---- Brain ----------------------------------------------------------------
-  function callRoody(userText, onText, onDone, skipHistory) {
+  function callRoody(userText, onText, skipHistory) {
     let settled = false;
-    const finish = (text, speakIt) => {
+    const finish = (text, ok) => {
       if (settled) return; settled = true;
       clearTimeout(watchdog);
       onText(text);
-      if (speakIt && !skipHistory) {
+      if (ok && !skipHistory) {
         history.push({ role: "user", content: userText });
         history.push({ role: "assistant", content: text });
         if (history.length > 20) history.splice(0, history.length - 20);
       }
-      if (speakIt) speak(text, onDone); else onDone && onDone();
     };
     const watchdog = setTimeout(() => finish("That took too long — try once more?", false), 30000);
     try {
@@ -115,8 +125,8 @@
             userText,
             pageContext: studyDoc ? studyDoc.text.slice(0, 16000) : "",
             history,
-            site: "study",
-            title: studyDoc ? studyDoc.name : "Study",
+            site: "read",
+            title: studyDoc ? studyDoc.name : "Read",
             pageMode: "learning",
           },
         },
@@ -133,7 +143,7 @@
 
   // ---- Load a PDF -----------------------------------------------------------
   const OPENER =
-    "(The user just loaded a PDF to study. Immediately give the useful decode in 2-3 spoken sentences: what this document is, the ONE key idea that matters most, and one thing people usually get wrong or should focus on. Then, in a short half-sentence, offer to go deeper or quiz them. Lead with substance — do NOT ask 'how do you want to use it?')";
+    "(The user just loaded a PDF. In 2-3 sentences of Markdown, give the useful decode: what this document is, the one idea that matters most, and one thing people usually get wrong or should focus on. Then briefly offer to go deeper or quiz them. Lead with substance.)";
 
   async function loadPdf(file) {
     if (!file) return;
@@ -142,18 +152,18 @@
       const text = await window.RoodyPDF.extractPdfText(await file.arrayBuffer());
       if (!text || text.length < 40) {
         studyDoc = null;
-        note.textContent = `Hmm, I couldn't pull readable text out of ${file.name} — it's probably a scanned/image PDF. Paste the part you want and I'll study it with you.`;
+        fillBubble(note, `Hmm, I couldn't pull readable text out of ${file.name} — it's probably a scanned/image PDF. Paste the part you want and I'll read it with you.`);
         return;
       }
       studyDoc = { name: file.name, text };
-      sub.textContent = `📄 studying ${file.name} · ${text.length.toLocaleString()} characters`;
+      sub.textContent = `📄 reading ${file.name} · ${text.length.toLocaleString()} characters`;
       drop.style.display = "none";
-      note.textContent = `📄 Got it — I read ${file.name}. Ask me anything, or say "quiz me."`;
+      fillBubble(note, `📄 Got it — I read ${file.name}. Ask me anything.`);
       const thinking = bubble("roody", "…");
-      callRoody(OPENER, (t) => (thinking.textContent = t), null, true);
+      callRoody(OPENER, (t) => fillBubble(thinking, t), true);
     } catch (e) {
       studyDoc = null;
-      note.textContent = "I couldn't open that file — mind trying again?";
+      fillBubble(note, "I couldn't open that file — mind trying again?");
     }
   }
 
@@ -162,16 +172,16 @@
     try {
       const buf = await (await fetch(url)).arrayBuffer();
       const text = await window.RoodyPDF.extractPdfText(buf);
-      if (!text || text.length < 40) { note.textContent = "That PDF looks like scanned images — no text to read. Paste the part you want."; return; }
+      if (!text || text.length < 40) { fillBubble(note, "That PDF looks like scanned images — no text to read. Paste the part you want."); return; }
       const name = decodeURIComponent(url.split("/").pop() || "this PDF");
       studyDoc = { name, text };
-      sub.textContent = `📄 studying ${name} · ${text.length.toLocaleString()} characters`;
+      sub.textContent = `📄 reading ${name} · ${text.length.toLocaleString()} characters`;
       drop.style.display = "none";
-      note.textContent = `📄 Got it — I read ${name}. Ask me anything, or say "quiz me."`;
+      fillBubble(note, `📄 Got it — I read ${name}. Ask me anything.`);
       const thinking = bubble("roody", "…");
-      callRoody(OPENER, (t) => (thinking.textContent = t), null, true);
+      callRoody(OPENER, (t) => fillBubble(thinking, t), true);
     } catch (_) {
-      note.textContent = "I couldn't fetch that PDF — click 📄 to pick it from your computer instead.";
+      fillBubble(note, "I couldn't fetch that PDF — click 📄 to pick it from your computer instead.");
     }
   }
 
@@ -183,7 +193,7 @@
     bubble("you", text);
     input.value = "";
     const thinking = bubble("roody", "…");
-    callRoody(text, (t) => (thinking.textContent = t));
+    callRoody(text, (t) => fillBubble(thinking, t));
   }
 
   // ---- Wiring ---------------------------------------------------------------
@@ -208,25 +218,6 @@
     drop.classList.remove("hot");
     const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
     if (f && /pdf/i.test((f.type || "") + " " + (f.name || ""))) loadPdf(f);
-  });
-
-  // ---- Voice in (SpeechRecognition) ----------------------------------------
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let rec = null, listening = false;
-  micBtn.addEventListener("click", () => {
-    if (!SR) { bubble("roody", "This browser has no speech recognition — type to me instead."); return; }
-    if (listening) { try { rec && rec.stop(); } catch (_) {} return; }
-    rec = new SR();
-    rec.lang = "en-US";
-    rec.interimResults = false;
-    rec.onstart = () => { listening = true; micBtn.classList.add("on"); };
-    rec.onend = () => { listening = false; micBtn.classList.remove("on"); };
-    rec.onerror = () => { listening = false; micBtn.classList.remove("on"); };
-    rec.onresult = (e) => {
-      const said = e.results[e.results.length - 1][0].transcript.trim();
-      if (said) send(said);
-    };
-    try { rec.start(); } catch (_) {}
   });
 
   // ---- Auto-load a PDF passed from the toolbar click ------------------------

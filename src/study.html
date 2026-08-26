@@ -3,15 +3,26 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Study with Roody</title>
+  <title>Read with Roody</title>
   <style>
-    :root { color-scheme: light; }
+    :root {
+      color-scheme: dark;
+      --bg: #12141c;
+      --panel: #1a1d27;
+      --panel2: #20242f;
+      --text: #e8ebf2;
+      --muted: #9aa3b2;
+      --accent: #7c9bff;
+      --accent-strong: #6a86ff;
+      --border: rgba(255, 255, 255, 0.12);
+      --code-bg: rgba(8, 10, 16, 0.66);
+    }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
-      background: #fdf6ec;
-      color: #3a2c1e;
+      font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
       display: flex;
       flex-direction: column;
       height: 100vh;
@@ -21,24 +32,24 @@
       align-items: center;
       gap: 10px;
       padding: 14px 18px;
-      background: #fffaf3;
-      border-bottom: 1px solid #f0e2cf;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
     }
-    header .orb { font-size: 22px; }
+    header .orb { font: 600 18px/1 ui-monospace, Menlo, monospace; color: var(--accent); }
     header h1 { font-size: 16px; margin: 0; font-weight: 800; }
-    header .sub { font-size: 12px; color: #8a7560; margin-top: 2px; }
+    header .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
     #drop {
       margin: 16px 18px 0;
-      border: 2px dashed #e7d4ba;
+      border: 2px dashed var(--border);
       border-radius: 14px;
       padding: 22px;
       text-align: center;
-      color: #8a7560;
+      color: var(--muted);
       cursor: pointer;
       transition: background .15s, border-color .15s;
     }
-    #drop.hot { border-color: #e98a3c; background: #fff3e6; }
-    #drop strong { color: #3a2c1e; }
+    #drop.hot { border-color: var(--accent); background: rgba(124, 155, 255, 0.12); }
+    #drop strong { color: var(--text); }
     #log {
       flex: 1;
       overflow-y: auto;
@@ -48,48 +59,67 @@
       gap: 10px;
     }
     .bubble {
-      max-width: 80%;
+      max-width: 82%;
       padding: 10px 14px;
       border-radius: 14px;
-      white-space: pre-wrap;
       word-wrap: break-word;
+      overflow-wrap: anywhere;
+      line-height: 1.5;
     }
-    .you { align-self: flex-end; background: #e98a3c; color: #fff; border-bottom-right-radius: 4px; }
-    .roody { align-self: flex-start; background: #fff; border: 1px solid #f0e2cf; border-bottom-left-radius: 4px; }
+    .you { align-self: flex-end; background: rgba(124, 155, 255, 0.22); border: 1px solid rgba(124, 155, 255, 0.35); border-bottom-right-radius: 4px; white-space: pre-wrap; }
+    .roody { align-self: flex-start; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+
+    /* Markdown */
+    .roody .md-p { margin: 0 0 8px; }
+    .roody > :last-child { margin-bottom: 0; }
+    .md-list { margin: 0 0 8px; padding-left: 20px; }
+    .md-code-inline { font-family: ui-monospace, Menlo, monospace; font-size: 13px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
+    .md-codewrap { margin: 8px 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--code-bg); }
+    .md-codebar { display: flex; align-items: center; justify-content: space-between; padding: 5px 10px; background: rgba(255,255,255,0.05); border-bottom: 1px solid var(--border); }
+    .md-codelang { font-size: 11px; color: var(--muted); font-family: ui-monospace, Menlo, monospace; }
+    .md-copy { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; font-size: 11px; padding: 2px 8px; cursor: pointer; }
+    .md-copy:hover { color: var(--text); border-color: var(--accent); }
+    .md-pre { margin: 0; padding: 10px 12px; overflow-x: auto; font-family: ui-monospace, Menlo, monospace; font-size: 13px; line-height: 1.5; }
+    .md-pre code { color: #d7def0; white-space: pre; }
+
     footer {
       display: flex;
       gap: 8px;
       padding: 12px 18px;
-      background: #fffaf3;
-      border-top: 1px solid #f0e2cf;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
     }
     footer button {
-      border: 1px solid #e7d4ba;
+      border: 1px solid var(--border);
       border-radius: 10px;
-      background: #fff;
+      background: var(--panel2);
+      color: var(--text);
       cursor: pointer;
       font-size: 17px;
       padding: 0 12px;
     }
-    footer button:hover { border-color: #e98a3c; background: #fff3e6; }
-    #mic.on { background: #e98a3c; color: #fff; border-color: #e98a3c; }
+    footer button:hover { border-color: var(--accent); background: rgba(124, 155, 255, 0.12); }
     #text {
       flex: 1;
-      border: 1px solid #e7d4ba;
+      border: 1px solid var(--border);
       border-radius: 10px;
       padding: 10px 12px;
       font-size: 14px;
       outline: none;
+      background: var(--panel2);
+      color: var(--text);
     }
-    #text:focus { border-color: #e98a3c; }
-    #send { background: #e98a3c; color: #fff; border-color: #e98a3c; width: 46px; }
+    #text::placeholder { color: var(--muted); }
+    #text:focus { border-color: var(--accent); }
+    #send { background: var(--accent-strong); color: #fff; border-color: var(--accent-strong); width: 46px; }
+    #send:hover { background: var(--accent); }
   </style>
 </head>
 <body>
   <header>
-    <span class="orb">🟠</span>
+    <span class="orb">&lt;/&gt;</span>
     <div>
-      <h1>Study with Roody</h1>
+      <h1>Read with Roody</h1>
       <div class="sub" id="sub">Drop a PDF or click 📄 — I'll read it and we'll talk it through.</div>
     </div>
   </header>
@@ -100,7 +130,6 @@
 
   <footer>
     <button id="pdf" title="Load a PDF">📄</button>
-    <button id="mic" title="Talk to Roody">🎙️</button>
     <input id="text" type="text" placeholder="Ask Roody about the document…" autocomplete="off" />
     <button id="send" title="Send">➤</button>
     <input id="pdf-file" type="file" accept="application/pdf,.pdf" style="display:none" />

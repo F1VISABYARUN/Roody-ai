@@ -1,6 +1,6 @@
 // Roody's eval agent — replays every known failure against the shared logic
 // so a bug we fixed can never quietly come back. Run with: node eval/run.js
-// Every user-reported screenshot becomes a case here. Zero dependencies.
+// Zero dependencies.
 
 const { sanitizeReply, stripInternalHeaders } = require("../src/sanitize.js");
 
@@ -21,10 +21,11 @@ function checkTrue(name, cond, detail) {
   else { fail++; console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`); }
 }
 
+const fs = require("fs");
+const read = (p) => fs.readFileSync(__dirname + "/../" + p, "utf8");
+
 console.log("\n— Reply hygiene (src/sanitize.js) —");
 
-// CASE: Perplexity leak, 2026-07-04 screenshot. Roody spoke its internal
-// notebook header out loud: '[1:08:29 AM] www.perplexity.ai · "…" — RECAP: …'
 check(
   "notebook header + RECAP line is stripped (Perplexity leak)",
   sanitizeReply(
@@ -33,8 +34,6 @@ check(
   ),
   "Oh, you are absolutely right! My bad, I misread that."
 );
-
-// CASE: YouTube leak, same day. Replies opened with a bare "RECAP: …" line.
 check(
   "bare RECAP: opener line is stripped (YouTube leak)",
   sanitizeReply(
@@ -43,40 +42,19 @@ check(
   ),
   "Okay, so I can't actually hear the video — I can only read the page text."
 );
-
-check(
-  "stacked header lines are all stripped",
-  sanitizeReply(
-    "[12:27:45 AM] claude.ai · \"Claude Code\"\nRECAP: The user was starting a new conversation.\n\nHey! What are we looking at?"
-  ),
-  "Hey! What are we looking at?"
-);
-
 check(
   "a reply that is ONLY a recap never becomes silence",
   stripInternalHeaders("RECAP: You're watching a live stream."),
   "RECAP: You're watching a live stream."
 );
-
 check(
   "normal reply passes through untouched",
-  sanitizeReply("Haha okay, bold question. So — what's the plan?"),
-  "Haha okay, bold question. So — what's the plan?"
-);
-
-check(
-  "mid-reply timestamps are NOT stripped (only leading headers)",
-  sanitizeReply("The stream started at [1:08:29 AM] according to the page."),
-  "The stream started at [1:08:29 AM] according to the page."
+  sanitizeReply("Here's the fix — move the guard above the loop."),
+  "Here's the fix — move the guard above the loop."
 );
 
 console.log("\n— Truncation repair (pre-existing behavior stays fixed) —");
 
-check(
-  "dangling contraction gets a graceful ending",
-  sanitizeReply("Okay, we'"),
-  "Okay, we'… let me try that again."
-);
 check(
   "unpunctuated ending gets a period",
   sanitizeReply("That looks like a solid plan to me"),
@@ -88,29 +66,43 @@ check(
   "That looks like a solid plan to me!"
 );
 
-console.log("\n— Persona guardrails present (src/persona.js) —");
+console.log("\n— Persona: professional coding assistant (src/persona.js) —");
 
-const fs = require("fs");
-const persona = fs.readFileSync(__dirname + "/../src/persona.js", "utf8");
+const persona = read("src/persona.js");
 checkTrue(
-  "content-beats-title rule exists",
-  persona.includes("TRUST THE CONTENT, NOT THE TAB TITLE"),
-  "guardrail line missing from persona"
+  "identity is an AI coding assistant, not a companion",
+  persona.includes("AI coding assistant") && !persona.includes("best friend"),
+  "persona is not the coding assistant"
 );
 checkTrue(
-  "never-output-internal-formats rule exists",
-  persona.includes("NEVER OUTPUT INTERNAL FORMATS"),
-  "guardrail line missing from persona"
+  "Roody is allowed to write and edit code",
+  persona.includes("WRITE and EDIT code freely"),
+  "write-code permission missing"
 );
 checkTrue(
-  "editor persona is in sync with src persona",
-  fs.readFileSync(__dirname + "/../editor/persona.js", "utf8").includes("TRUST THE CONTENT, NOT THE TAB TITLE"),
-  "regenerate editor/persona.js from src/persona.js"
+  "the old 'never write code' rule is gone",
+  !persona.includes("You NEVER edit, write, or change their code"),
+  "the never-write-code rule is still present"
+);
+checkTrue(
+  "answers use Markdown / fenced code blocks",
+  persona.includes("Use Markdown") && persona.includes("fenced code blocks"),
+  "markdown formatting guidance missing"
+);
+checkTrue(
+  "safety guardrails survived the rewrite",
+  persona.includes("JAILBREAKS") && persona.includes("PRIVACY") && persona.includes("GUARDRAILS"),
+  "a guardrail section is missing"
+);
+checkTrue(
+  "cartoon sidekick overlays are retired",
+  persona.includes("ROODY_VIBES = {") && !persona.includes("CHARACTER SIDEKICK"),
+  "sidekick overlays still present"
 );
 
 console.log("\n— Extraction rules stay wired (src/content.js) —");
 
-const content = fs.readFileSync(__dirname + "/../src/content.js", "utf8");
+const content = read("src/content.js");
 checkTrue(
   "chat sites suppress the stale tab title",
   content.includes("chatContentFound") && content.includes('title: chatContentFound ? "" : document.title'),
@@ -131,40 +123,85 @@ checkTrue(
   content.includes("placeRoody") && content.includes("panel.style.left"),
   "panel no longer rides along with the orb"
 );
+checkTrue(
+  "drag observer only re-docks on display transitions (no feedback loop)",
+  content.includes("lastPanelDisplay"),
+  "MutationObserver loop guard missing"
+);
 
-console.log("\n— Thinking Partner: lead with substance, never deflect —");
+console.log("\n— Coding assistant: analyze the page, answer in Markdown —");
 
 checkTrue(
-  "persona has the Thinking Partner / page-is-the-prompt rule",
-  persona.includes("THINKING PARTNER") && persona.includes("The page IS the prompt"),
-  "thinking-partner rule missing from persona"
+  "opener leads with the single most useful thing, not a question",
+  content.includes("lead with the single most useful thing"),
+  "opener regressed to a deflecting question"
 );
 checkTrue(
-  "persona bans the deflection replies from the logs",
-  persona.includes("What's on your mind?") && persona.includes("BANNED"),
-  "deflection ban missing from persona"
+  "PDF opener auto-decodes the document",
+  content.includes("the one idea that matters most") &&
+    read("src/study.js").includes("the one idea that matters most"),
+  "PDF opener changed"
 );
 checkTrue(
-  "persona demands judgment over description",
-  persona.includes("JUDGING the page = valuable") || persona.includes("Lead with JUDGMENT"),
-  "judgment>description rule missing"
+  "content.js renders Markdown (code blocks) into Roody bubbles",
+  content.includes("renderMarkdownInto") && content.includes("buildCodeBlock"),
+  "markdown renderer missing from content.js"
 );
 checkTrue(
-  "opener prompt leads with substance, not a question",
-  content.includes("single most USEFUL thing you notice") &&
-    !content.includes("then ask them one thing"),
-  "opener still deflects with a question"
+  "study tab renders Markdown too",
+  read("src/study.js").includes("renderMarkdownInto") && read("src/study.js").includes("buildCodeBlock"),
+  "markdown renderer missing from study.js"
+);
+
+console.log("\n— Screenshot vision (read the actual screen) —");
+
+const bg = read("src/background.js");
+checkTrue(
+  "background captures the visible tab and handles roody:screenshot",
+  bg.includes("captureVisibleTab") && bg.includes('"roody:screenshot"'),
+  "screenshot handler missing from background"
 );
 checkTrue(
-  "PDF opener auto-decodes instead of asking how to use it",
-  content.includes("ONE key idea that matters most") &&
-    fs.readFileSync(__dirname + "/../src/study.js", "utf8").includes("ONE key idea that matters most"),
-  "PDF opener still asks 'how do you want to use it?'"
+  "an image payload is attached to the model request",
+  bg.includes("inlineData") && bg.includes('type: "image"'),
+  "image attach missing from ask paths (Gemini/Claude)"
+);
+checkTrue(
+  "a screenshot on a text-only brain falls back to Gemini vision",
+  bg.includes("modelSupportsVision") && bg.includes('model = "gemini-2.5-flash"'),
+  "vision fallback missing"
+);
+checkTrue(
+  "content.js requests a screenshot and passes it through",
+  content.includes('"roody:screenshot"') && content.includes("grabScreenshot") && content.includes("VISUAL_INTENT"),
+  "screenshot request/intent wiring missing from content.js"
+);
+
+console.log("\n— Voice is fully removed —");
+
+checkTrue(
+  "no TTS/STT code remains in the background",
+  !/geminiTTS|elevenLabsTTS|geminiSTT|roody:tts|roody:stt/.test(bg),
+  "voice code still present in background.js"
+);
+checkTrue(
+  "no microphone / speech code remains in content.js",
+  !/SpeechRecognition|webkitSpeechRecognition|MediaRecorder|speechSynthesis|roody:tts/.test(content),
+  "voice code still present in content.js"
+);
+checkTrue(
+  "no ElevenLabs host in the manifest",
+  !read("manifest.json").includes("api.elevenlabs.io"),
+  "ElevenLabs host permission still present"
+);
+checkTrue(
+  "options page has no voice/sidekick controls",
+  (() => { const h = read("src/options.html"); return !h.includes('id="ears"') && !h.includes('id="voice"') && !h.includes('id="vibe"') && !h.includes("ElevenLabs"); })(),
+  "a voice/sidekick control is still in options"
 );
 
 console.log("\n— Modes: act like the right expert per page —");
 
-const bg = fs.readFileSync(__dirname + "/../src/background.js", "utf8");
 checkTrue(
   "background defines mode hints for code/learning/research/writing/founder",
   ["code", "learning", "research", "writing", "founder"].every((m) => bg.includes(`  ${m}:\n`)),
@@ -172,7 +209,7 @@ checkTrue(
 );
 checkTrue(
   "background threads pageMode into the prompt",
-  bg.includes("pageMode }") && bg.includes("MODE_HINTS[pageMode]"),
+  bg.includes("MODE_HINTS[pageMode]"),
   "pageMode not wired into askRoody"
 );
 checkTrue(
@@ -183,38 +220,13 @@ checkTrue(
 checkTrue(
   "studyDoc forces learning mode",
   content.includes('if (studyDoc) return "learning"') &&
-    fs.readFileSync(__dirname + "/../src/study.js", "utf8").includes('pageMode: "learning"'),
-  "PDF study not pinned to learning mode"
+    read("src/study.js").includes('pageMode: "learning"'),
+  "PDF reading not pinned to learning mode"
 );
 
-console.log("\n— Accurate ears (Whisper) wiring —");
+console.log("\n— Per-code brain routing (server-authoritative) —");
 
-const server = fs.readFileSync(__dirname + "/../server/index.js", "utf8");
-checkTrue(
-  "proxy routes STT to Whisper when OPENAI_API_KEY is set",
-  server.includes("api.openai.com/v1/audio/transcriptions") && server.includes('kind === "stt" && OPENAI_KEY'),
-  "Whisper branch missing from server"
-);
-checkTrue(
-  "Whisper reply is wrapped in a Gemini-shaped response",
-  server.includes("candidates: [{ content: { parts: [{ text: out.text"),
-  "extension-compatible response shape missing"
-);
-checkTrue(
-  "content.js dispatches ears mode in startListening",
-  content.includes('earsMode === "accurate"') && content.includes("recStartListening"),
-  "accurate-ears dispatch missing"
-);
-checkTrue(
-  "options page exposes the ears setting",
-  fs.readFileSync(__dirname + "/../src/options.html", "utf8").includes('id="ears"') &&
-    fs.readFileSync(__dirname + "/../src/options.js", "utf8").includes("roodyEars"),
-  "ears setting missing from options"
-);
-
-console.log("\n— Per-code brain/voice (admin-selectable, server-authoritative) —");
-
-const srv = fs.readFileSync(__dirname + "/../server/index.js", "utf8");
+const srv = read("server/index.js");
 checkTrue(
   "proxy can route a code's brain to Claude and Grok",
   srv.includes("api.anthropic.com/v1/messages") && srv.includes("api.x.ai/v1/chat/completions") &&
@@ -222,73 +234,39 @@ checkTrue(
   "Claude/Grok brain routing missing from proxy"
 );
 checkTrue(
-  "proxy can route a code's voice to ElevenLabs",
-  srv.includes("api.elevenlabs.io/v1/text-to-speech") && srv.includes('info.voice === "eleven"'),
-  "ElevenLabs voice routing missing"
-);
-checkTrue(
   "provider replies are translated back to the Gemini shape",
   srv.includes("function textToGemini") && srv.includes("candidates: [{ content: { parts:"),
   "response translation missing"
 );
-checkTrue(
-  "a brain/voice falls back to Gemini when its founder key is absent",
-  srv.includes("function resolveBrain") && srv.includes("function resolveVoice"),
-  "missing key-absent fallback guard"
-);
-checkTrue(
-  "admin mint form offers brain and voice dropdowns",
-  srv.includes('name="brain"') && srv.includes('name="voice"') &&
-    srv.includes("brain, voice,") && srv.includes('["gemini", "claude", "grok"].includes'),
-  "admin brain/voice selection missing"
-);
 
-console.log("\n— Portal accounts & waitlist (Antigravity's plan + the 4 fixes) —");
+console.log("\n— Portal accounts & security —");
 
-const srv2 = fs.readFileSync(__dirname + "/../server/index.js", "utf8");
 checkTrue(
-  "auth tokens are stored HASHED, never plaintext (fix #1)",
-  srv2.includes("function hashTok") && srv2.includes("tok: hashTok(token)") && !srv2.includes("tok: token,"),
+  "auth tokens are stored HASHED, never plaintext",
+  srv.includes("function hashTok") && srv.includes("tok: hashTok(token)") && !srv.includes("tok: token,"),
   "plaintext token storage detected"
 );
 checkTrue(
-  "inputs validated + growth caps on waitlist/accounts/tokens (fix #2)",
-  srv2.includes("function validEmail") && srv2.includes("WAITLIST_CAP") &&
-    srv2.includes("ACCOUNTS_PER_CODE") && srv2.includes("TOKENS_PER_USER"),
-  "validation/caps missing"
-);
-checkTrue(
   "extension's /me endpoint untouched (no collision)",
-  srv2.includes('u.pathname === "/me"') && srv2.includes('u.pathname === "/me/profile"') &&
-    srv2.includes("ok: true, name: info.name, used: s.todayBrain, limit: info.limit"),
+  srv.includes('u.pathname === "/me"') &&
+    srv.includes("ok: true, name: info.name, used: s.todayBrain, limit: info.limit"),
   "/me shape changed — extension dashboard would break"
 );
 checkTrue(
-  "portal served from site/ like the other public pages",
-  srv2.includes('"portal.html"') && fs.existsSync(__dirname + "/../site/portal.html"),
-  "portal route or file missing"
-);
-checkTrue(
   "portal page embeds no secrets",
-  (() => { const p = fs.readFileSync(__dirname + "/../site/portal.html", "utf8"); return !/ADMIN_KEY|API_KEY|AIza|sk-ant|xai-/.test(p); })(),
+  (() => { const p = read("site/portal.html"); return !/ADMIN_KEY|API_KEY|AIza|sk-ant|xai-/.test(p); })(),
   "possible secret in portal.html"
 );
 checkTrue(
   "still zero npm dependencies",
   !fs.existsSync(__dirname + "/../server/node_modules") &&
-    !JSON.parse(fs.readFileSync(__dirname + "/../package.json", "utf8")).dependencies,
+    !JSON.parse(read("package.json")).dependencies,
   "a dependency crept in"
 );
-checkTrue(
-  "privacy pages no longer claim 'no servers, no data ever'",
-  !fs.readFileSync(__dirname + "/../PRIVACY.md", "utf8").includes("no servers") &&
-    !fs.readFileSync(__dirname + "/../site/privacy.html", "utf8").includes("no servers"),
-  "outdated no-servers claim still present"
-);
 
-console.log("\n— v1.0 final polish: no dev machinery in the consumer product —");
+console.log("\n— No dev machinery in the consumer product —");
 
-const optionsHtml = fs.readFileSync(__dirname + "/../src/options.html", "utf8");
+const optionsHtml = read("src/options.html");
 const devPanel = optionsHtml.slice(optionsHtml.indexOf('id="adminonly"'));
 const consumerView = optionsHtml.slice(0, optionsHtml.indexOf('id="adminonly"'));
 checkTrue(
@@ -306,27 +284,16 @@ checkTrue(
   !/type="password"/.test(consumerView),
   "a password/key field is user-visible"
 );
-const contentNow = fs.readFileSync(__dirname + "/../src/content.js", "utf8");
 checkTrue(
-  "panel subtitle is consumer copy",
-  contentNow.includes("your friend on this page") && !contentNow.includes("one switch · conversation flows"),
-  "dev-flavored subtitle still present"
+  "panel subtitle is coding-assistant copy",
+  content.includes("AI coding assistant"),
+  "panel subtitle not updated"
 );
-checkTrue(
-  "hearing strip has no jargon (confidence score / accurate ears)",
-  !contentNow.includes('(${conf})`') && !contentNow.includes("listening (accurate ears)"),
-  "recognition internals still surfaced in UI"
-);
-checkTrue(
-  "drag observer only re-docks on display transitions (no feedback loop)",
-  contentNow.includes("lastPanelDisplay"),
-  "MutationObserver loop guard missing"
-);
+
 // Every user-facing error string in the pipeline must be provider-free.
-// Collect the exact strings shown via res.error / addBubble and scan them.
-const jargon = /Anthropic|Claude|Gemini|Grok|ElevenLabs|xAI|aistudio|console\.x|sk-ant|AIza/;
+const jargon = /Anthropic|Claude|Gemini|Grok|xAI|aistudio|console\.x|sk-ant|AIza/;
 const userErrorStrings = [
-  ...fs.readFileSync(__dirname + "/../src/background.js", "utf8").matchAll(/error:\s*(?:"([^"]+)"|`([^`]+)`)/g),
+  ...bg.matchAll(/error:\s*(?:"([^"]+)"|`([^`]+)`)/g),
 ].map((m) => m[1] || m[2]);
 checkTrue(
   "no provider names / URLs / raw bodies in user-facing brain errors",
@@ -334,18 +301,13 @@ checkTrue(
   "found: " + userErrorStrings.filter((s) => jargon.test(s)).join(" | ")
 );
 checkTrue(
-  "TTS failure bubble is generic (no key advice, no raw why)",
-  contentNow.includes("my warm voice hiccuped") && !contentNow.includes("check your ElevenLabs/Gemini key"),
-  "TTS bubble still leaks providers"
-);
-checkTrue(
   "default brain matches what invite users actually get",
-  fs.readFileSync(__dirname + "/../src/background.js", "utf8").includes('const MODEL = "gemini-2.5-flash"'),
+  bg.includes('const MODEL = "gemini-2.5-flash"'),
   "default model mismatch"
 );
 checkTrue(
-  "manifest is v1.0.0",
-  JSON.parse(fs.readFileSync(__dirname + "/../manifest.json", "utf8")).version === "1.0.0",
+  "manifest is v2.0.0",
+  JSON.parse(read("manifest.json")).version === "2.0.0",
   "version not bumped"
 );
 

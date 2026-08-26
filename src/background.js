@@ -1,10 +1,12 @@
-// Roody's brain-stem: receives messages from the orb, calls Claude, sends the reply back.
+// Roody's brain-stem: receives messages from the orb, calls the model, sends
+// the reply back. Roody is a coding assistant — it reads the page (and, on
+// request, a screenshot of the screen) and answers in the chat. No voice.
 try { importScripts("persona.js"); } catch (_) { importScripts("src/persona.js"); }
 try { importScripts("sanitize.js"); } catch (_) { importScripts("src/sanitize.js"); }
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
-// Roody just reads and chats — Sonnet is the sweet spot (smart + ~40% cheaper
-// than Opus). Users can switch to Haiku (cheaper) or Opus (sharper) in settings.
+// Gemini 2.5 Flash is the default brain: cheap, fast, multimodal (so it can
+// read screenshots). Users can switch to Claude/Grok in settings with a key.
 const MODEL = "gemini-2.5-flash";
 
 // Pull the user's settings (API key + chosen model) from extension storage.
@@ -21,18 +23,12 @@ async function getSettings() {
 // USD → INR conversion. Approximate; refresh manually when needed.
 const USD_TO_INR = 85;
 const fmtMoney = (usd) => `$${usd.toFixed(4)} · ₹${(usd * USD_TO_INR).toFixed(2)}`;
-// Rough $/1M tokens. Gemini TTS/STT billed approximately by tokens.
+// Rough $/1M tokens.
 const PRICES = {
   "claude-opus-4-8": { in: 5, out: 25 },
   "claude-sonnet-4-6": { in: 3, out: 15 },
   "claude-haiku-4-5": { in: 1, out: 5 },
-  "gemini-tts": { in: 0.5, out: 10 }, // approximate
-  "gemini-stt": { in: 0.3, out: 1 }, // approximate
   "gemini-2.5-flash": { in: 0.3, out: 2.5 },
-  // ElevenLabs free tier = 10k credits/month, $0 out of pocket. We track
-  // CREDITS (≈characters) separately in roodyElevenChars, NOT as dollars —
-  // counting them as money was inflating the spend meter ~4x.
-  "elevenlabs": { in: 0, out: 0 },
   "grok-3": { in: 3, out: 15 },
   "grok-3-mini": { in: 0.3, out: 0.5 },
   "grok-3-mini-fast": { in: 0.3, out: 0.5 },
@@ -64,11 +60,8 @@ async function rlog(line) {
   await chrome.storage.local.set({ roodyLog: log });
 }
 
-// Ask Roody's brain. Routes to Claude or Gemini depending on which model is
-// selected in settings. `pageContext` is the read-only text Roody scraped from
-// the page; `history` is the running chat between the human and Roody.
-// `mode === "voice"` triggers speed-tuned settings: no web search, fewer tokens,
-// shorter history, stricter "one spoken sentence" instruction.
+// Reply language. `roodyLang` stores a BCP-47 tag (e.g. "hi-IN"); we map the
+// primary subtag to a name and tell the brain to answer in that language.
 const LANG_NAMES = {
   "te": "Telugu", "hi": "Hindi", "ta": "Tamil", "kn": "Kannada", "ml": "Malayalam",
   "es": "Spanish", "fr": "French", "de": "German", "ja": "Japanese", "ko": "Korean", "zh": "Chinese",
@@ -81,18 +74,17 @@ function langName(code) {
 
 // ---- Modes ----------------------------------------------------------------
 // content.js detects the page type from cheap heuristics (URL + DOM) and sends
-// a `pageMode`. We inject a short, spoken-appropriate instruction so Roody acts
-// like the right expert for the context — invisible to the user, no extra LLM
-// call, no cost change. Judgment-first, matching the Thinking Partner persona.
+// a `pageMode`. We inject a short instruction so Roody acts like the right kind
+// of expert for the context — invisible to the user, no extra LLM call.
 const MODE_HINTS = {
   code:
-    "CODE MODE: They're looking at code or an error. Hunt for the actual bug, the risky line, the edge case they'll hit — and if there's an error, point at the likely cause and where to look. Don't narrate what the code obviously does; find what's wrong or what's simpler.",
+    "CODE MODE: They're looking at code, a diff, or an error. Find the actual bug, the risky line, the edge case they'll hit. If there's an error, name the likely cause and where to look, then give the fix as a code block. Don't narrate what the code obviously does — find what's wrong or what's simpler.",
   learning:
-    "LEARNING MODE: They're studying a document. Optimize for RETENTION, not coverage: the one idea that matters most, what people usually misunderstand, and a memory hook or analogy that makes it stick. Offer to quiz them.",
+    "LEARNING MODE: They're studying a document. Optimize for understanding: the one idea that matters most, what people usually misunderstand, and a concrete example. Offer to quiz them.",
   research:
     "RESEARCH MODE: They're reading research or docs. Separate evidence from claims, flag what's strong vs weak, name the open question, and point to what's worth reading deeper. Don't just summarize.",
   writing:
-    "WRITING MODE: They're writing. Be a sharp editor, not a cheerleader: the weak sentence, the missing argument, the stronger phrasing, the flow break. Judge clarity, don't praise.",
+    "WRITING MODE: They're writing. Be a sharp editor: the weak sentence, the missing argument, the stronger phrasing, the flow break. Judge clarity, don't just praise.",
   founder:
     "FOUNDER MODE: They're working on product/startup material. Surface the real risk, the competitor, the moat gap, the objection an investor would raise. Be the honest co-founder who says the hard thing.",
 };
@@ -119,69 +111,59 @@ function buildMemoryBlock(memory) {
 }
 
 // User's own "about me" — a small text they can set in Settings so Roody
-// actually knows who they are. Prepended to the system prompt.
+// knows who they are. Prepended to the system prompt.
 function buildProfileBlock(profile) {
   const p = (profile || "").trim();
   if (!p) return "";
   return `About the user (what they told you about themselves):\n"${p.slice(0, 500)}"\n\n`;
 }
 
-async function askRoody({ userText, pageContext, history, mode, site, title, pageMode }) {
+// Which selected brains can actually read an attached screenshot. Gemini and
+// Claude are multimodal here; Grok-3 (text) is not, so image turns get routed
+// to Gemini vision instead.
+function modelSupportsVision(model) {
+  return model.startsWith("gemini-") || model.startsWith("claude-");
+}
+
+// Ask Roody's brain. Routes to Claude, Gemini, or Grok depending on the model
+// selected in settings. `pageContext` is the read-only text scraped from the
+// page; `history` is the running chat; `image` (optional) is a screenshot the
+// user asked Roody to look at, as { mime, data } where data is base64.
+async function askRoody({ userText, pageContext, history, site, title, pageMode, image }) {
   const { apiKey, xaiKey, model: settingsModel } = await getSettings();
-  const { roodyVoiceCheapBrain, roodyLang, roodyVibe, roodyMemory, roodyProfile } = await chrome.storage.local.get(["roodyVoiceCheapBrain", "roodyLang", "roodyVibe", "roodyMemory", "roodyProfile"]);
-  // Smart tiering: cheap model for everyday chatter, the user's FULL model
-  // for "analyze this" turns. Best quality where it matters, cheap where it
-  // doesn't. (Analysis detection duplicated here from the per-brain regex —
-  // it decides ROUTING; the per-brain one decides reply length.)
-  const asksAnalysis = /\b(analy[sz]e|analysis|what do you think|what's your take|break (this|it) down|review|explain (this|it|the (page|article))|deep dive|dive in(to)?|insight|thoughts on|look (at|closer))\b/i.test(userText || "");
-  const useCheap = mode === "voice" && roodyVoiceCheapBrain !== false && !asksAnalysis;
-  // Hook-loop: when the user wraps up ("ok thanks", "cool", "bye"), Roody ends
-  // with a promise to keep watching — loading curiosity for the NEXT visit.
-  const wrapUp = /^(ok(ay)?|cool|thanks?( you)?( so much)?|got it|alright|nice|great|perfect|sounds good|bye|see (ya|you)|good ?night)[\s.!?]*$/i.test((userText || "").trim());
-  if (wrapUp) {
-    userText += "\n\n(The user is wrapping up this conversation. Reply warmly and briefly — and end with a short natural promise to keep an eye on this page and flag anything interesting, so they're curious to come back. Vary the wording; don't repeat the same promise every time.)";
-  }
-  // Cheap voice brain only applies within the same provider — don't override
-  // Gemini/Grok to Claude Haiku (user might not have a Claude key).
+  const { roodyLang, roodyVibe, roodyMemory, roodyProfile } = await chrome.storage.local.get(["roodyLang", "roodyVibe", "roodyMemory", "roodyProfile"]);
+
   let model = settingsModel;
-  if (useCheap) {
-    if (settingsModel.startsWith("gemini-")) model = "gemini-2.5-flash";
-    else if (settingsModel.startsWith("grok-")) model = "grok-3-mini-fast";
-    else model = "claude-haiku-4-5";
-  }
   // Credential-aware routing: invite-code-only users default to a Claude
   // model they have no key for. If the selected brain's key is missing but
   // Gemini is reachable (own key or invite code), route to Gemini instead of
   // erroring — fresh installs must Just Work with only a code.
-  {
-    const { roodyGeminiKey, roodyInviteCode } = await chrome.storage.local.get(["roodyGeminiKey", "roodyInviteCode"]);
-    const geminiReachable = !!(roodyGeminiKey || roodyInviteCode);
-    if (geminiReachable) {
-      if (model.startsWith("grok-") && !xaiKey) model = "gemini-2.5-flash";
-      else if (!model.startsWith("grok-") && !model.startsWith("gemini-") && !apiKey) model = "gemini-2.5-flash";
-    }
+  const { roodyGeminiKey, roodyInviteCode } = await chrome.storage.local.get(["roodyGeminiKey", "roodyInviteCode"]);
+  const geminiReachable = !!(roodyGeminiKey || roodyInviteCode);
+  if (geminiReachable) {
+    if (model.startsWith("grok-") && !xaiKey) model = "gemini-2.5-flash";
+    else if (!model.startsWith("grok-") && !model.startsWith("gemini-") && !apiKey) model = "gemini-2.5-flash";
+    // A screenshot needs a vision-capable brain — fall back to Gemini vision.
+    if (image && !modelSupportsVision(model)) model = "gemini-2.5-flash";
   }
+
   const baseSystem = getSystemPrompt(roodyVibe || "normal");
   const profileBlock = buildProfileBlock(roodyProfile);
   const memoryBlock = buildMemoryBlock(roodyMemory);
   // Prompt-caching split:
-  //   stable part = persona + vibe + profile (rarely changes → gets cached
-  //     at 90% off for 5 min after the first call)
+  //   stable part = persona + profile + mode (rarely changes → cached)
   //   dynamic part = memory (updates every turn → NOT cached)
-  // The full string is still assembled for Gemini/Grok which don't cache the
-  // same way.
-  // Mode hint sits with the stable prefix (stable per page → still caches).
   const modeBlock = (pageMode && MODE_HINTS[pageMode]) ? MODE_HINTS[pageMode] + "\n\n" : "";
   const stableSystem = profileBlock + modeBlock + baseSystem;
   const systemPrompt = profileBlock + modeBlock + memoryBlock + baseSystem;
 
   // Gemini brain
   if (model && model.startsWith("gemini-")) {
-    return askGeminiBrain({ userText, pageContext, history, model, mode, lang: roodyLang, systemPrompt, site, title });
+    return askGeminiBrain({ userText, pageContext, history, model, lang: roodyLang, systemPrompt, site, title, image });
   }
-  // Grok brain
+  // Grok brain (text only — image turns were already re-routed to Gemini above)
   if (model && model.startsWith("grok-")) {
-    return askGrokBrain({ userText, pageContext, history, model, mode, lang: roodyLang, xaiKey, systemPrompt, site, title });
+    return askGrokBrain({ userText, pageContext, history, model, lang: roodyLang, xaiKey, systemPrompt, site, title });
   }
   if (!apiKey) {
     return {
@@ -191,43 +173,37 @@ async function askRoody({ userText, pageContext, history, mode, site, title, pag
     };
   }
 
-  const isVoice = mode === "voice";
-  // "Analyze mode" — user explicitly asked for deeper thinking. Unlocks a
-  // longer format (3-4 sentences) and bigger page context. Regular voice
-  // chatter stays snappy.
-  const wantsAnalysis = /\b(analy[sz]e|analysis|what do you think|what's your take|break (this|it) down|review|explain (this|it|the (page|article))|deep dive|dive in(to)?|insight|thoughts on|look (at|closer))\b/i.test(userText || "");
-
-  // Voice turns get a much smaller page context (1500 chars vs 14000) — the
-  // recent task is what matters when talking. Text turns can keep more.
-  const ctxCap = isVoice ? (wantsAnalysis ? 6000 : 1500) : 14000;
-  const siteHint = site ? `You are watching the user on ${site}${title ? ` (page title: "${title.slice(0, 80)}")` : ""}. The text in quotes below is what they can see right now — it is NOT a message from them, it is the page they are looking at.\n\n` : "";
+  // ---- Claude path ----
+  const ctxCap = 14000;
+  const siteHint = site ? `The user is on ${site}${title ? ` (page title: "${title.slice(0, 80)}")` : ""}. The text in quotes below is what's on their screen right now — it is context, NOT a message from them.\n\n` : "";
   const contextBlock = pageContext
-    ? `${siteHint}Here is what is on the page (read-only, may include the user's other AI chat):\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
+    ? `${siteHint}Here is what is on the page (read-only):\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
     : siteHint;
-  // Voice turns: explicit "speak briefly" instruction. Analyze mode unlocks
-  // 3-4 sentences of real insight instead of a one-liner summary.
-  const voiceInstr = isVoice
-    ? (wantsAnalysis
-        ? "The user asked you to analyze/think about the page. Reply in 3-4 spoken sentences with a REAL take — insights, connections, opinions, or what stands out. Don't just describe what's on the page; give your view. End with proper punctuation. No lists, no markdown — read aloud.\n\n"
-        : "Reply in ONE complete warm sentence, roughly 10-20 words. NEVER answer with just one or two words — even a simple answer gets a full friendly sentence. End with punctuation. No lists, no markdown — read aloud.\n\n")
-    : "";
   // Language instruction: if non-English, tell the brain to reply in that language.
   const lName = langName(roodyLang);
   const langInstr = lName
     ? `IMPORTANT: Reply in ${lName}. The user is speaking ${lName}.\n\n`
     : "";
-  const trimmedHistory = isVoice ? history.slice(-4) : history;
+  const imageNote = image ? "A screenshot of the user's screen is attached below — use it to answer.\n\n" : "";
+
+  // The newest user turn is a text block (context + question); when a screenshot
+  // is attached it becomes a multi-part content array with an image block.
+  const userTurnText = `${langInstr}${imageNote}${contextBlock}${userText}`;
+  const userContent = image
+    ? [
+        { type: "image", source: { type: "base64", media_type: image.mime || "image/jpeg", data: image.data } },
+        { type: "text", text: userTurnText },
+      ]
+    : userTurnText;
 
   const messages = [
-    ...trimmedHistory,
-    { role: "user", content: `${langInstr}${voiceInstr}${contextBlock}${userText}` },
+    ...history,
+    { role: "user", content: userContent },
   ];
 
-  // Web search is great for text mode but tanks voice-mode latency (~1-3s per
-  // hop) AND can balloon input tokens to 20k+. Always off in voice mode.
   const { roodyWebSearch } = await chrome.storage.local.get(["roodyWebSearch"]);
   const tools =
-    !isVoice && roodyWebSearch !== false
+    roodyWebSearch !== false
       ? [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }]
       : undefined;
 
@@ -236,7 +212,7 @@ async function askRoody({ userText, pageContext, history, mode, site, title, pag
   for (let i = 0; i < 4; i++) {
     let resp;
     const t0 = performance.now();
-    rlog(`→ Claude ${model} (msgs=${messages.length}${tools ? " +web" : ""})`);
+    rlog(`→ Claude ${model} (msgs=${messages.length}${tools ? " +web" : ""}${image ? " +img" : ""})`);
     try {
       resp = await fetch(ANTHROPIC_URL, {
         method: "POST",
@@ -249,8 +225,8 @@ async function askRoody({ userText, pageContext, history, mode, site, title, pag
         },
         body: JSON.stringify({
           model,
-          max_tokens: isVoice ? (wantsAnalysis ? 220 : 90) : 400,
-          temperature: 0.4,
+          max_tokens: 2000,
+          temperature: 0.3,
           // Prompt caching: mark the stable persona+profile as ephemeral so
           // Anthropic caches it for 5 min. Memory (dynamic) stays uncached in
           // a second block. 90% discount on the cached read after call #1.
@@ -273,7 +249,7 @@ async function askRoody({ userText, pageContext, history, mode, site, title, pag
     if (!resp.ok) {
       const body = await resp.text();
       rlog(`❌ Claude ${resp.status}: ${body.slice(0, 200)}`);
-      return { ok: false, error: "My brain hiccuped for a second — say that again?" };
+      return { ok: false, error: "The model hiccuped for a second — try that again?" };
     }
     const data = await resp.json();
     const ms = Math.round(performance.now() - t0);
@@ -309,58 +285,7 @@ function sanitizeReply(txt) {
   return self.RoodySanitize.sanitizeReply(txt);
 }
 
-// ---- ElevenLabs voice (premium TTS — most human, sub-second) -------------
-// If a key is set in settings, Roody uses ElevenLabs instead of Gemini TTS.
-// Flash v2.5 model = lowest latency (~75-300 ms) at solid quality.
-const ELEVEN_BASE = "https://api.elevenlabs.io/v1";
-async function elevenLabsTTS(text) {
-  const { roodyElevenKey, roodyElevenVoice, roodyVibe } = await chrome.storage.local.get([
-    "roodyElevenKey",
-    "roodyElevenVoice",
-    "roodyVibe",
-  ]);
-  if (!roodyElevenKey) return { ok: false, error: "no-eleven-key" };
-  const voiceId = roodyElevenVoice || "21m00Tcm4TlvDq8ikWAM"; // Rachel
-  const vibe = roodyVibe || "normal";
-  const voiceSettings = SIDEKICK_ELEVEN_SETTINGS[vibe] || SIDEKICK_ELEVEN_SETTINGS.normal;
-  const t0 = performance.now();
-  rlog(`→ ElevenLabs TTS (${text.length} chars, voice=${voiceId.slice(0, 8)}…, vibe=${vibe})`);
-  try {
-    const resp = await fetch(
-      `${ELEVEN_BASE}/text-to-speech/${voiceId}?output_format=mp3_44100_64`,
-      {
-        method: "POST",
-        headers: {
-          "xi-api-key": roodyElevenKey,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          text,
-          model_id: "eleven_turbo_v2_5",
-          voice_settings: voiceSettings,
-        }),
-      }
-    );
-    if (!resp.ok) {
-      const body = (await resp.text()).slice(0, 200);
-      rlog(`❌ ElevenLabs ${resp.status}: ${body}`);
-      return { ok: false, error: `el ${resp.status} ${body}` };
-    }
-    const buf = await resp.arrayBuffer();
-    const ms = Math.round(performance.now() - t0);
-    rlog(`✓ ElevenLabs ${ms}ms · ${Math.round(buf.byteLength / 1024)}KB`);
-    // base64-encode the MP3 bytes for transit to the content script
-    const bytes = new Uint8Array(buf);
-    let bin = "";
-    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-    return { ok: true, audioBase64: btoa(bin), mime: "audio/mpeg" };
-  } catch (e) {
-    rlog(`❌ ElevenLabs network: ${e.message}`);
-    return { ok: false, error: `el-net ${e.message}` };
-  }
-}
-
-// ---- Gemini voice (Roody's mouth and ears) --------------------------------
+// ---- Gemini brain ---------------------------------------------------------
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 // Founder's credits proxy (Hostinger Node.js, deployed from this repo's
@@ -370,8 +295,10 @@ const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const ROODY_PROXY_URL = "https://midnightblue-wolf-859857.hostingersite.com/";
 
 // Gemini router: own key → straight to Google. No key but invite code →
-// through the founder's proxy (kind: "brain" burns a credit, "tts"/"stt"
-// ride along). Returns { resp, via } or null when there's no way through.
+// through the founder's proxy (kind: "brain" burns a credit). Screenshots ride
+// along inside the same "brain" body as an inlineData part — gemini-2.5-flash
+// is multimodal, so no separate request kind is needed.
+// Returns { resp, via } or null when there's no way through.
 async function geminiFetch(model, bodyObj, kind) {
   const { roodyGeminiKey, roodyInviteCode, roodyProxyUrl } = await chrome.storage.local.get([
     "roodyGeminiKey", "roodyInviteCode", "roodyProxyUrl",
@@ -398,40 +325,34 @@ async function geminiFetch(model, bodyObj, kind) {
 }
 const OUT_OF_CREDITS_MSG = "You've used today's free Roody messages — they refill tomorrow! 🌅";
 
-// Alternate brain — Gemini Flash, ~10x cheaper than Sonnet. Same persona,
-// same page context, same chat history shape.
-async function askGeminiBrain({ userText, pageContext, history, model, mode, lang, systemPrompt, site, title }) {
-  const isVoice = mode === "voice";
-  const wantsAnalysis = /\b(analy[sz]e|analysis|what do you think|what's your take|break (this|it) down|review|explain (this|it|the (page|article))|deep dive|dive in(to)?|insight|thoughts on|look (at|closer))\b/i.test(userText || "");
-  const ctxCap = isVoice ? (wantsAnalysis ? 6000 : 1500) : 14000;
-  const siteHint = site ? `You are watching the user on ${site}${title ? ` (page title: "${title.slice(0, 80)}")` : ""}. The text below in quotes is what they see — NOT their message.\n\n` : "";
+// Gemini Flash — the default brain. Same persona, same page context, same chat
+// history shape. Reads an attached screenshot via an inlineData part.
+async function askGeminiBrain({ userText, pageContext, history, model, lang, systemPrompt, site, title, image }) {
+  const ctxCap = 14000;
+  const siteHint = site ? `The user is on ${site}${title ? ` (page title: "${title.slice(0, 80)}")` : ""}. The text below in quotes is what's on their screen — context, NOT their message.\n\n` : "";
   const contextBlock = pageContext
     ? `${siteHint}Here is what is on the page:\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
     : siteHint;
-  const voiceInstr = isVoice
-    ? (wantsAnalysis
-        ? "The user asked you to analyze the page. Reply in 3-4 spoken sentences with a REAL take — insights, opinions, or connections. Don't just describe. Read aloud, no lists/markdown.\n\n"
-        : "Reply in ONE complete warm sentence, roughly 10-20 words. NEVER answer with just one or two words — even a simple answer gets a full friendly sentence. End with punctuation. No lists, no markdown — read aloud.\n\n")
-    : "";
   const lName = langName(lang);
   const langInstr = lName
     ? `IMPORTANT: Reply in ${lName}. The user is speaking ${lName}.\n\n`
     : "";
-  const trimmedHistory = isVoice ? history.slice(-4) : history;
+  const imageNote = image ? "A screenshot of the user's screen is attached — use it to answer.\n\n" : "";
+
+  const userParts = [{ text: langInstr + imageNote + userText }];
+  if (image) userParts.unshift({ inlineData: { mimeType: image.mime || "image/jpeg", data: image.data } });
 
   const contents = [
-    ...trimmedHistory.map((m) => ({
+    ...history.map((m) => ({
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
     })),
-    { role: "user", parts: [{ text: langInstr + voiceInstr + userText }] },
+    { role: "user", parts: userParts },
   ];
 
-  // Cache-friendly layout: the page/PDF context rides in systemInstruction —
-  // the byte-stable PREFIX of the prompt — instead of inside the newest user
-  // turn. Gemini 2.5's implicit caching (75% off re-read input tokens) only
-  // matches identical prefixes, so a static document (PDF study mode) gets
-  // cached after the first message; only history + the question change.
+  // Cache-friendly layout: the page context rides in systemInstruction — the
+  // byte-stable PREFIX of the prompt — so a static document gets cached after
+  // the first message; only history + the question change.
   const system = (systemPrompt || self.ROODY_SYSTEM) + (contextBlock ? `\n\n${contextBlock}` : "");
 
   let routed;
@@ -439,12 +360,11 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
     routed = await geminiFetch(model, {
       systemInstruction: { parts: [{ text: system }] },
       contents,
-      // thinkingBudget 0: Gemini 2.5 Flash is a thinking model — without this
-      // it burns the tiny voice-token budget on invisible reasoning and then
-      // replies "Oh." with the 2 tokens it has left.
+      // thinkingBudget stays modest so answers don't stall, but big enough for
+      // real code reasoning now that replies aren't one-liners.
       generationConfig: {
-        temperature: 0.4,
-        maxOutputTokens: isVoice ? (wantsAnalysis ? 300 : 120) : 400,
+        temperature: 0.3,
+        maxOutputTokens: 2000,
         thinkingConfig: { thinkingBudget: 0 },
       },
     }, "brain");
@@ -467,7 +387,7 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
   }
   if (!resp.ok) {
     rlog(`❌ Gemini brain ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
-    return { ok: false, error: "My brain hiccuped for a second — say that again?" };
+    return { ok: false, error: "The model hiccuped for a second — try that again?" };
   }
   const data = await resp.json();
   // Meter only what the USER pays for — proxied calls are on the founder.
@@ -489,35 +409,27 @@ async function askGeminiBrain({ userText, pageContext, history, model, mode, lan
 // ---- Grok brain (xAI) — OpenAI-compatible chat API -----------------------
 const GROK_URL = "https://api.x.ai/v1/chat/completions";
 
-async function askGrokBrain({ userText, pageContext, history, model, mode, lang, xaiKey, systemPrompt, site, title }) {
+async function askGrokBrain({ userText, pageContext, history, model, lang, xaiKey, systemPrompt, site, title }) {
   if (!xaiKey) {
     return {
       ok: false,
       error: "Roody isn't set up yet — open Settings (⚙) and paste your invite code.",
     };
   }
-  const isVoice = mode === "voice";
-  const wantsAnalysis = /\b(analy[sz]e|analysis|what do you think|what's your take|break (this|it) down|review|explain (this|it|the (page|article))|deep dive|dive in(to)?|insight|thoughts on|look (at|closer))\b/i.test(userText || "");
-  const ctxCap = isVoice ? (wantsAnalysis ? 6000 : 1500) : 14000;
-  const siteHint = site ? `You are watching the user on ${site}${title ? ` (page title: "${title.slice(0, 80)}")` : ""}. The text below in quotes is what they see — NOT their message.\n\n` : "";
+  const ctxCap = 14000;
+  const siteHint = site ? `The user is on ${site}${title ? ` (page title: "${title.slice(0, 80)}")` : ""}. The text below in quotes is what's on their screen — context, NOT their message.\n\n` : "";
   const contextBlock = pageContext
     ? `${siteHint}Here is what is on the page:\n\n"""\n${pageContext.slice(0, ctxCap)}\n"""\n\n`
     : siteHint;
-  const voiceInstr = isVoice
-    ? (wantsAnalysis
-        ? "The user asked you to analyze the page. Reply in 3-4 spoken sentences with a REAL take. Read aloud, no lists.\n\n"
-        : "Reply in ONE complete warm sentence, roughly 10-20 words. NEVER answer with just one or two words — even a simple answer gets a full friendly sentence. End with punctuation. No lists, no markdown — read aloud.\n\n")
-    : "";
   const lName = langName(lang);
   const langInstr = lName
     ? `IMPORTANT: Reply in ${lName}. The user is speaking ${lName}.\n\n`
     : "";
-  const trimmedHistory = isVoice ? history.slice(-4) : history;
 
   const messages = [
     { role: "system", content: systemPrompt || self.ROODY_SYSTEM },
-    ...trimmedHistory,
-    { role: "user", content: `${langInstr}${voiceInstr}${contextBlock}${userText}` },
+    ...history,
+    { role: "user", content: `${langInstr}${contextBlock}${userText}` },
   ];
 
   const t0 = performance.now();
@@ -533,8 +445,8 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
       body: JSON.stringify({
         model,
         messages,
-        max_tokens: isVoice ? (wantsAnalysis ? 220 : 90) : 400,
-        temperature: 0.5,
+        max_tokens: 2000,
+        temperature: 0.4,
       }),
     });
   } catch (e) {
@@ -544,7 +456,7 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
   if (!resp.ok) {
     const body = await resp.text();
     rlog(`❌ Grok ${resp.status}: ${body.slice(0, 200)}`);
-    return { ok: false, error: "My brain hiccuped for a second — say that again?" };
+    return { ok: false, error: "The model hiccuped for a second — try that again?" };
   }
   const data = await resp.json();
   const ms = Math.round(performance.now() - t0);
@@ -558,165 +470,20 @@ async function askGrokBrain({ userText, pageContext, history, model, mode, lang,
   return { ok: true, text: sanitizeReply(text) || "…" };
 }
 
-// Character voice styles — Gemini TTS responds to acting direction in the
-// prompt. Each sidekick gets a distinct voice personality so the same TTS
-// voice actually SOUNDS different when the character is "speaking."
-const SIDEKICK_TTS_STYLES = {
-  normal: "Say this warmly and casually, like a close friend mid-conversation — natural pauses, a smile in the voice. If the text has laughter (haha, pfft) actually chuckle it; if it has 'hmm' or 'ohh', perform them as real thinking sounds, not read them as words",
-  minion: "Perform this like a small, silly, hyperactive creature. Use a HIGH-PITCHED, squeaky, excited voice. Speed up on the silly gibberish words. Sound goofy, chaotic, and adorable — like a tiny yellow creature who doesn't fully understand what's happening but is VERY enthusiastic about it",
-  roadrunner: "Perform this with bursts of extreme speed and energy. The 'MEEP MEEP' parts should be sharp, quick, and high-pitched. Normal parts are calm, then suddenly ZOOM — fast and energetic. Big contrast between calm narration and explosive speed moments",
-  coyote: "Perform this like a dramatic narrator telling a tragic comedy. Sound sophisticated and scheming during the planning parts — then shift to deadpan disappointment when things fail. Think of a genius whose plans always backfire. Dry humor, dramatic pauses before the disaster",
-  pinkpanther: "Perform this in a smooth, cool, suave voice — like a secret agent. Slow, deliberate, dripping with style. The 'dun dun dun dun' theme parts should be musical and sly. Everything sounds effortlessly cool and mysterious",
-  woody: "Perform this like a cheerful, bold cowboy. Warm, friendly, but COMMANDING when rallying the team. The catchphrases like 'there's a snake in my boot' should be enthusiastic and slightly startled. Overall: loyal, brave, heart-of-gold cowboy energy",
-  rapunzel: "Perform this with OVERWHELMING excitement and wonder. High energy, breathless amazement at everything. Like someone seeing the world for the first time and finding it MAGICAL. Genuine, bright, can't-contain-the-joy enthusiasm. Sing-songy on the musical parts",
-  snowwhite: "Perform this in a sweet, gentle, melodic voice — almost singing. Soft and kind, like talking to forest animals. The singing parts should actually sound musical and lilting. Warm, motherly, impossibly gentle and caring",
-  tom: "Perform this with big dramatic physical comedy energy. The crash and slapstick moments should be loud and startled — WHAM! OOF! Scheming parts are whispered and sneaky. Big contrast: sneaky quiet... then LOUD crash. Think cartoon cat energy",
-  jerry: "Perform this with clever, smug, mischievous energy. Quick and nimble — short sharp sounds. The victory moments should be tiny and triumphant. Overall: small but brilliant, self-satisfied, the smartest one in the room and knows it",
-};
-
-// ElevenLabs voice_settings tweaks per sidekick — makes the same voice
-// more expressive/chaotic for character moments.
-const SIDEKICK_ELEVEN_SETTINGS = {
-  normal:      { stability: 0.5,  similarity_boost: 0.75, style: 0.35, use_speaker_boost: true },
-  minion:      { stability: 0.2,  similarity_boost: 0.5,  style: 0.9,  use_speaker_boost: true },
-  roadrunner:  { stability: 0.25, similarity_boost: 0.6,  style: 0.85, use_speaker_boost: true },
-  coyote:      { stability: 0.4,  similarity_boost: 0.7,  style: 0.6,  use_speaker_boost: true },
-  pinkpanther: { stability: 0.6,  similarity_boost: 0.8,  style: 0.5,  use_speaker_boost: true },
-  woody:       { stability: 0.35, similarity_boost: 0.7,  style: 0.7,  use_speaker_boost: true },
-  rapunzel:    { stability: 0.2,  similarity_boost: 0.6,  style: 0.9,  use_speaker_boost: true },
-  snowwhite:   { stability: 0.55, similarity_boost: 0.8,  style: 0.5,  use_speaker_boost: true },
-  tom:         { stability: 0.15, similarity_boost: 0.5,  style: 0.95, use_speaker_boost: true },
-  jerry:       { stability: 0.3,  similarity_boost: 0.6,  style: 0.8,  use_speaker_boost: true },
-};
-
-// Text -> speech. Returns base64 PCM (signed 16-bit, mono) + its mime.
-async function geminiTTS(text) {
-  const { roodyVoice, roodyVibe } = await chrome.storage.local.get(["roodyVoice", "roodyVibe"]);
-  // Long inputs make the preview TTS slow (20-40s) and flaky (empty "no-audio"
-  // responses). Cap at ~550 chars, cutting at a sentence boundary.
-  if (text.length > 550) {
-    const cut = text.slice(0, 550);
-    const lastEnd = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
-    text = lastEnd > 200 ? cut.slice(0, lastEnd + 1) : cut + "…";
-    rlog(`✂ TTS input trimmed to ${text.length} chars (long replies choke the voice)`);
-  }
-  const vibe = roodyVibe || "normal";
-  const t0 = performance.now();
-  rlog(`→ Gemini TTS (${text.length} chars, voice=${roodyVoice || "Kore"}, vibe=${vibe})`);
-
-  const styleDirective = SIDEKICK_TTS_STYLES[vibe] || SIDEKICK_TTS_STYLES.normal;
-  const styled = `${styleDirective} (do not say this instruction, just perform what follows):\n\n${text}`;
-  const bodyObj = {
-    contents: [{ parts: [{ text: styled }] }],
-    generationConfig: {
-      responseModalities: ["AUDIO"],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: roodyVoice || "Kore" },
-        },
-      },
-    },
-  };
-
-  // One attempt + one retry on 500/503/429 — Gemini TTS is flaky under load.
-  async function attempt(n) {
-    let routed;
-    try {
-      routed = await geminiFetch("gemini-2.5-flash-preview-tts", bodyObj, "tts");
-    } catch (e) {
-      rlog(`❌ TTS network${n > 1 ? " (retry)" : ""}: ${e.message}`);
-      return { transient: true, error: `tts-network ${e.message}` };
-    }
-    if (!routed) {
-      rlog("⚠ TTS skipped: no Gemini key or invite code → robotic browser voice");
-      return { transient: false, error: "no-gemini-key" };
-    }
-    const resp = routed.resp;
-    if (resp.ok) return { resp, via: routed.via };
-    const txt = (await resp.text()).slice(0, 400);
-    // 429 = quota exhausted — a wall, not a flake. Retrying in 400ms just
-    // burns another request against an empty bucket; only 500/503 get a retry.
-    const transient = resp.status === 500 || resp.status === 503;
-    rlog(`❌ TTS ${resp.status}${n > 1 ? " (retry)" : ""} via ${routed.via === "own" ? "OWN key" : "invite-code proxy"}: ${txt}`);
-    if (resp.status === 429) {
-      rlog(`💳 voice quota exhausted on the ${routed.via === "own" ? "Gemini key in Settings" : "founder key on the proxy"} — text keeps working; voice needs billing/quota on that key`);
-    }
-    return { transient, status: resp.status, error: `tts ${resp.status} ${txt}` };
-  }
-
-  // Up to 2 tries. "200 OK but empty audio" (tts-no-audio) counts as a flake
-  // and gets retried too — it's the preview model's most common failure mode.
-  for (let tryN = 1; tryN <= 2; tryN++) {
-    const r = await attempt(tryN);
-    if (!r.resp) {
-      if (r.transient && tryN === 1) {
-        rlog("↻ retrying TTS after transient error…");
-        await new Promise((res) => setTimeout(res, 400));
-        continue;
-      }
-      rlog("⚠ Gemini TTS failed → falling back to robotic browser voice");
-      return { ok: false, error: r.error };
-    }
-    const data = await r.resp.json();
-    const ms = Math.round(performance.now() - t0);
-    if (data.usageMetadata && r.via === "own") {
-      addUsage(
-        "gemini-tts",
-        data.usageMetadata.promptTokenCount || 0,
-        data.usageMetadata.candidatesTokenCount || 0
-      );
-    }
-    const part = (data?.candidates?.[0]?.content?.parts || []).find((p) => p.inlineData);
-    if (!part) {
-      rlog(`❌ TTS no audio in response (${ms}ms)${tryN === 1 ? " — retrying" : ""}`);
-      if (tryN === 1) { await new Promise((res) => setTimeout(res, 400)); continue; }
-      return { ok: false, error: "tts-no-audio" };
-    }
-    rlog(`✓ TTS ${ms}ms · ${Math.round(part.inlineData.data.length / 1024)}KB`);
-    return { ok: true, audioBase64: part.inlineData.data, mime: part.inlineData.mimeType };
-  }
-  return { ok: false, error: "tts-no-audio" };
-}
-
-// Speech -> text. Takes base64 audio + its mime, returns the transcript.
-async function geminiSTT({ audioBase64, mime }) {
-  let routed;
+// ---- Screenshot ----------------------------------------------------------
+// Capture the visible area of the active tab as a JPEG. Allowed under the
+// existing `activeTab` grant (the user summoned Roody by clicking the icon).
+async function captureScreenshot() {
   try {
-    routed = await geminiFetch("gemini-2.5-flash", {
-      contents: [
-        {
-          parts: [
-            {
-              text: "Transcribe this audio to plain text. Return ONLY the exact words spoken — no commentary, no quotes.",
-            },
-            { inlineData: { mimeType: mime, data: audioBase64 } },
-          ],
-        },
-      ],
-      generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
-    }, "stt");
+    const dataUrl = await chrome.tabs.captureVisibleTab(undefined, { format: "jpeg", quality: 70 });
+    const m = /^data:(.+?);base64,(.*)$/.exec(dataUrl || "");
+    if (!m) { rlog("❌ screenshot: unexpected data URL"); return { ok: false, error: "screenshot-failed" }; }
+    rlog(`📸 screenshot captured (${Math.round(m[2].length / 1024)}KB)`);
+    return { ok: true, mime: m[1], data: m[2] };
   } catch (e) {
-    return { ok: false, error: `stt-network ${e.message}` };
+    rlog(`❌ screenshot: ${e.message}`);
+    return { ok: false, error: e.message };
   }
-  if (!routed) return { ok: false, error: "no-gemini-key" };
-  const resp = routed.resp;
-  if (!resp.ok) {
-    return { ok: false, error: `stt ${resp.status}` };
-  }
-  const data = await resp.json();
-  if (data.usageMetadata && routed.via === "own") {
-    addUsage(
-      "gemini-stt",
-      data.usageMetadata.promptTokenCount || 0,
-      data.usageMetadata.candidatesTokenCount || 0
-    );
-  }
-  const text = (data?.candidates?.[0]?.content?.parts || [])
-    .map((p) => p.text)
-    .filter(Boolean)
-    .join(" ")
-    .trim();
-  return { ok: true, text };
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -724,41 +491,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     askRoody(msg.payload).then(sendResponse);
     return true; // keep the channel open for the async reply
   }
-  if (msg?.type === "roody:tts") {
-    // Prefer ElevenLabs (premium, sub-second, human) when its key is set.
-    // Fall through to Gemini TTS only if it could plausibly succeed (a Gemini
-    // key is set). Otherwise surface the ElevenLabs error so the user can see
-    // what's wrong instead of silently getting the robotic browser voice.
-    (async () => {
-      const { roodyElevenKey, roodyGeminiKey, roodyInviteCode } = await chrome.storage.local.get([
-        "roodyElevenKey",
-        "roodyGeminiKey",
-        "roodyInviteCode",
-      ]);
-      const geminiAvailable = !!(roodyGeminiKey || roodyInviteCode);
-      rlog(`TTS request: eleven=${roodyElevenKey ? "yes" : "no"} gemini=${geminiAvailable ? "yes" : "no"}`);
-      if (roodyElevenKey) {
-        const r = await elevenLabsTTS(msg.payload.text);
-        if (r.ok) {
-          // Track free-tier credits (≈chars), not dollars.
-          const { roodyElevenChars } = await chrome.storage.local.get(["roodyElevenChars"]);
-          await chrome.storage.local.set({ roodyElevenChars: (roodyElevenChars || 0) + msg.payload.text.length });
-          return sendResponse(r);
-        }
-        if (!geminiAvailable) {
-          // No backup possible. Raw reason goes to rlog; the user gets the
-          // generic warm-voice-hiccup bubble from content.js.
-          rlog(`⚠ ElevenLabs failed and no Gemini backup: ${r.error}`);
-          return sendResponse({ ok: false, error: "voice-unavailable" });
-        }
-        rlog("↻ ElevenLabs failed, trying Gemini TTS as backup");
-      }
-      sendResponse(await geminiTTS(msg.payload.text));
-    })();
-    return true;
-  }
-  if (msg?.type === "roody:stt") {
-    geminiSTT(msg.payload).then(sendResponse);
+  if (msg?.type === "roody:screenshot") {
+    captureScreenshot().then(sendResponse);
     return true;
   }
   // Session recap — the "never lose the thread" feature. When a conversation
