@@ -65,8 +65,12 @@
   position: fixed;
   right: 22px;
   bottom: 86px;
-  width: 360px;
-  max-height: 72vh;
+  width: 440px;
+  min-width: 320px;
+  max-width: 720px;
+  height: 60vh;
+  min-height: 320px;
+  max-height: 82vh;
   background: var(--roody-glass);
   border: 1px solid var(--roody-border);
   border-radius: 18px;
@@ -256,3 +260,19 @@
   border-color: var(--roody-accent);
   box-shadow: 0 0 0 2px rgba(124, 155, 255, 0.25);
 }
+
+/* Custom resize grabber (native `resize` doesn't play well with position:fixed). */
+#roody-resize {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  z-index: 2;
+  /* Two hairline diagonals so the corner reads as a resize grip. */
+  background:
+    linear-gradient(135deg, transparent 0 40%, rgba(255,255,255,0.35) 40% 50%, transparent 50% 60%, rgba(255,255,255,0.35) 60% 70%, transparent 70%);
+  opacity: 0.55;
+}
+#roody-resize:hover { opacity: 1; }

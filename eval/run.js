@@ -229,14 +229,15 @@ checkTrue(
   "gpt- not recognised by modelSupportsVision"
 );
 checkTrue(
-  "OpenAI key is stored, cleared, and lives in the dev panel only",
+  "OpenAI key is stored and lives in the consumer view (founder's ask)",
   read("src/options.js").includes("roodyOpenAIKey") &&
     (() => {
       const h = read("src/options.html");
       const cut = h.indexOf('id="adminonly"');
-      return h.slice(cut).includes('id="okey"') && !h.slice(0, cut).includes('id="okey"');
+      // Now REQUIRED to be in the consumer half, not the dev half.
+      return h.slice(0, cut).includes('id="okey"');
     })(),
-  "OpenAI key wiring missing or user-visible"
+  "OpenAI key wiring missing or still stuck behind #dev"
 );
 checkTrue(
   "manifest allows the OpenAI host",
@@ -353,9 +354,27 @@ checkTrue(
   "log visible to normal users"
 );
 checkTrue(
-  "consumer view has no raw API-key inputs at all",
-  !/type="password"/.test(consumerView),
-  "a password/key field is user-visible"
+  "spend meter + proxy override live in the dev panel, not the consumer view",
+  devPanel.includes('id="spendusd"') && !consumerView.includes('id="spendusd"') &&
+    devPanel.includes('id="proxyurl"') && !consumerView.includes('id="proxyurl"'),
+  "dev-only machinery leaked to consumer view"
+);
+// The founder asked for Claude/OpenAI/Grok keys "directly in the settings" —
+// so the brain picker and those three keys now belong in the consumer view.
+// (Only the Gemini own-key stays dev-only, since invite codes already cover
+// the free-Gemini path.)
+checkTrue(
+  "brain picker and Claude/OpenAI/xAI keys are in the consumer view",
+  consumerView.includes('id="model"') &&
+    consumerView.includes('id="key"') && consumerView.includes('id="okey"') && consumerView.includes('id="xkey"') &&
+    consumerView.includes('id="clearkey"') && consumerView.includes('id="clearo"') && consumerView.includes('id="clearx"'),
+  "brain/key controls are still hidden behind #dev"
+);
+checkTrue(
+  "each consumer-view key has a status line and a getkey link",
+  consumerView.includes('id="keystatus"') && consumerView.includes('id="ostatus"') && consumerView.includes('id="xstatus"') &&
+    /console\.anthropic\.com/.test(consumerView) && /platform\.openai\.com/.test(consumerView) && /console\.x\.ai/.test(consumerView),
+  "status labels or provider links missing from consumer view"
 );
 checkTrue(
   "panel subtitle is coding-assistant copy",
@@ -401,6 +420,99 @@ checkTrue(
   "manifest version is bumped past the 2.0.0 pivot",
   JSON.parse(read("manifest.json")).version >= "2.0.1",
   "version not bumped"
+);
+
+console.log("\n— Coding-assistant fitness for the HackerRank/LeetCode use case —");
+
+// Screenshots hide Roody's own UI first — otherwise the vision model reads
+// Roody's own bubble text as if it were page content (the "58 min 24 sec h" bug).
+checkTrue(
+  "grabScreenshot hides orb + panel before captureVisibleTab",
+  /grabScreenshot[\s\S]{0,1200}orb\.style\.visibility[\s\S]{0,400}panel\.style\.visibility[\s\S]{0,400}requestAnimationFrame[\s\S]{0,300}"roody:screenshot"/.test(content),
+  "screenshot capture still bakes Roody's UI into the image"
+);
+checkTrue(
+  "capture message doesn't sit in the same bubble the model will read",
+  !content.includes('"📸 capturing your screen…"') || !content.includes('fillBubble(thinking, "📸'),
+  "the 'capturing your screen' text is still visible during capture"
+);
+
+// Editor extraction — Monaco/CodeMirror/Ace, not just textContent.
+checkTrue(
+  "content.js extracts Monaco lines by sorted top-px",
+  content.includes(".view-lines .view-line") && content.includes('top\\s*:\\s*(-?\\d+') &&
+    content.includes(".cm-content") && content.includes(".CodeMirror-code") && content.includes(".ace_editor .ace_text-layer"),
+  "editor extraction missing a family or reading DOM order for Monaco (which reorders)"
+);
+checkTrue(
+  "readPage sends PROBLEM + CODE blocks when an editor is on the page",
+  content.includes("extractEditorCode") && content.includes("PROBLEM:") && content.includes("CODE ("),
+  "coding pages still fall through to the run-on textContent path"
+);
+checkTrue(
+  "code mode detects LeetCode/HackerRank/Codeforces/etc",
+  // Sites live inside a regex literal, so the source contains escaped dots.
+  content.includes("leetcode\\.com") && content.includes("hackerrank\\.com") && content.includes("codesignal\\.com") &&
+    content.includes("codeforces\\.com") && content.includes("atcoder\\.jp"),
+  "coding platforms missing from code-mode detector"
+);
+
+// Failure handling.
+checkTrue(
+  "background retries 429/5xx/network on every brain",
+  bg.includes("fetchWithRetry") && bg.includes("RETRIABLE_STATUS") &&
+    /await\s+fetchWithRetry\(ANTHROPIC_URL/.test(bg) &&
+    /await\s+fetchWithRetry\(OPENAI_URL/.test(bg) &&
+    /await\s+fetchWithRetry\(GROK_URL/.test(bg) &&
+    /await\s+fetchWithRetry\(`\$\{GEMINI_BASE\}/.test(bg),
+  "retry helper not applied to every brain fetch"
+);
+checkTrue(
+  "watchdog nudges rather than discards a late reply",
+  content.includes("lastTurnId") && content.includes("commitAnswer") &&
+    !/setTimeout\([\s\S]{0,120}"That took too long/.test(content),
+  "the old 30s discard-on-timeout latch is still in place"
+);
+
+// Silent image drop — moved outside the geminiReachable guard.
+checkTrue(
+  "vision fallback fires even without Gemini reachable (no silent image drop)",
+  bg.includes("imageDropReason") && /if\s*\(\s*image\s*\)\s*\{[\s\S]{0,600}modelSupportsVision/.test(bg),
+  "screenshots are still silently dropped on non-vision own-key brains"
+);
+
+// UI polish.
+checkTrue(
+  "panel is resizable and its size persists",
+  content.includes('#roody-resize') && content.includes("roodyPanelSize") &&
+    read("src/content.css").includes("#roody-resize"),
+  "resize handle missing"
+);
+checkTrue(
+  "default panel width bumped for readable code blocks",
+  /#roody-panel\s*\{[\s\S]{0,600}width:\s*440px/.test(read("src/content.css")),
+  "default panel is still too narrow for code"
+);
+checkTrue(
+  "placeRoody keeps the panel on the orb's side of the screen",
+  content.includes("orbCenter") && content.includes("W / 2"),
+  "panel would still hang across the middle of the page"
+);
+
+// VISUAL_INTENT covers the coder phrasings.
+checkTrue(
+  "VISUAL_INTENT catches the phrasings a coder actually uses",
+  (() => {
+    const m = /const VISUAL_INTENT\s*=\s*(\/[\s\S]+?\/i)\s*;/.exec(content);
+    if (!m) return false;
+    // eslint-disable-next-line no-eval
+    const re = eval(m[1]);
+    return re.test("what's wrong with my code?") &&
+      re.test("why does this fail") &&
+      re.test("look at my editor") &&
+      re.test("the error");
+  })(),
+  "VISUAL_INTENT regex too narrow for a coding assistant"
 );
 
 console.log(`\n${fail === 0 ? "🎉" : "💥"} ${pass} passed, ${fail} failed\n`);

@@ -232,6 +232,98 @@
     return text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
   }
 
+  // ---- Read the code editor -----------------------------------------------
+  // HackerRank/LeetCode/CodeSandbox use Monaco, CodeMirror, or Ace. All of them
+  // render code inside virtualised, line-per-<div> DOMs with NO literal
+  // newlines. Reading them via findArticle's textContent path flattens the
+  // whole program into one run-on string with the line-number gutter
+  // concatenated in — completely unusable for a coding assistant. Read each
+  // editor family the way its authors intended it to be read.
+  const CODE_SITES = /(leetcode\.com|hackerrank\.com|codesignal\.com|codewars\.com|hackerearth\.com|atcoder\.jp|codeforces\.com|codepen\.io|codesandbox\.io|replit\.com|jsfiddle\.net|stackblitz\.com)/;
+  function extractEditorCode() {
+    try {
+      // ---- Monaco (VS Code, HackerRank, LeetCode) ----
+      // Monaco recycles <div class="view-line"> nodes as you scroll, so their
+      // DOM order is meaningless — the visual order comes from the `top` px
+      // in the inline style. Sort by that.
+      const monacoLines = document.querySelectorAll(".monaco-editor .view-lines .view-line");
+      if (monacoLines.length >= 2) {
+        const rows = [];
+        monacoLines.forEach((el) => {
+          const m = /top\s*:\s*(-?\d+(?:\.\d+)?)px/.exec(el.getAttribute("style") || "");
+          const top = m ? parseFloat(m[1]) : Number.MAX_SAFE_INTEGER;
+          rows.push({ top, text: el.textContent || "" });
+        });
+        rows.sort((a, b) => a.top - b.top);
+        const code = rows.map((r) => r.text).join("\n");
+        if (code.trim().length > 0) return { kind: "monaco", code, virtualised: true };
+      }
+      // ---- CodeMirror 6 (Replit, StackBlitz, many docs) ----
+      const cm6 = document.querySelector(".cm-content");
+      if (cm6) {
+        const lines = Array.from(cm6.querySelectorAll(".cm-line"));
+        if (lines.length >= 2) {
+          const code = lines.map((el) => el.textContent || "").join("\n");
+          if (code.trim().length > 0) return { kind: "cm6", code, virtualised: true };
+        }
+      }
+      // ---- CodeMirror 5 ----
+      const cm5 = document.querySelector(".CodeMirror-code");
+      if (cm5) {
+        const lines = Array.from(cm5.querySelectorAll(".CodeMirror-line"));
+        if (lines.length >= 2) {
+          const code = lines.map((el) => el.textContent || "").join("\n");
+          if (code.trim().length > 0) return { kind: "cm5", code, virtualised: true };
+        }
+      }
+      // ---- Ace ----
+      const ace = document.querySelector(".ace_editor .ace_text-layer");
+      if (ace) {
+        const lines = Array.from(ace.querySelectorAll(".ace_line"));
+        if (lines.length >= 2) {
+          const code = lines.map((el) => el.textContent || "").join("\n");
+          if (code.trim().length > 0) return { kind: "ace", code, virtualised: true };
+        }
+      }
+      // ---- Plain <textarea> the user is actively typing in ----
+      // (Anything > 40 chars — an editor input, not the search bar.)
+      const ta = document.activeElement;
+      if (ta && ta.tagName === "TEXTAREA" && (ta.value || "").length > 40) {
+        return { kind: "textarea", code: ta.value, virtualised: false };
+      }
+    } catch (e) { rlog(`⚠ editor extract: ${e.message}`); }
+    return null;
+  }
+  // The problem statement / prose surrounding the editor. On coding sites the
+  // question is usually in a panel next to the editor — grab it, but drop the
+  // editor's own container so we don't double-count and drop obvious UI chrome.
+  function extractProblemStatement() {
+    try {
+      // Common problem containers across coding platforms.
+      const candidates = [
+        '[data-track-load="description_content"]', // LeetCode
+        '.question-container',                     // HackerRank
+        '.problem-statement',                       // Codeforces
+        'article',
+        'main',
+      ];
+      for (const sel of candidates) {
+        const el = document.querySelector(sel);
+        if (!el) continue;
+        // Read the live element (real innerText with line breaks), then strip
+        // the editor's own text so we don't include the code twice.
+        let txt = (el.innerText || "").trim();
+        if (txt.length < 60) continue;
+        // Chop off the editor block by finding the first 30-char run that also
+        // appears in the extracted code — simplest heuristic that works.
+        txt = txt.replace(/\s{2,}/g, " ").trim();
+        if (txt.length > 3000) txt = txt.slice(0, 3000);
+        return txt;
+      }
+    } catch (_) {}
+    return "";
+  }
+
   // ---- Read the page (SMART extraction, ZERO scrolling) --------------------
   const CHAT_CONTAINERS = [
     { host: "chatgpt.com", sel: 'main [role="presentation"], main div[class*="conversation"]' },
@@ -284,6 +376,19 @@
     // checkout view). Re-check on every read; trip the shield if so.
     if (pageIsSensitive()) { tripSensitive(); return ""; }
     try {
+      // Code editor path: on a page with Monaco/CodeMirror/Ace, the code is
+      // the point. Present it as PROBLEM + CODE so the brain isn't guessing at
+      // the flattened blob findArticle would produce.
+      const editor = extractEditorCode();
+      if (editor) {
+        const problem = extractProblemStatement();
+        const virtNote = editor.virtualised
+          ? "(Note: this editor virtualises rows — only the visible portion of the code is shown. If lines seem missing, tell the user.)\n"
+          : "";
+        const codeBlock = editor.code.length > 12000 ? editor.code.slice(0, 12000) + "\n... (code truncated)" : editor.code;
+        const problemBlock = problem ? `PROBLEM:\n${problem}\n\n` : "";
+        return `${problemBlock}${virtNote}CODE (${editor.kind}):\n${codeBlock}`;
+      }
       const host = location.hostname;
       const chatSite = CHAT_CONTAINERS.find((c) => c.host === host);
       let text = "";
@@ -385,7 +490,10 @@
     if (studyDoc) return "learning";
     const host = location.hostname.replace(/^www\./, "");
     const hp = host + location.pathname;
-    if (/(github\.com|gitlab\.com|bitbucket\.org|stackoverflow\.com|stackexchange\.com|codepen\.io|codesandbox\.io|replit\.com|jsfiddle\.net)/.test(host)) return "code";
+    if (/(github\.com|gitlab\.com|bitbucket\.org|stackoverflow\.com|stackexchange\.com|codepen\.io|codesandbox\.io|replit\.com|jsfiddle\.net|stackblitz\.com|leetcode\.com|hackerrank\.com|codesignal\.com|codewars\.com|hackerearth\.com|atcoder\.jp|codeforces\.com)/.test(host)) return "code";
+    // If the page has any known code editor mounted, we're in code mode
+    // regardless of the host. Cheaper than the .length>=3 heuristic below.
+    if (document.querySelector(".monaco-editor .view-lines, .cm-content, .CodeMirror-code, .ace_editor .ace_text-layer")) return "code";
     if (/(arxiv\.org|scholar\.google|researchgate|semanticscholar|nature\.com|sciencedirect|ncbi\.nlm\.nih\.gov|ssrn\.com|papers\.ssrn)/.test(host)) return "research";
     if (/(readthedocs|developer\.mozilla|devdocs\.io|^docs\.|\/docs\/)/.test(hp)) return "research";
     if (/(docs\.google\.com\/document|notion\.so|substack\.com\/publish|overleaf\.com|hemingwayapp)/.test(hp)) return "writing";
@@ -537,6 +645,7 @@
       <button id="roody-send" title="Send">➤</button>
     </div>
     <input id="roody-pdf-file" type="file" accept="application/pdf,.pdf" style="display:none" />
+    <div id="roody-resize" title="Drag to resize"></div>
   `;
 
   document.body.appendChild(orb);
@@ -551,9 +660,17 @@
     y = Math.max(4, Math.min(H - oh - 4, y));
     orb.style.left = x + "px"; orb.style.top = y + "px";
     orb.style.right = "auto"; orb.style.bottom = "auto";
-    const pw = panel.offsetWidth || 360;
+    const pw = panel.offsetWidth || 440;
     const ph = panel.offsetHeight || Math.min(H * 0.7, 460);
-    let px = Math.max(4, Math.min(W - pw - 4, x + ow - pw));
+    // Prefer docking the panel on the same side of the screen the orb is on,
+    // so it doesn't cover the middle of the page (where the editor lives).
+    // Orb in the right half → panel hangs LEFT of the orb; orb in the left
+    // half → panel hangs RIGHT. Clamp inside the viewport in either case.
+    const orbCenter = x + ow / 2;
+    let px = orbCenter > W / 2
+      ? x + ow - pw               // right-half orb → panel's right edge to orb's right edge
+      : x;                        // left-half orb → panel's left edge to orb's left edge
+    px = Math.max(4, Math.min(W - pw - 4, px));
     let py = y - ph - 12; // dock above the orb…
     if (py < 4) py = Math.min(H - ph - 4, y + oh + 12); // …or below at the top edge
     py = Math.max(4, py);
@@ -595,6 +712,56 @@
     }).observe(panel, { attributes: true, attributeFilter: ["style"] });
     chrome.storage.local.get("roodyOrbPos").then(({ roodyOrbPos: p }) => {
       if (p && typeof p.x === "number" && typeof p.y === "number") placeRoody(p.x, p.y);
+    }).catch(() => {});
+  })();
+
+  // ---- Resize the panel ----------------------------------------------------
+  // CSS `resize` doesn't cooperate with fixed positioning, so we hand-roll a
+  // corner grabber. Bottom-left of the panel: drag left = wider, drag down =
+  // shorter (the panel opens above the orb, so growing "down" from its
+  // top-anchored position means shrinking height). Persists to roodyPanelSize.
+  (function makeResizable() {
+    const handle = panel.querySelector("#roody-resize");
+    if (!handle) return;
+    let sx = 0, sy = 0, sw = 0, sh = 0, sleft = 0, resizing = false;
+    handle.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      resizing = true;
+      sx = e.clientX; sy = e.clientY;
+      const r = panel.getBoundingClientRect();
+      sw = r.width; sh = r.height; sleft = r.left;
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    handle.addEventListener("pointermove", (e) => {
+      if (!resizing) return;
+      const dx = e.clientX - sx;
+      const dy = e.clientY - sy;
+      // Bottom-LEFT grip: moving left grows width and shifts panel left;
+      // moving down grows height and keeps top anchored.
+      const newW = Math.max(320, Math.min(720, sw - dx));
+      const newH = Math.max(320, Math.min(window.innerHeight * 0.9, sh + dy));
+      // Keep the right edge stable (so growing left doesn't yank the panel
+      // out from under the pointer).
+      const rightEdge = sleft + sw;
+      const newLeft = Math.max(4, rightEdge - newW);
+      panel.style.width = newW + "px";
+      panel.style.height = newH + "px";
+      panel.style.left = newLeft + "px";
+    });
+    handle.addEventListener("pointerup", (e) => {
+      if (!resizing) return;
+      resizing = false;
+      try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+      const w = parseInt(panel.style.width, 10);
+      const h = parseInt(panel.style.height, 10);
+      if (w && h) chrome.storage.local.set({ roodyPanelSize: { w, h } }).catch(() => {});
+    });
+    // Restore on boot.
+    chrome.storage.local.get("roodyPanelSize").then(({ roodyPanelSize: s }) => {
+      if (s && typeof s.w === "number" && typeof s.h === "number") {
+        panel.style.width = Math.max(320, Math.min(720, s.w)) + "px";
+        panel.style.height = Math.max(320, Math.min(window.innerHeight * 0.9, s.h)) + "px";
+      }
     }).catch(() => {});
   })();
 
@@ -694,30 +861,46 @@
   // ---- Talking to Roody's brain --------------------------------------------
   // onText fills the bubble. opts: { skipHistory, image } where image is a
   // screenshot { mime, data } to send with this turn.
+  // Each user turn gets a monotonic id. If a later turn starts (the user sent
+  // a new question), older in-flight turns become stale and their late replies
+  // are dropped. But within a single turn, a "still working…" watchdog message
+  // is NOT terminal — a real answer that lands later still replaces it,
+  // instead of being thrown away like the old `settled` latch did.
+  let lastTurnId = 0;
   function callRoody(userText, pageContext, onText, opts) {
     opts = opts || {};
     const skipHistory = opts.skipHistory;
     const image = opts.image || null;
-    let settled = false;
-    const finish = (text, ok) => {
-      if (settled) return;
-      settled = true;
+    const myTurnId = ++lastTurnId;
+    let commit = false;      // true = a real answer landed; further updates ignored
+    let historyRecorded = false;
+    const commitAnswer = (text, ok) => {
+      if (myTurnId !== lastTurnId) return; // a newer user turn superseded this one
+      if (commit) return;
       clearTimeout(watchdog);
       onText(text);
-      if (ok && !skipHistory) {
-        history.push({ role: "user", content: userText });
-        history.push({ role: "assistant", content: text });
-        if (history.length > 20) history.splice(0, history.length - 20);
-        exchangeCount++; // monotonic — history.length freezes at the 20-cap
+      if (ok) {
+        commit = true;
+        if (!skipHistory && !historyRecorded) {
+          historyRecorded = true;
+          history.push({ role: "user", content: userText });
+          history.push({ role: "assistant", content: text });
+          if (history.length > 20) history.splice(0, history.length - 20);
+          exchangeCount++; // monotonic — history.length freezes at the 20-cap
+        }
+      } else {
+        commit = true; // error path terminates too
       }
     };
-
-    // Safety net: if the brain doesn't answer in 30s — say so instead of
-    // spinning on "…".
-    const watchdog = setTimeout(() => {
-      rlog("⏱ brain timed out (no reply in 30s)");
-      finish("That took too long and I didn't hear back — try once more?", false);
-    }, 30000);
+    // The watchdog now only NUDGES the bubble — the actual reply, if it
+    // eventually lands, replaces it. Bumped to 60s to cover the retry budget
+    // in background.js's fetchWithRetry (up to ~5.5s of backoff + real work).
+    const softNudge = () => {
+      if (myTurnId !== lastTurnId || commit) return;
+      rlog("⏱ brain slow (no reply in 60s) — still waiting");
+      onText("_(still working on it — the model is being slow…)_");
+    };
+    const watchdog = setTimeout(softNudge, 60000);
 
     try {
       chrome.runtime.sendMessage(
@@ -725,46 +908,77 @@
         (res) => {
           if (chrome.runtime.lastError) {
             rlog(`⚠ ask failed: ${chrome.runtime.lastError.message}`);
-            finish("I lost the connection to my brain — refresh this page and try again?", false);
+            commitAnswer("I lost the connection to my brain — refresh this page and try again?", false);
             return;
           }
           if (!res || !res.ok) {
-            finish((res && res.error) || "Something went wrong.", false);
+            commitAnswer((res && res.error) || "Something went wrong.", false);
             return;
           }
-          finish(res.text, true);
+          commitAnswer(res.text, true);
         }
       );
     } catch (e) {
       // Thrown synchronously when the extension was reloaded/updated while this
       // page stayed open ("Extension context invalidated"). A refresh fixes it.
       rlog(`⚠ ask threw: ${e.message}`);
-      finish("We got disconnected — refresh this page and I'll be right back.", false);
+      commitAnswer("We got disconnected — refresh this page and I'll be right back.", false);
     }
   }
 
   // ---- Screenshot ----------------------------------------------------------
   // Ask the background to capture the visible tab. Returns { mime, data } or null.
+  // We hide Roody's own orb + panel first — otherwise they're baked into the
+  // JPEG and the vision model reads Roody's own bubble text as if it were page
+  // content (the "58 min 24 sec h" bug). `visibility: hidden` keeps layout so
+  // nothing on the page reflows; two rAFs guarantee the compositor painted the
+  // hidden state before captureVisibleTab fires. Restore in `finally`.
   function grabScreenshot() {
     return new Promise((resolve) => {
+      const orbVis = orb.style.visibility;
+      const panelVis = panel.style.visibility;
+      const restore = () => {
+        orb.style.visibility = orbVis;
+        panel.style.visibility = panelVis;
+      };
       try {
-        chrome.runtime.sendMessage({ type: "roody:screenshot" }, (res) => {
-          if (chrome.runtime.lastError || !res || !res.ok) {
-            const why = (chrome.runtime.lastError && chrome.runtime.lastError.message) || (res && res.error) || "no response";
-            rlog(`⚠ screenshot failed: ${String(why).slice(0, 200)}`);
+        orb.style.visibility = "hidden";
+        panel.style.visibility = "hidden";
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          try {
+            chrome.runtime.sendMessage({ type: "roody:screenshot" }, (res) => {
+              restore();
+              if (chrome.runtime.lastError || !res || !res.ok) {
+                const why = (chrome.runtime.lastError && chrome.runtime.lastError.message) || (res && res.error) || "no response";
+                rlog(`⚠ screenshot failed: ${String(why).slice(0, 200)}`);
+                resolve(null);
+                return;
+              }
+              resolve({ mime: res.mime, data: res.data });
+            });
+          } catch (e) {
+            restore();
+            rlog(`⚠ screenshot threw: ${e.message}`);
             resolve(null);
-            return;
           }
-          resolve({ mime: res.mime, data: res.data });
-        });
-      } catch (e) { rlog(`⚠ screenshot threw: ${e.message}`); resolve(null); }
+        }));
+      } catch (e) {
+        restore();
+        rlog(`⚠ screenshot threw: ${e.message}`);
+        resolve(null);
+      }
     });
   }
 
   // "attach a screenshot to my next message" — set by the 📷 button, and
-  // auto-triggered when the user's wording is clearly about something visual.
+  // auto-triggered on wording that clearly means "look at my screen". Coders
+  // rarely say "this diagram" — they say "why does my code fail" or "what's
+  // wrong with this". Match those too.
   let attachShot = false;
-  const VISUAL_INTENT = /\b(screenshot|on[-\s]?screen|on my screen|this (image|picture|photo|diagram|chart|graph|screen|ui|design|mockup|layout|render)|what('?s| is) (shown|on screen)|what do you see|look at (this|my) (screen|image|picture|page)|see (this|my) screen|the (image|picture|diagram|chart|screenshot)|visually)\b/i;
+  const VISUAL_INTENT = /\b(screenshot|on[-\s]?screen|on my screen|this (image|picture|photo|diagram|chart|graph|screen|ui|design|mockup|layout|render|error|output|test|result)|what('?s| is) (shown|on screen|wrong|the (error|issue|problem|bug))|what do you see|look at (this|my) (screen|image|picture|page|code|editor|error|output|test|result)|see (this|my) screen|the (image|picture|diagram|chart|screenshot|error|output|console|test result|test case)|visually|my (code|solution|function|answer|program|script|attempt)|why does .{0,20}(fail|break|error|crash|not work)|why (is|are|does|isn't|aren't|doesn't) (it|this|that|my) .{0,30}(fail|work|error|break|wrong)|debug|fix my|find the (bug|issue|error))\b/i;
+  // On a page detected as code mode, mentioning code should auto-arm — the
+  // screenshot is usually the answer to "what does Roody see" on those pages.
+  const CODE_TALK = /\b(bug|error|fail|compile|syntax|runtime|exception|traceback|stack trace|nullpointer|segfault|test case|failing test|off by one|edge case|line \d+|function|method|class|variable|null|undefined|nan|infinity|infinite loop)\b/i;
   const shotBtn = panel.querySelector("#roody-shot");
   function updateShotBtn() { if (shotBtn) shotBtn.classList.toggle("on", attachShot); }
   if (shotBtn) shotBtn.addEventListener("click", () => { attachShot = !attachShot; updateShotBtn(); });
@@ -777,15 +991,23 @@
     addBubble("you", userText);
     input.value = "";
     autoGrow();
-    const wantShot = attachShot || VISUAL_INTENT.test(userText);
+    // Three ways a screenshot rides along:
+    //   1. Explicit tap of the 📷 button.
+    //   2. VISUAL_INTENT matches the words.
+    //   3. Page is in code mode AND the message talks about code — the
+    //      editor is exactly what the user wants Roody to look at, and this
+    //      catches the common "what's wrong with this?" case that misses the
+    //      regex above.
+    const inCodeMode = detectMode() === "code";
+    const wantShot = attachShot || VISUAL_INTENT.test(userText) || (inCodeMode && CODE_TALK.test(userText));
     attachShot = false; updateShotBtn();
     const thinking = addBubble("roody", "…");
     const ctx = buildContext();
     let image = null;
     if (wantShot) {
-      fillBubble(thinking, "📸 capturing your screen…");
+      // Deliberately leave the thinking bubble as "…" — anything visible here
+      // gets captured into the screenshot itself and read back by the model.
       image = await grabScreenshot();
-      fillBubble(thinking, "…");
       if (!image) addBubble("roody", "_(couldn't grab a screenshot — answering from the page text)_");
     }
     callRoody(userText, ctx, (t) => fillBubble(thinking, t), { image });

@@ -129,6 +129,37 @@ function buildProfileBlock(profile) {
   return `About the user (what they told you about themselves):\n"${p.slice(0, 500)}"\n\n`;
 }
 
+// ---- Retry helper for transient failures --------------------------------
+// A brain that answers 502 on the first try often works on the second. We used
+// to bubble every non-2xx as "the model hiccuped" with no retry — the founder
+// saw a real one of these on Gemini and it looked broken. Only retry the codes
+// that mean "try again", never the ones that mean "you did something wrong"
+// (400/401/402/403/404). At most 2 retries so the whole turn stays under the
+// content-side watchdog even in the worst case.
+const RETRIABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+const BACKOFF_MS = [500, 1500, 3500];
+async function fetchWithRetry(url, init, label) {
+  let networkErr = null;
+  for (let attempt = 0; attempt < BACKOFF_MS.length; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt - 1]));
+      rlog(`↻ ${label} retry ${attempt}`);
+    }
+    try {
+      const resp = await fetch(url, init);
+      if (resp.ok) return resp;
+      if (!RETRIABLE_STATUS.has(resp.status)) return resp; // deterministic error
+      if (attempt === BACKOFF_MS.length - 1) return resp;  // out of retries
+      rlog(`⚠ ${label} ${resp.status} — will retry`);
+    } catch (e) {
+      networkErr = e;
+      if (attempt === BACKOFF_MS.length - 1) throw e;
+      rlog(`⚠ ${label} network (${e.message}) — will retry`);
+    }
+  }
+  if (networkErr) throw networkErr;
+}
+
 // Which selected brains can actually read an attached screenshot. Gemini,
 // Claude, and the GPT-4o/4.1 family are multimodal; Grok-3 (text) is not, so
 // image turns get routed to Gemini vision instead.
@@ -159,8 +190,21 @@ async function askRoody({ userText, pageContext, history, site, title, pageMode,
     if (model.startsWith("grok-") && !xaiKey) model = "gemini-2.5-flash";
     else if (isOpenAIModel(model) && !openaiKey) model = "gemini-2.5-flash";
     else if (!model.startsWith("grok-") && !model.startsWith("gemini-") && !isOpenAIModel(model) && !apiKey) model = "gemini-2.5-flash";
-    // A screenshot needs a vision-capable brain — fall back to Gemini vision.
-    if (image && !modelSupportsVision(model)) model = "gemini-2.5-flash";
+  }
+  // Vision fallback lives OUTSIDE the geminiReachable guard on purpose: if
+  // Gemini is set up, route the image turn to it; otherwise drop the image and
+  // tell the user, instead of silently discarding a screenshot that the model
+  // then answers blind about (the old Grok-only-key bug).
+  let imageDropReason = "";
+  if (image) {
+    if (!modelSupportsVision(model)) {
+      if (geminiReachable) {
+        model = "gemini-2.5-flash";
+      } else {
+        imageDropReason = "this brain can't see images and Gemini isn't set up";
+        image = null;
+      }
+    }
   }
 
   const baseSystem = getSystemPrompt(roodyVibe || "normal");
@@ -173,17 +217,25 @@ async function askRoody({ userText, pageContext, history, site, title, pageMode,
   const stableSystem = profileBlock + modeBlock + baseSystem;
   const systemPrompt = profileBlock + modeBlock + memoryBlock + baseSystem;
 
+  // Passing imageDropReason through every path so the reply carries the "we
+  // couldn't send your screenshot" note in-bubble, instead of silently
+  // answering blind (the old xAI-only-key bug).
+  const wrap = (out) => imageDropReason && out && out.ok
+    ? { ...out, text: `_(couldn't send the screenshot — ${imageDropReason})_\n\n${out.text}` }
+    : out;
+
   // Gemini brain
   if (model && model.startsWith("gemini-")) {
-    return askGeminiBrain({ userText, pageContext, history, model, lang: roodyLang, systemPrompt, site, title, image });
+    return wrap(await askGeminiBrain({ userText, pageContext, history, model, lang: roodyLang, systemPrompt, site, title, image }));
   }
   // OpenAI brain (GPT-4o / 4.1 family — multimodal, so screenshots ride along)
   if (model && isOpenAIModel(model)) {
-    return askOpenAIBrain({ userText, pageContext, history, model, lang: roodyLang, openaiKey, systemPrompt, site, title, image });
+    return wrap(await askOpenAIBrain({ userText, pageContext, history, model, lang: roodyLang, openaiKey, systemPrompt, site, title, image }));
   }
-  // Grok brain (text only — image turns were already re-routed to Gemini above)
+  // Grok brain (text only — image turns were already re-routed to Gemini above,
+  // or the image was dropped with imageDropReason set).
   if (model && model.startsWith("grok-")) {
-    return askGrokBrain({ userText, pageContext, history, model, lang: roodyLang, xaiKey, systemPrompt, site, title });
+    return wrap(await askGrokBrain({ userText, pageContext, history, model, lang: roodyLang, xaiKey, systemPrompt, site, title }));
   }
   if (!apiKey) {
     return {
@@ -234,7 +286,7 @@ async function askRoody({ userText, pageContext, history, site, title, pageMode,
     const t0 = performance.now();
     rlog(`→ Claude ${model} (msgs=${messages.length}${tools ? " +web" : ""}${image ? " +img" : ""})`);
     try {
-      resp = await fetch(ANTHROPIC_URL, {
+      resp = await fetchWithRetry(ANTHROPIC_URL, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -261,7 +313,7 @@ async function askRoody({ userText, pageContext, history, site, title, pageMode,
           messages,
           ...(tools ? { tools } : {}),
         }),
-      });
+      }, "Claude");
     } catch (e) {
       rlog(`❌ Claude network: ${e.message}`);
       return { ok: false, error: "I couldn't reach the internet — check your connection and try again?" };
@@ -296,7 +348,7 @@ async function askRoody({ userText, pageContext, history, site, title, pageMode,
     }
     break;
   }
-  return { ok: true, text: sanitizeReply(finalText) || "…" };
+  return wrap({ ok: true, text: sanitizeReply(finalText) || "…" });
 }
 
 // Reply hygiene lives in sanitize.js (shared with the eval agent so every
@@ -324,11 +376,11 @@ async function geminiFetch(model, bodyObj, kind) {
     "roodyGeminiKey", "roodyInviteCode", "roodyProxyUrl",
   ]);
   if (roodyGeminiKey) {
-    const resp = await fetch(`${GEMINI_BASE}/${model}:generateContent`, {
+    const resp = await fetchWithRetry(`${GEMINI_BASE}/${model}:generateContent`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": roodyGeminiKey },
       body: JSON.stringify(bodyObj),
-    });
+    }, `Gemini(${kind})`);
     return { resp, via: "own" };
   }
   const proxy = ((roodyProxyUrl || ROODY_PROXY_URL) || "").trim();
@@ -345,11 +397,11 @@ async function geminiFetch(model, bodyObj, kind) {
       const { temperature, ...restCfg } = proxyBody.generationConfig;
       proxyBody.generationConfig = restCfg;
     }
-    const resp = await fetch(proxy, {
+    const resp = await fetchWithRetry(proxy, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ code, kind, model, body: proxyBody }),
-    });
+    }, `Proxy(${kind})`);
     return { resp, via: "proxy" };
   }
   return null;
@@ -481,7 +533,7 @@ async function askOpenAIBrain({ userText, pageContext, history, model, lang, ope
   rlog(`→ OpenAI ${model} (msgs=${messages.length}${image ? " +img" : ""})`);
   let resp;
   try {
-    resp = await fetch(OPENAI_URL, {
+    resp = await fetchWithRetry(OPENAI_URL, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -492,7 +544,7 @@ async function askOpenAIBrain({ userText, pageContext, history, model, lang, ope
         messages,
         max_completion_tokens: 2000,
       }),
-    });
+    }, "OpenAI");
   } catch (e) {
     rlog(`❌ OpenAI network: ${e.message}`);
     return { ok: false, error: "I couldn't reach the internet — check your connection and try again?" };
@@ -544,7 +596,7 @@ async function askGrokBrain({ userText, pageContext, history, model, lang, xaiKe
   rlog(`→ Grok ${model} (msgs=${messages.length})`);
   let resp;
   try {
-    resp = await fetch(GROK_URL, {
+    resp = await fetchWithRetry(GROK_URL, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -557,7 +609,7 @@ async function askGrokBrain({ userText, pageContext, history, model, lang, xaiKe
         messages,
         max_tokens: 2000,
       }),
-    });
+    }, "Grok");
   } catch (e) {
     rlog(`❌ Grok network: ${e.message}`);
     return { ok: false, error: "I couldn't reach the internet — check your connection and try again?" };
