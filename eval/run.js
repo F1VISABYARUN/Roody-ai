@@ -422,8 +422,51 @@ checkTrue(
 );
 checkTrue(
   "pickBrain() honors the dev override, then the chip, then walks keys",
-  /function pickBrain\(prefs\)[\s\S]{0,1500}prefs\.roodyModel[\s\S]{0,400}prefs\.roodyBrainPref[\s\S]{0,400}prefs\.roodyApiKey[\s\S]{0,200}prefs\.roodyOpenAIKey[\s\S]{0,200}prefs\.roodyGeminiKey[\s\S]{0,200}prefs\.roodyXaiKey/.test(bg),
+  /function pickBrain\(prefs\)[\s\S]{0,1800}prefs\.roodyModel[\s\S]{0,500}prefs\.roodyBrainPref[\s\S]{0,500}prefs\.roodyApiKey[\s\S]{0,300}prefs\.roodyOpenAIKey[\s\S]{0,300}prefs\.roodyGeminiKey[\s\S]{0,300}prefs\.roodyXaiKey/.test(bg),
   "pickBrain missing or does the key walk in the wrong order"
+);
+
+console.log("\n— Roody knows its own state (fix for 'parroted the page') —");
+
+// pickBrain now returns { model, provider, reason } so the LLM can be told
+// which provider is running and why, instead of guessing from page text.
+checkTrue(
+  "pickBrain returns { model, provider, reason }",
+  /return\s*\{\s*model:[^}]*provider:[^}]*reason:/.test(bg),
+  "pickBrain still returns a bare model string"
+);
+// providerOf maps a model string to its provider tag so a dev override still
+// gets labeled correctly.
+checkTrue(
+  "providerOf() derives the provider from the model prefix",
+  /function providerOf\(model\)[\s\S]{0,400}claude-[\s\S]{0,400}gemini-[\s\S]{0,400}grok-[\s\S]{0,400}gpt-/.test(bg),
+  "providerOf missing — dev overrides won't be tagged"
+);
+// The ROODY STATE block is what actually reaches the LLM every turn.
+checkTrue(
+  "buildRoodyState emits a CURRENT ROODY STATE block with model + keys + vision",
+  /function buildRoodyState[\s\S]{0,1200}CURRENT ROODY STATE[\s\S]{0,600}Current brain:[\s\S]{0,200}Keys set:[\s\S]{0,300}Vision available:/.test(bg),
+  "ROODY STATE block missing or incomplete"
+);
+checkTrue(
+  "askRoody threads the ROODY STATE into the system prompt",
+  bg.includes("const stateBlock = buildRoodyState(") &&
+    /systemPrompt\s*=\s*stateBlock\s*\+/.test(bg),
+  "ROODY STATE isn't wired into the prompt path"
+);
+// The Claude cache-split now carries the dynamic state block on the uncached
+// side so it isn't stale across turns.
+checkTrue(
+  "Claude system-messages split keeps ROODY STATE uncached (per-turn accuracy)",
+  /system:\s*\[[\s\S]{0,300}cache_control:\s*\{[\s\S]{0,100}stateBlock/.test(bg),
+  "Claude system-messages structure lost the state block"
+);
+// Persona guardrail — the whole reason we're here.
+checkTrue(
+  "persona has the ABOUT YOU / meta-questions rule",
+  /ABOUT YOU \(meta-questions\)/.test(persona) &&
+    /never quote the page or a chat transcript back as if it described you/i.test(persona),
+  "persona is still missing the meta-questions guardrail"
 );
 checkTrue(
   '"isn\'t set up" errors mention keys, not just invite codes',

@@ -26,20 +26,55 @@ const DEFAULT_MODELS = {
 //   3. Auto-detect from which key the user actually pasted.
 // If nothing works, fall back to Gemini and let `askGeminiBrain` produce the
 // polite "isn't set up yet" error.
+// Which provider owns a given model string. Uses the same prefix rules as
+// isOpenAIModel / the brain-dispatch switch, so a dev override still gets
+// tagged correctly for the SYSTEM STATE block.
+function providerOf(model) {
+  if (!model) return "gemini";
+  if (model.startsWith("claude-")) return "claude";
+  if (model.startsWith("gemini-")) return "gemini";
+  if (model.startsWith("grok-")) return "grok";
+  if (model.startsWith("gpt-") || /^o[1-9]/.test(model)) return "openai";
+  return "gemini"; // unknown prefix -> route through Gemini
+}
 function pickBrain(prefs) {
   const override = (prefs.roodyModel || "").trim();
-  if (override) return override;
+  if (override) return { model: override, provider: providerOf(override), reason: "dev override" };
   const pref = prefs.roodyBrainPref || "auto";
-  if (pref !== "auto" && DEFAULT_MODELS[pref]) return DEFAULT_MODELS[pref];
+  if (pref !== "auto" && DEFAULT_MODELS[pref]) {
+    return { model: DEFAULT_MODELS[pref], provider: pref, reason: `chip pref: ${pref}` };
+  }
   // Auto: walk the keys in preference order. Claude first because it tends to
   // be strongest for coding at the moment; if that changes, reorder here.
-  if (prefs.roodyApiKey)     return DEFAULT_MODELS.claude;
-  if (prefs.roodyOpenAIKey)  return DEFAULT_MODELS.openai;
-  if (prefs.roodyGeminiKey)  return DEFAULT_MODELS.gemini;
-  if (prefs.roodyXaiKey)     return DEFAULT_MODELS.grok;
-  // Invite code (proxied Gemini) is the last resort so an own-key user isn't
-  // silently routed through the founder's proxy when they didn't ask.
-  return DEFAULT_MODELS.gemini;
+  if (prefs.roodyApiKey)     return { model: DEFAULT_MODELS.claude, provider: "claude", reason: "auto (matched Claude key)" };
+  if (prefs.roodyOpenAIKey)  return { model: DEFAULT_MODELS.openai, provider: "openai", reason: "auto (matched OpenAI key)" };
+  if (prefs.roodyGeminiKey)  return { model: DEFAULT_MODELS.gemini, provider: "gemini", reason: "auto (matched own Gemini key)" };
+  if (prefs.roodyXaiKey)     return { model: DEFAULT_MODELS.grok,   provider: "grok",   reason: "auto (matched xAI key)" };
+  if (prefs.roodyInviteCode) return { model: DEFAULT_MODELS.gemini, provider: "gemini", reason: "auto (invite code -> Gemini via proxy)" };
+  // Nothing configured — return Gemini and let askGeminiBrain produce the
+  // polite "isn't set up yet" error.
+  return { model: DEFAULT_MODELS.gemini, provider: "gemini", reason: "no key or invite set" };
+}
+
+// Short, machine-readable "here are the facts about YOU" block that goes into
+// every system prompt. When the user asks a meta-question ("what model are
+// you", "which brain", "why gpt-4o") the LLM answers from these lines and its
+// own knowledge — NOT from whatever prose happens to be on the page.
+function buildRoodyState({ pick, prefs, hasImage }) {
+  const providerName = { claude: "Claude", openai: "OpenAI", gemini: "Gemini", grok: "Grok" }[pick.provider] || pick.provider;
+  const yn = (b) => b ? "✓" : "✗";
+  const vision = pick.provider === "grok" ? "no (Grok is text-only)" : "yes (multimodal brain)";
+  return (
+    "CURRENT ROODY STATE (facts about YOU — use these for any question about\n" +
+    "yourself, and never quote back page text as if it described you):\n" +
+    `- Current brain: ${providerName} · ${pick.model}\n` +
+    `- Why: ${pick.reason}\n` +
+    `- Keys set: Claude ${yn(!!prefs.roodyApiKey)}, OpenAI ${yn(!!prefs.roodyOpenAIKey)}, ` +
+      `Gemini own-key ${yn(!!prefs.roodyGeminiKey)}, Grok ${yn(!!prefs.roodyXaiKey)}, ` +
+      `Invite code ${yn(!!prefs.roodyInviteCode)}\n` +
+    `- Vision available: ${vision}\n` +
+    `- Screenshot attached this turn: ${hasImage ? "yes" : "no"}\n\n`
+  );
 }
 
 // Pull the user's settings (API keys + chosen model) from extension storage.
@@ -221,18 +256,20 @@ async function askRoody({ userText, pageContext, history, site, title, pageMode,
   // Pick the model from the auto-detect rules — the user never types a model
   // ID in the consumer view. `pickBrain` reads the "Preferred brain" chip and
   // the (dev-only) override, then falls back to the first available key.
-  let model = pickBrain({
+  const prefs = {
     roodyModel, roodyBrainPref,
     roodyApiKey: apiKey, roodyOpenAIKey: openaiKey,
     roodyGeminiKey, roodyXaiKey: xaiKey, roodyInviteCode,
-  });
+  };
+  const pick = pickBrain(prefs);
+  let model = pick.model;
   // Credential-aware routing: a user who forced (say) "Claude" without a Claude
   // key still gets an answer — reroute to Gemini if Gemini is reachable.
   const geminiReachable = !!(roodyGeminiKey || roodyInviteCode);
   if (geminiReachable) {
-    if (model.startsWith("grok-") && !xaiKey) model = "gemini-2.5-flash";
-    else if (isOpenAIModel(model) && !openaiKey) model = "gemini-2.5-flash";
-    else if (!model.startsWith("grok-") && !model.startsWith("gemini-") && !isOpenAIModel(model) && !apiKey) model = "gemini-2.5-flash";
+    if (model.startsWith("grok-") && !xaiKey) { model = "gemini-2.5-flash"; pick.model = model; pick.provider = "gemini"; pick.reason = "auto (Grok key missing → Gemini)"; }
+    else if (isOpenAIModel(model) && !openaiKey) { model = "gemini-2.5-flash"; pick.model = model; pick.provider = "gemini"; pick.reason = "auto (OpenAI key missing → Gemini)"; }
+    else if (!model.startsWith("grok-") && !model.startsWith("gemini-") && !isOpenAIModel(model) && !apiKey) { model = "gemini-2.5-flash"; pick.model = model; pick.provider = "gemini"; pick.reason = "auto (Claude key missing → Gemini)"; }
   }
   // Vision fallback lives OUTSIDE the geminiReachable guard on purpose: if
   // Gemini is set up, route the image turn to it; otherwise drop the image and
@@ -243,6 +280,8 @@ async function askRoody({ userText, pageContext, history, site, title, pageMode,
     if (!modelSupportsVision(model)) {
       if (geminiReachable) {
         model = "gemini-2.5-flash";
+        pick.model = model; pick.provider = "gemini";
+        pick.reason = "auto (this brain can't see images → Gemini vision)";
       } else {
         imageDropReason = "this brain can't see images and Gemini isn't set up";
         image = null;
@@ -253,12 +292,19 @@ async function askRoody({ userText, pageContext, history, site, title, pageMode,
   const baseSystem = getSystemPrompt(roodyVibe || "normal");
   const profileBlock = buildProfileBlock(roodyProfile);
   const memoryBlock = buildMemoryBlock(roodyMemory);
+  // The ROODY STATE block gives the LLM ground truth about ITSELF — model,
+  // provider, why, keys set, vision availability, whether a screenshot rode
+  // along. Without this, the LLM guesses from whatever's on the page when the
+  // user asks "which model are you?" (and if the page happens to be a
+  // conversation about Roody, it parrots that back verbatim — the real bug
+  // this fixes). Small block; not cached because it changes per turn.
+  const stateBlock = buildRoodyState({ pick, prefs, hasImage: !!image });
   // Prompt-caching split:
   //   stable part = persona + profile + mode (rarely changes → cached)
-  //   dynamic part = memory (updates every turn → NOT cached)
+  //   dynamic part = memory + state (updates every turn → NOT cached)
   const modeBlock = (pageMode && MODE_HINTS[pageMode]) ? MODE_HINTS[pageMode] + "\n\n" : "";
   const stableSystem = profileBlock + modeBlock + baseSystem;
-  const systemPrompt = profileBlock + modeBlock + memoryBlock + baseSystem;
+  const systemPrompt = stateBlock + profileBlock + modeBlock + memoryBlock + baseSystem;
 
   // Passing imageDropReason through every path so the reply carries the "we
   // couldn't send your screenshot" note in-bubble, instead of silently
@@ -342,17 +388,13 @@ async function askRoody({ userText, pageContext, history, site, title, pageMode,
           model,
           max_tokens: 2000,
           temperature: 0.3,
-          // Prompt caching: mark the stable persona+profile as ephemeral so
-          // Anthropic caches it for 5 min. Memory (dynamic) stays uncached in
-          // a second block. 90% discount on the cached read after call #1.
-          system: memoryBlock
-            ? [
-                { type: "text", text: stableSystem, cache_control: { type: "ephemeral" } },
-                { type: "text", text: memoryBlock },
-              ]
-            : [
-                { type: "text", text: stableSystem, cache_control: { type: "ephemeral" } },
-              ],
+          // Prompt caching: stable persona+profile is one ephemeral block;
+          // the dynamic ROODY STATE (per-turn) + memory ride in a second,
+          // uncached block. 90% discount on the cached read after call #1.
+          system: [
+            { type: "text", text: stableSystem, cache_control: { type: "ephemeral" } },
+            { type: "text", text: stateBlock + (memoryBlock || "") },
+          ],
           messages,
           ...(tools ? { tools } : {}),
         }),
