@@ -81,6 +81,7 @@
       .toggle input { width: auto; transform: scale(1.3); }
       .keystatus { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
       .keystatus.has { color: var(--ok); }
+      .modelline { font-size: 12px; color: var(--accent); margin: 2px 0 0; font-family: ui-monospace, Menlo, monospace; }
       details.adv { margin-top: 34px; border-top: 2px dashed var(--border); padding-top: 14px; }
       details.adv > summary {
         cursor: pointer; font-weight: 700; color: var(--muted); font-size: 14px;
@@ -200,12 +201,19 @@
     </div>
     <p id="brainprefhint" style="font-size:12px;color:var(--muted);margin:6px 0 0">Auto uses whichever key you've pasted. Pick a specific brain to force it when you have more than one key.</p>
 
+    <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap">
+      <button id="refreshmodels" class="small">🔄 Check for newer models</button>
+      <span id="refreshstatus" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin:6px 0 0">Roody asks each provider what your key can use and picks the newest one automatically — so when a new model ships, you get it without updating the extension.</p>
+
     <label for="key" style="margin-top:14px">Anthropic (Claude) API key <a class="getkey" href="https://console.anthropic.com/settings/keys" target="_blank" style="float:right;padding:2px 8px;font-size:11px">Get a key ↗</a></label>
     <div class="row">
       <input id="key" type="password" placeholder="sk-ant-..." />
       <button id="clearkey" class="ghost small" title="Remove this key">✕</button>
     </div>
     <p id="keystatus" class="keystatus"></p>
+    <p id="claudemodel" class="modelline"></p>
 
     <label for="okey" style="margin-top:10px">OpenAI (GPT) API key <a class="getkey" href="https://platform.openai.com/api-keys" target="_blank" style="float:right;padding:2px 8px;font-size:11px">Get a key ↗</a></label>
     <div class="row">
@@ -213,6 +221,7 @@
       <button id="clearo" class="ghost small" title="Remove this key">✕</button>
     </div>
     <p id="ostatus" class="keystatus"></p>
+    <p id="openaimodel" class="modelline"></p>
 
     <label for="xkey" style="margin-top:10px">xAI (Grok) API key <a class="getkey" href="https://console.x.ai" target="_blank" style="float:right;padding:2px 8px;font-size:11px">Get a key ↗</a></label>
     <div class="row">
@@ -220,6 +229,7 @@
       <button id="clearx" class="ghost small" title="Remove this key">✕</button>
     </div>
     <p id="xstatus" class="keystatus"></p>
+    <p id="grokmodel" class="modelline"></p>
 
     <!-- HISTORY -->
     <h2>📓 You &amp; Roody</h2>
@@ -242,6 +252,7 @@
           <button id="clearg" class="ghost small" title="Remove this key">✕</button>
         </div>
         <p id="gstatus" class="keystatus" style="margin:0"></p>
+    <p id="geminimodel" class="modelline"></p>
       </div>
 
       <h2>🛟 Diagnostic log</h2>
@@ -315,6 +326,7 @@
       <a href="https://midnightblue-wolf-859857.hostingersite.com/privacy" target="_blank">Privacy policy</a>
     </p>
 
+    <script src="models.js"></script>
     <script src="options.js"></script>
   </body>
 </html>

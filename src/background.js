@@ -3,45 +3,50 @@
 // request, a screenshot of the screen) and answers in the chat. No voice.
 try { importScripts("persona.js"); } catch (_) { importScripts("src/persona.js"); }
 try { importScripts("sanitize.js"); } catch (_) { importScripts("src/sanitize.js"); }
+try { importScripts("models.js"); } catch (_) { importScripts("src/models.js"); }
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 // Gemini 2.5 Flash is the default brain: cheap, fast, multimodal (so it can
 // read screenshots). Users can switch to Claude/Grok in settings with a key.
 const MODEL = "gemini-2.5-flash";
 
-// One sensible current model per provider. The user never types a model ID —
-// they just paste a key (or pick a "Preferred brain" chip) and Roody uses the
-// value below. If a provider retires an alias, update it here in one place.
-// The dev panel's "Advanced: override model ID" field bypasses this table.
-const DEFAULT_MODELS = {
-  claude: "claude-sonnet-4-5",
-  openai: "gpt-4o",
-  gemini: "gemini-2.5-flash",
-  grok: "grok-3",
-};
+// Conservative last-resort model strings, used only when the provider's
+// /v1/models list is unreachable. The REAL source of truth is the auto-fetch in
+// models.js: Roody asks each provider what the user's key can use and caches
+// the newest flagship. That's why there's no hardcoded version to go stale —
+// when OpenAI ships gpt-5.6, the next refresh picks it up on its own.
+const DEFAULT_MODELS = self.RoodyModels.FALLBACK_MODELS;
 
-// Pick the model to use for this turn, based on:
+// Which provider should answer this turn:
 //   1. Explicit user preference (`roodyBrainPref` chip in Settings).
 //   2. Auto-detect from which key the user actually pasted.
-// If nothing works, fall back to Gemini and let `askGeminiBrain` produce the
-// polite "isn't set up yet" error. There is no user-typed model ID anywhere —
-// the founder pushed back that pasting model strings is friction. When a new
-// model drops, DEFAULT_MODELS above is a one-line edit.
-function pickBrain(prefs) {
+// The model STRING for that provider then comes from the discovery cache.
+function pickProvider(prefs) {
   const pref = prefs.roodyBrainPref || "auto";
   if (pref !== "auto" && DEFAULT_MODELS[pref]) {
-    return { model: DEFAULT_MODELS[pref], provider: pref, reason: `chip pref: ${pref}` };
+    return { provider: pref, reason: `chip pref: ${pref}` };
   }
   // Auto: walk the keys in preference order. Claude first because it tends to
   // be strongest for coding at the moment; if that changes, reorder here.
-  if (prefs.roodyApiKey)     return { model: DEFAULT_MODELS.claude, provider: "claude", reason: "auto (matched Claude key)" };
-  if (prefs.roodyOpenAIKey)  return { model: DEFAULT_MODELS.openai, provider: "openai", reason: "auto (matched OpenAI key)" };
-  if (prefs.roodyGeminiKey)  return { model: DEFAULT_MODELS.gemini, provider: "gemini", reason: "auto (matched own Gemini key)" };
-  if (prefs.roodyXaiKey)     return { model: DEFAULT_MODELS.grok,   provider: "grok",   reason: "auto (matched xAI key)" };
-  if (prefs.roodyInviteCode) return { model: DEFAULT_MODELS.gemini, provider: "gemini", reason: "auto (invite code -> Gemini via proxy)" };
-  // Nothing configured — return Gemini and let askGeminiBrain produce the
-  // polite "isn't set up yet" error.
-  return { model: DEFAULT_MODELS.gemini, provider: "gemini", reason: "no key or invite set" };
+  if (prefs.roodyApiKey)     return { provider: "claude", reason: "auto (matched Claude key)" };
+  if (prefs.roodyOpenAIKey)  return { provider: "openai", reason: "auto (matched OpenAI key)" };
+  if (prefs.roodyGeminiKey)  return { provider: "gemini", reason: "auto (matched own Gemini key)" };
+  if (prefs.roodyXaiKey)     return { provider: "grok",   reason: "auto (matched xAI key)" };
+  if (prefs.roodyInviteCode) return { provider: "gemini", reason: "auto (invite code -> Gemini via proxy)" };
+  return { provider: "gemini", reason: "no key or invite set" };
+}
+
+// Resolve provider -> concrete model id, preferring the auto-discovered model
+// over the fallback. Async because the discovery cache lives in storage.
+async function pickBrain(prefs) {
+  const { provider, reason } = pickProvider(prefs);
+  const model = await self.RoodyModels.modelFor(provider);
+  const discovered = model !== DEFAULT_MODELS[provider];
+  return {
+    model,
+    provider,
+    reason: discovered ? `${reason} · auto-detected latest` : `${reason} · default`,
+  };
 }
 
 // Short, machine-readable "here are the facts about YOU" block that goes into
@@ -247,15 +252,24 @@ async function askRoody({ userText, pageContext, history, site, title, pageMode,
     roodyApiKey: apiKey, roodyOpenAIKey: openaiKey,
     roodyGeminiKey, roodyXaiKey: xaiKey, roodyInviteCode,
   };
-  const pick = pickBrain(prefs);
+  const pick = await pickBrain(prefs);
   let model = pick.model;
   // Credential-aware routing: a user who forced (say) "Claude" without a Claude
   // key still gets an answer — reroute to Gemini if Gemini is reachable.
   const geminiReachable = !!(roodyGeminiKey || roodyInviteCode);
+  // An invite code always speaks to the proxy's whitelisted Gemini model, so
+  // reroutes use the fallback there rather than a user-discovered one.
+  const geminiTarget = roodyGeminiKey
+    ? await self.RoodyModels.modelFor("gemini")
+    : DEFAULT_MODELS.gemini;
+  const reroute = (why) => {
+    model = geminiTarget;
+    pick.model = model; pick.provider = "gemini"; pick.reason = why;
+  };
   if (geminiReachable) {
-    if (model.startsWith("grok-") && !xaiKey) { model = "gemini-2.5-flash"; pick.model = model; pick.provider = "gemini"; pick.reason = "auto (Grok key missing → Gemini)"; }
-    else if (isOpenAIModel(model) && !openaiKey) { model = "gemini-2.5-flash"; pick.model = model; pick.provider = "gemini"; pick.reason = "auto (OpenAI key missing → Gemini)"; }
-    else if (!model.startsWith("grok-") && !model.startsWith("gemini-") && !isOpenAIModel(model) && !apiKey) { model = "gemini-2.5-flash"; pick.model = model; pick.provider = "gemini"; pick.reason = "auto (Claude key missing → Gemini)"; }
+    if (model.startsWith("grok-") && !xaiKey) reroute("auto (Grok key missing → Gemini)");
+    else if (isOpenAIModel(model) && !openaiKey) reroute("auto (OpenAI key missing → Gemini)");
+    else if (!model.startsWith("grok-") && !model.startsWith("gemini-") && !isOpenAIModel(model) && !apiKey) reroute("auto (Claude key missing → Gemini)");
   }
   // Vision fallback lives OUTSIDE the geminiReachable guard on purpose: if
   // Gemini is set up, route the image turn to it; otherwise drop the image and
@@ -725,6 +739,32 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg?.type === "roody:screenshot") {
     captureScreenshot().then(sendResponse);
+    return true;
+  }
+  // Ask every provider we have a key for what its newest model is, and cache
+  // the answer. Called from Settings (on open, on key paste, on the Refresh
+  // button) so the default never goes stale as providers ship new versions.
+  if (msg?.type === "roody:refreshModels") {
+    (async () => {
+      const s = await chrome.storage.local.get([
+        "roodyApiKey", "roodyOpenAIKey", "roodyGeminiKey", "roodyXaiKey",
+      ]);
+      const jobs = [
+        ["claude", s.roodyApiKey],
+        ["openai", s.roodyOpenAIKey],
+        ["gemini", s.roodyGeminiKey],
+        ["grok", s.roodyXaiKey],
+      ].filter(([, key]) => !!key);
+      const out = {};
+      await Promise.all(jobs.map(async ([provider, key]) => {
+        const res = await self.RoodyModels.refreshProvider(provider, key);
+        out[provider] = res;
+        rlog(res.ok
+          ? `🔄 ${provider} latest model: ${res.model}`
+          : `⚠ ${provider} model refresh failed: ${res.error}`);
+      }));
+      sendResponse({ ok: true, results: out });
+    })();
     return true;
   }
   // Session recap — the "never lose the thread" feature. When a conversation

@@ -418,14 +418,76 @@ checkTrue(
 // Auto-pick: background has a DEFAULT_MODELS table and a pickBrain() helper
 // that walks the keys in the documented order.
 checkTrue(
-  "background has DEFAULT_MODELS with all four provider defaults",
-  /DEFAULT_MODELS\s*=\s*\{[\s\S]{0,400}claude:[\s\S]{0,400}openai:[\s\S]{0,400}gemini:[\s\S]{0,400}grok:/.test(bg),
-  "DEFAULT_MODELS table missing or incomplete"
+  "fallback model table has all four providers",
+  /FALLBACK_MODELS\s*=\s*\{[\s\S]{0,400}claude:[\s\S]{0,400}openai:[\s\S]{0,400}gemini:[\s\S]{0,400}grok:/.test(read("src/models.js")),
+  "FALLBACK_MODELS table missing or incomplete"
 );
 checkTrue(
-  "pickBrain() honors the dev override, then the chip, then walks keys",
-  /function pickBrain\(prefs\)[\s\S]{0,1800}prefs\.roodyBrainPref[\s\S]{0,500}prefs\.roodyApiKey[\s\S]{0,300}prefs\.roodyOpenAIKey[\s\S]{0,300}prefs\.roodyGeminiKey[\s\S]{0,300}prefs\.roodyXaiKey/.test(bg),
-  "pickBrain missing or does the key walk in the wrong order"
+  "pickProvider() honors the chip, then walks keys in order",
+  /function pickProvider\(prefs\)[\s\S]{0,1800}prefs\.roodyBrainPref[\s\S]{0,500}prefs\.roodyApiKey[\s\S]{0,300}prefs\.roodyOpenAIKey[\s\S]{0,300}prefs\.roodyGeminiKey[\s\S]{0,300}prefs\.roodyXaiKey/.test(bg),
+  "pickProvider missing or does the key walk in the wrong order"
+);
+
+console.log("\n— Model auto-discovery (no hardcoded version to go stale) —");
+
+// Load models.js the way the service worker does (it attaches to `self`).
+const modelsSrc = read("src/models.js");
+const modelsSandbox = { self: {}, fetch: () => { throw new Error("no network in eval"); } };
+new Function("self", "fetch", modelsSrc)(modelsSandbox.self, modelsSandbox.fetch);
+const RM = modelsSandbox.self.RoodyModels;
+
+checkTrue("models.js exposes the discovery API", !!(RM && RM.pickBest && RM.refreshProvider && RM.modelFor), "RoodyModels missing");
+
+// The whole point: a newer version must win, so a future gpt-5.6 beats gpt-4o
+// without anyone editing the extension.
+check("picks the newest OpenAI version (5.6 > 5 > 4o)",
+  RM.pickBest(["gpt-4o", "gpt-5", "gpt-5.6"], /^(gpt-|o[1-9])/i), "gpt-5.6");
+check("picks newest Claude (Anthropic dashed versions)",
+  RM.pickBest(["claude-sonnet-4-5", "claude-sonnet-4-6", "claude-haiku-4-5"], /^claude-/i), "claude-sonnet-4-6");
+check("picks newest Gemini",
+  RM.pickBest(["gemini-2.5-flash", "gemini-3.0-pro", "gemini-1.5-pro"], /^gemini-/i), "gemini-3.0-pro");
+check("picks newest Grok",
+  RM.pickBest(["grok-3", "grok-4", "grok-3-mini"], /^grok-/i), "grok-4");
+// Full-size beats the cheap tier at the same version.
+check("prefers the full model over mini at the same version",
+  RM.pickBest(["gpt-5-mini", "gpt-5"], /^gpt-/i), "gpt-5");
+// Non-chat SKUs must never be selected as the brain.
+check("never selects an embedding/audio/image SKU",
+  RM.pickBest(["text-embedding-3-large", "gpt-4o-audio", "dall-e-3", "gpt-5"], /^(gpt-|text-|dall)/i), "gpt-5");
+// A rolling alias is preferred over a dated snapshot of the same model.
+check("prefers a rolling alias over a dated snapshot",
+  RM.pickBest(["gpt-5-2026-03-01", "gpt-5"], /^gpt-/i), "gpt-5");
+// Stable beats preview at the same version.
+check("prefers stable over preview",
+  RM.pickBest(["gpt-5-preview", "gpt-5"], /^gpt-/i), "gpt-5");
+checkTrue(
+  "background prefers the discovered model, with FALLBACK_MODELS as backstop",
+  bg.includes("self.RoodyModels.modelFor(") && bg.includes("RoodyModels.FALLBACK_MODELS"),
+  "background isn't reading the discovery cache"
+);
+checkTrue(
+  "background exposes a roody:refreshModels handler",
+  bg.includes('"roody:refreshModels"') && bg.includes("refreshProvider("),
+  "refresh handler missing"
+);
+checkTrue(
+  "settings refresh on open, on key paste, and via the button",
+  (() => {
+    const o = read("src/options.js");
+    return o.includes("refreshModels(false)") && o.includes('$("refreshmodels").addEventListener') &&
+      /if \(v\) setTimeout\(\(\) => refreshModels\(false\)/.test(o);
+  })(),
+  "one of the three refresh triggers is missing"
+);
+checkTrue(
+  "options.html loads models.js and shows per-provider model lines",
+  (() => {
+    const h = read("src/options.html");
+    return h.includes('src="models.js"') && h.includes('id="refreshmodels"') &&
+      h.includes('id="openaimodel"') && h.includes('id="claudemodel"') &&
+      h.includes('id="geminimodel"') && h.includes('id="grokmodel"');
+  })(),
+  "model readouts or the models.js script tag are missing"
 );
 
 console.log("\n— Roody knows its own state (fix for 'parroted the page') —");
@@ -433,20 +495,18 @@ console.log("\n— Roody knows its own state (fix for 'parroted the page') —")
 // pickBrain now returns { model, provider, reason } so the LLM can be told
 // which provider is running and why, instead of guessing from page text.
 checkTrue(
-  "pickBrain returns { model, provider, reason }",
-  /return\s*\{\s*model:[^}]*provider:[^}]*reason:/.test(bg),
-  "pickBrain still returns a bare model string"
+  "pickBrain resolves { model, provider, reason } from the discovery cache",
+  /async function pickBrain\(prefs\)[\s\S]{0,700}RoodyModels\.modelFor\(provider\)[\s\S]{0,400}return\s*\{[\s\S]{0,200}model,[\s\S]{0,200}provider,[\s\S]{0,200}reason:/.test(bg),
+  "pickBrain isn't resolving through the model cache"
 );
 // Every pickBrain branch now sets provider explicitly (no dev override to
 // reverse-derive from a model string), so a stray untagged pick would show
 // up as a `provider:` missing on one of the returns.
 checkTrue(
-  "every pickBrain branch labels its provider explicitly",
+  "every pickProvider branch labels its provider explicitly",
   (() => {
-    const start = bg.indexOf("function pickBrain(");
+    const start = bg.indexOf("function pickProvider(");
     if (start < 0) return false;
-    // Slice through the closing brace of pickBrain only (next line starting
-    // with a bare "}"), not all the way through the file.
     const rest = bg.slice(start);
     const end = rest.search(/\n\}\n/);
     const fn = end > 0 ? rest.slice(0, end) : rest;
@@ -454,7 +514,7 @@ checkTrue(
     const providered = (fn.match(/provider:\s*"[a-z]+"|provider:\s*pref/g) || []).length;
     return returns > 0 && providered === returns;
   })(),
-  "a pickBrain return path forgot to tag its provider"
+  "a pickProvider return path forgot to tag its provider"
 );
 // The ROODY STATE block is what actually reaches the LLM every turn.
 checkTrue(

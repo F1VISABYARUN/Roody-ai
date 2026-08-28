@@ -185,6 +185,8 @@ function autoSaveKey(input, storageKey, statusEl) {
     statusEl.textContent = v ? "✓ Saved" : "Not set";
     statusEl.classList.toggle("has", !!v);
     setTimeout(() => showKeyStatus(statusEl, !!v), 1200);
+    // A new key means a new model list — go find the provider's latest.
+    if (v) setTimeout(() => refreshModels(false), 200);
   });
 }
 
@@ -194,6 +196,54 @@ autoSaveKey(xkeyEl, "roodyXaiKey", $("xstatus"));
 autoSaveKey(okeyEl, "roodyOpenAIKey", $("ostatus"));
 
 // Auto-save all dropdowns and checkboxes on change — no Save button needed.
+// ---- Model auto-discovery -------------------------------------------------
+// Roody asks each provider what the user's key can use and caches the newest
+// flagship, so a new model release doesn't need an extension update. These
+// readouts show what it landed on.
+const MODEL_LINE = {
+  claude: "claudemodel",
+  openai: "openaimodel",
+  gemini: "geminimodel",
+  grok: "grokmodel",
+};
+function paintModelLines() {
+  chrome.storage.local.get(Object.values(RoodyModels.STORAGE_KEY)).then((s) => {
+    for (const [provider, elId] of Object.entries(MODEL_LINE)) {
+      const el = $(elId);
+      if (!el) continue;
+      const found = s[RoodyModels.STORAGE_KEY[provider]];
+      el.textContent = found ? `using ${found}` : "";
+    }
+  });
+}
+function refreshModels(showStatus) {
+  const status = $("refreshstatus");
+  if (showStatus && status) status.textContent = "Checking…";
+  try {
+    chrome.runtime.sendMessage({ type: "roody:refreshModels" }, (res) => {
+      if (chrome.runtime.lastError || !res || !res.ok) {
+        if (showStatus && status) status.textContent = "Couldn't reach the providers.";
+        return;
+      }
+      paintModelLines();
+      if (!showStatus || !status) return;
+      const results = res.results || {};
+      const names = Object.keys(results);
+      if (!names.length) { status.textContent = "Paste a key first."; return; }
+      const okd = names.filter((n) => results[n].ok);
+      status.textContent = okd.length
+        ? `✓ Updated ${okd.length} of ${names.length}`
+        : "No models found — check your keys.";
+      setTimeout(() => { status.textContent = ""; }, 4000);
+    });
+  } catch (_) {
+    if (showStatus && status) status.textContent = "Couldn't reach the providers.";
+  }
+}
+$("refreshmodels").addEventListener("click", () => refreshModels(true));
+paintModelLines();
+refreshModels(false); // quiet refresh whenever Settings opens
+
 // ---- Preferred-brain chips ------------------------------------------------
 // The consumer-view control. Writes roodyBrainPref = "auto" | "claude" |
 // "openai" | "gemini" | "grok". background.js reads it and picks a sensible
