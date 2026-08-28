@@ -9,6 +9,39 @@ const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 // read screenshots). Users can switch to Claude/Grok in settings with a key.
 const MODEL = "gemini-2.5-flash";
 
+// One sensible current model per provider. The user never types a model ID —
+// they just paste a key (or pick a "Preferred brain" chip) and Roody uses the
+// value below. If a provider retires an alias, update it here in one place.
+// The dev panel's "Advanced: override model ID" field bypasses this table.
+const DEFAULT_MODELS = {
+  claude: "claude-sonnet-4-5",
+  openai: "gpt-4o",
+  gemini: "gemini-2.5-flash",
+  grok: "grok-3",
+};
+
+// Pick the model to use for this turn, based on:
+//   1. Dev override (`roodyModel`) — verbatim, no matter what.
+//   2. Explicit user preference (`roodyBrainPref` chip in Settings).
+//   3. Auto-detect from which key the user actually pasted.
+// If nothing works, fall back to Gemini and let `askGeminiBrain` produce the
+// polite "isn't set up yet" error.
+function pickBrain(prefs) {
+  const override = (prefs.roodyModel || "").trim();
+  if (override) return override;
+  const pref = prefs.roodyBrainPref || "auto";
+  if (pref !== "auto" && DEFAULT_MODELS[pref]) return DEFAULT_MODELS[pref];
+  // Auto: walk the keys in preference order. Claude first because it tends to
+  // be strongest for coding at the moment; if that changes, reorder here.
+  if (prefs.roodyApiKey)     return DEFAULT_MODELS.claude;
+  if (prefs.roodyOpenAIKey)  return DEFAULT_MODELS.openai;
+  if (prefs.roodyGeminiKey)  return DEFAULT_MODELS.gemini;
+  if (prefs.roodyXaiKey)     return DEFAULT_MODELS.grok;
+  // Invite code (proxied Gemini) is the last resort so an own-key user isn't
+  // silently routed through the founder's proxy when they didn't ask.
+  return DEFAULT_MODELS.gemini;
+}
+
 // Pull the user's settings (API keys + chosen model) from extension storage.
 async function getSettings() {
   const { roodyApiKey, roodyModel, roodyXaiKey, roodyOpenAIKey } = await chrome.storage.local.get([
@@ -176,15 +209,25 @@ function isOpenAIModel(model) {
 // the page; `history` is the running chat; `image` (optional) is a screenshot
 // the user asked Roody to look at, as { mime, data } where data is base64.
 async function askRoody({ userText, pageContext, history, site, title, pageMode, image }) {
-  const { apiKey, xaiKey, openaiKey, model: settingsModel } = await getSettings();
-  const { roodyLang, roodyVibe, roodyMemory, roodyProfile } = await chrome.storage.local.get(["roodyLang", "roodyVibe", "roodyMemory", "roodyProfile"]);
+  const { apiKey, xaiKey, openaiKey } = await getSettings();
+  const { roodyLang, roodyVibe, roodyMemory, roodyProfile,
+          roodyModel, roodyBrainPref,
+          roodyGeminiKey, roodyInviteCode } = await chrome.storage.local.get([
+    "roodyLang", "roodyVibe", "roodyMemory", "roodyProfile",
+    "roodyModel", "roodyBrainPref",
+    "roodyGeminiKey", "roodyInviteCode",
+  ]);
 
-  let model = settingsModel;
-  // Credential-aware routing: invite-code-only users default to a brain they
-  // have no key for. If the selected brain's key is missing but Gemini is
-  // reachable (own key or invite code), route to Gemini instead of erroring —
-  // fresh installs must Just Work with only a code.
-  const { roodyGeminiKey, roodyInviteCode } = await chrome.storage.local.get(["roodyGeminiKey", "roodyInviteCode"]);
+  // Pick the model from the auto-detect rules — the user never types a model
+  // ID in the consumer view. `pickBrain` reads the "Preferred brain" chip and
+  // the (dev-only) override, then falls back to the first available key.
+  let model = pickBrain({
+    roodyModel, roodyBrainPref,
+    roodyApiKey: apiKey, roodyOpenAIKey: openaiKey,
+    roodyGeminiKey, roodyXaiKey: xaiKey, roodyInviteCode,
+  });
+  // Credential-aware routing: a user who forced (say) "Claude" without a Claude
+  // key still gets an answer — reroute to Gemini if Gemini is reachable.
   const geminiReachable = !!(roodyGeminiKey || roodyInviteCode);
   if (geminiReachable) {
     if (model.startsWith("grok-") && !xaiKey) model = "gemini-2.5-flash";

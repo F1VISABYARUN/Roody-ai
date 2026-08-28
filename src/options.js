@@ -196,14 +196,33 @@ autoSaveKey(xkeyEl, "roodyXaiKey", $("xstatus"));
 autoSaveKey(okeyEl, "roodyOpenAIKey", $("ostatus"));
 
 // Auto-save all dropdowns and checkboxes on change — no Save button needed.
-// Save the model ID on blur (like the key fields) so a mid-typing state isn't
-// persisted after every keystroke. Trim so a trailing space doesn't 400 the
-// provider ("gpt-4o " != "gpt-4o").
+// Model ID override lives in #dev now. Save on blur, trim trailing spaces.
 modelEl.addEventListener("blur", () => chrome.storage.local.set({ roodyModel: (modelEl.value || "").trim() }));
-// If the user typed a value and hits Enter, save immediately.
 modelEl.addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); modelEl.blur(); }
 });
+
+// ---- Preferred-brain chips ------------------------------------------------
+// The consumer-view control. Writes roodyBrainPref = "auto" | "claude" |
+// "openai" | "gemini" | "grok". background.js reads it and picks a sensible
+// default model for that provider — no model IDs for the user to remember.
+const brainprefEl = $("brainpref");
+if (brainprefEl) {
+  const chips = brainprefEl.querySelectorAll(".chip");
+  function paintActive(pref) {
+    chips.forEach((c) => c.classList.toggle("active", c.dataset.pref === pref));
+  }
+  chips.forEach((c) => {
+    c.addEventListener("click", () => {
+      const pref = c.dataset.pref || "auto";
+      paintActive(pref);
+      chrome.storage.local.set({ roodyBrainPref: pref });
+    });
+  });
+  chrome.storage.local.get(["roodyBrainPref"]).then(({ roodyBrainPref }) => {
+    paintActive(roodyBrainPref || "auto");
+  });
+}
 langEl.addEventListener("change", () => chrome.storage.local.set({ roodyLang: langEl.value }));
 webEl.addEventListener("change", () => chrome.storage.local.set({ roodyWebSearch: webEl.checked }));
 chimeEl.addEventListener("change", () => chrome.storage.local.set({ roodyAutoChime: chimeEl.checked }));

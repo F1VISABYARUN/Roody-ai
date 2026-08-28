@@ -376,11 +376,10 @@ checkTrue(
 // (Only the Gemini own-key stays dev-only, since invite codes already cover
 // the free-Gemini path.)
 checkTrue(
-  "brain picker and Claude/OpenAI/xAI keys are in the consumer view",
-  consumerView.includes('id="model"') &&
-    consumerView.includes('id="key"') && consumerView.includes('id="okey"') && consumerView.includes('id="xkey"') &&
+  "the three own-key fields are in the consumer view",
+  consumerView.includes('id="key"') && consumerView.includes('id="okey"') && consumerView.includes('id="xkey"') &&
     consumerView.includes('id="clearkey"') && consumerView.includes('id="clearo"') && consumerView.includes('id="clearx"'),
-  "brain/key controls are still hidden behind #dev"
+  "own-key controls are still hidden behind #dev"
 );
 checkTrue(
   "each consumer-view key has a status line and a getkey link",
@@ -388,12 +387,43 @@ checkTrue(
     /console\.anthropic\.com/.test(consumerView) && /platform\.openai\.com/.test(consumerView) && /console\.x\.ai/.test(consumerView),
   "status labels or provider links missing from consumer view"
 );
-// The dropdown was version-locked to whatever model IDs I knew about at build
-// time. A text input outlives every model release.
+// The consumer view no longer asks the user to type a model string at all.
+// Provider chips + auto-pick from whichever key is set.
 checkTrue(
-  "brain picker is a free-text input, not a hard-coded dropdown",
-  /<input\s+id="model"/.test(consumerView) && !/<select\s+id="model"/.test(consumerView),
-  "brain picker is still a dropdown — new provider models won't be selectable"
+  "consumer view has no model-string input at all",
+  !consumerView.includes('id="model"'),
+  "a model-ID field is still user-visible"
+);
+checkTrue(
+  "consumer view has the Preferred-brain chip selector",
+  consumerView.includes('id="brainpref"') &&
+    /data-pref="auto"/.test(consumerView) && /data-pref="claude"/.test(consumerView) &&
+    /data-pref="openai"/.test(consumerView) && /data-pref="gemini"/.test(consumerView) &&
+    /data-pref="grok"/.test(consumerView),
+  "Preferred-brain chip selector missing from consumer view"
+);
+checkTrue(
+  "options.js persists the chip choice and paints the active chip",
+  read("src/options.js").includes("roodyBrainPref") && read("src/options.js").includes("brainpref"),
+  "chip wiring missing from options.js"
+);
+// Model override still exists — in #dev only, for the founder.
+checkTrue(
+  'model-ID override lives in #dev only ("Advanced: override model ID")',
+  devPanel.includes('id="model"') && /Advanced:\s*override model ID/.test(devPanel),
+  "the founder's model override is missing or in the wrong place"
+);
+// Auto-pick: background has a DEFAULT_MODELS table and a pickBrain() helper
+// that walks the keys in the documented order.
+checkTrue(
+  "background has DEFAULT_MODELS with all four provider defaults",
+  /DEFAULT_MODELS\s*=\s*\{[\s\S]{0,400}claude:[\s\S]{0,400}openai:[\s\S]{0,400}gemini:[\s\S]{0,400}grok:/.test(bg),
+  "DEFAULT_MODELS table missing or incomplete"
+);
+checkTrue(
+  "pickBrain() honors the dev override, then the chip, then walks keys",
+  /function pickBrain\(prefs\)[\s\S]{0,1500}prefs\.roodyModel[\s\S]{0,400}prefs\.roodyBrainPref[\s\S]{0,400}prefs\.roodyApiKey[\s\S]{0,200}prefs\.roodyOpenAIKey[\s\S]{0,200}prefs\.roodyGeminiKey[\s\S]{0,200}prefs\.roodyXaiKey/.test(bg),
+  "pickBrain missing or does the key walk in the wrong order"
 );
 checkTrue(
   '"isn\'t set up" errors mention keys, not just invite codes',
