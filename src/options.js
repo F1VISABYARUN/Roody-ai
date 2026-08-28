@@ -14,7 +14,6 @@ applyDevMode();
 window.addEventListener("hashchange", applyDevMode);
 
 const keyEl = $("key");
-const modelEl = $("model");
 const gkeyEl = $("gkey");
 const xkeyEl = $("xkey");
 const okeyEl = $("okey");
@@ -40,13 +39,12 @@ function showKeyStatus(el, hasIt) {
 // Load everything saved.
 chrome.storage.local
   .get([
-    "roodyApiKey", "roodyModel", "roodyGeminiKey", "roodyXaiKey", "roodyOpenAIKey",
+    "roodyApiKey", "roodyGeminiKey", "roodyXaiKey", "roodyOpenAIKey",
     "roodyLang", "roodyWebSearch", "roodyEnabled", "roodyAutoChime", "roodyOpacity",
     "roodyProfile", "roodyInviteCode", "roodyProxyUrl",
   ])
   .then((s) => {
     if (s.roodyApiKey) keyEl.value = s.roodyApiKey;
-    if (s.roodyModel) modelEl.value = s.roodyModel;
     if (s.roodyGeminiKey) gkeyEl.value = s.roodyGeminiKey;
     if (s.roodyXaiKey) xkeyEl.value = s.roodyXaiKey;
     if (s.roodyOpenAIKey) okeyEl.value = s.roodyOpenAIKey;
@@ -196,12 +194,6 @@ autoSaveKey(xkeyEl, "roodyXaiKey", $("xstatus"));
 autoSaveKey(okeyEl, "roodyOpenAIKey", $("ostatus"));
 
 // Auto-save all dropdowns and checkboxes on change — no Save button needed.
-// Model ID override lives in #dev now. Save on blur, trim trailing spaces.
-modelEl.addEventListener("blur", () => chrome.storage.local.set({ roodyModel: (modelEl.value || "").trim() }));
-modelEl.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); modelEl.blur(); }
-});
-
 // ---- Preferred-brain chips ------------------------------------------------
 // The consumer-view control. Writes roodyBrainPref = "auto" | "claude" |
 // "openai" | "gemini" | "grok". background.js reads it and picks a sensible
@@ -302,7 +294,6 @@ let autoTimer = setInterval(() => { if (autoEl.checked) showLog(); }, 1500);
 $("save").addEventListener("click", async () => {
   await chrome.storage.local.set({
     roodyApiKey: keyEl.value.trim(),
-    roodyModel: (modelEl.value || "").trim(),
     roodyGeminiKey: gkeyEl.value.trim(),
     roodyXaiKey: xkeyEl.value.trim(),
     roodyOpenAIKey: okeyEl.value.trim(),

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Roody — AI coding assistant",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "description": "Summon an AI coding assistant on any page. It reads the page and your screen, answers questions, and writes code in the chat. Loads only when clicked.",
   "permissions": [
     "storage",

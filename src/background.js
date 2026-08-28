@@ -21,25 +21,13 @@ const DEFAULT_MODELS = {
 };
 
 // Pick the model to use for this turn, based on:
-//   1. Dev override (`roodyModel`) — verbatim, no matter what.
-//   2. Explicit user preference (`roodyBrainPref` chip in Settings).
-//   3. Auto-detect from which key the user actually pasted.
+//   1. Explicit user preference (`roodyBrainPref` chip in Settings).
+//   2. Auto-detect from which key the user actually pasted.
 // If nothing works, fall back to Gemini and let `askGeminiBrain` produce the
-// polite "isn't set up yet" error.
-// Which provider owns a given model string. Uses the same prefix rules as
-// isOpenAIModel / the brain-dispatch switch, so a dev override still gets
-// tagged correctly for the SYSTEM STATE block.
-function providerOf(model) {
-  if (!model) return "gemini";
-  if (model.startsWith("claude-")) return "claude";
-  if (model.startsWith("gemini-")) return "gemini";
-  if (model.startsWith("grok-")) return "grok";
-  if (model.startsWith("gpt-") || /^o[1-9]/.test(model)) return "openai";
-  return "gemini"; // unknown prefix -> route through Gemini
-}
+// polite "isn't set up yet" error. There is no user-typed model ID anywhere —
+// the founder pushed back that pasting model strings is friction. When a new
+// model drops, DEFAULT_MODELS above is a one-line edit.
 function pickBrain(prefs) {
-  const override = (prefs.roodyModel || "").trim();
-  if (override) return { model: override, provider: providerOf(override), reason: "dev override" };
   const pref = prefs.roodyBrainPref || "auto";
   if (pref !== "auto" && DEFAULT_MODELS[pref]) {
     return { model: DEFAULT_MODELS[pref], provider: pref, reason: `chip pref: ${pref}` };
@@ -79,9 +67,8 @@ function buildRoodyState({ pick, prefs, hasImage }) {
 
 // Pull the user's settings (API keys + chosen model) from extension storage.
 async function getSettings() {
-  const { roodyApiKey, roodyModel, roodyXaiKey, roodyOpenAIKey } = await chrome.storage.local.get([
+  const { roodyApiKey, roodyXaiKey, roodyOpenAIKey } = await chrome.storage.local.get([
     "roodyApiKey",
-    "roodyModel",
     "roodyXaiKey",
     "roodyOpenAIKey",
   ]);
@@ -89,7 +76,6 @@ async function getSettings() {
     apiKey: roodyApiKey,
     xaiKey: roodyXaiKey,
     openaiKey: roodyOpenAIKey,
-    model: roodyModel || MODEL,
   };
 }
 
@@ -246,18 +232,18 @@ function isOpenAIModel(model) {
 async function askRoody({ userText, pageContext, history, site, title, pageMode, image }) {
   const { apiKey, xaiKey, openaiKey } = await getSettings();
   const { roodyLang, roodyVibe, roodyMemory, roodyProfile,
-          roodyModel, roodyBrainPref,
+          roodyBrainPref,
           roodyGeminiKey, roodyInviteCode } = await chrome.storage.local.get([
     "roodyLang", "roodyVibe", "roodyMemory", "roodyProfile",
-    "roodyModel", "roodyBrainPref",
+    "roodyBrainPref",
     "roodyGeminiKey", "roodyInviteCode",
   ]);
 
   // Pick the model from the auto-detect rules — the user never types a model
-  // ID in the consumer view. `pickBrain` reads the "Preferred brain" chip and
-  // the (dev-only) override, then falls back to the first available key.
+  // ID anywhere. `pickBrain` reads the "Preferred brain" chip and falls back
+  // to the first available key.
   const prefs = {
-    roodyModel, roodyBrainPref,
+    roodyBrainPref,
     roodyApiKey: apiKey, roodyOpenAIKey: openaiKey,
     roodyGeminiKey, roodyXaiKey: xaiKey, roodyInviteCode,
   };

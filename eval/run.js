@@ -409,9 +409,11 @@ checkTrue(
 );
 // Model override still exists — in #dev only, for the founder.
 checkTrue(
-  'model-ID override lives in #dev only ("Advanced: override model ID")',
-  devPanel.includes('id="model"') && /Advanced:\s*override model ID/.test(devPanel),
-  "the founder's model override is missing or in the wrong place"
+  "no model-ID input exists anywhere (dev or consumer)",
+  !read("src/options.html").includes('id="model"') &&
+    !read("src/options.js").includes("roodyModel") &&
+    !read("src/background.js").includes("roodyModel"),
+  "the model-ID field is still present somewhere"
 );
 // Auto-pick: background has a DEFAULT_MODELS table and a pickBrain() helper
 // that walks the keys in the documented order.
@@ -422,7 +424,7 @@ checkTrue(
 );
 checkTrue(
   "pickBrain() honors the dev override, then the chip, then walks keys",
-  /function pickBrain\(prefs\)[\s\S]{0,1800}prefs\.roodyModel[\s\S]{0,500}prefs\.roodyBrainPref[\s\S]{0,500}prefs\.roodyApiKey[\s\S]{0,300}prefs\.roodyOpenAIKey[\s\S]{0,300}prefs\.roodyGeminiKey[\s\S]{0,300}prefs\.roodyXaiKey/.test(bg),
+  /function pickBrain\(prefs\)[\s\S]{0,1800}prefs\.roodyBrainPref[\s\S]{0,500}prefs\.roodyApiKey[\s\S]{0,300}prefs\.roodyOpenAIKey[\s\S]{0,300}prefs\.roodyGeminiKey[\s\S]{0,300}prefs\.roodyXaiKey/.test(bg),
   "pickBrain missing or does the key walk in the wrong order"
 );
 
@@ -435,12 +437,24 @@ checkTrue(
   /return\s*\{\s*model:[^}]*provider:[^}]*reason:/.test(bg),
   "pickBrain still returns a bare model string"
 );
-// providerOf maps a model string to its provider tag so a dev override still
-// gets labeled correctly.
+// Every pickBrain branch now sets provider explicitly (no dev override to
+// reverse-derive from a model string), so a stray untagged pick would show
+// up as a `provider:` missing on one of the returns.
 checkTrue(
-  "providerOf() derives the provider from the model prefix",
-  /function providerOf\(model\)[\s\S]{0,400}claude-[\s\S]{0,400}gemini-[\s\S]{0,400}grok-[\s\S]{0,400}gpt-/.test(bg),
-  "providerOf missing — dev overrides won't be tagged"
+  "every pickBrain branch labels its provider explicitly",
+  (() => {
+    const start = bg.indexOf("function pickBrain(");
+    if (start < 0) return false;
+    // Slice through the closing brace of pickBrain only (next line starting
+    // with a bare "}"), not all the way through the file.
+    const rest = bg.slice(start);
+    const end = rest.search(/\n\}\n/);
+    const fn = end > 0 ? rest.slice(0, end) : rest;
+    const returns = (fn.match(/return\s*\{/g) || []).length;
+    const providered = (fn.match(/provider:\s*"[a-z]+"|provider:\s*pref/g) || []).length;
+    return returns > 0 && providered === returns;
+  })(),
+  "a pickBrain return path forgot to tag its provider"
 );
 // The ROODY STATE block is what actually reaches the LLM every turn.
 checkTrue(
