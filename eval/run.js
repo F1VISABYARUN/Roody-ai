@@ -388,6 +388,21 @@ checkTrue(
     /console\.anthropic\.com/.test(consumerView) && /platform\.openai\.com/.test(consumerView) && /console\.x\.ai/.test(consumerView),
   "status labels or provider links missing from consumer view"
 );
+// The dropdown was version-locked to whatever model IDs I knew about at build
+// time. A text input outlives every model release.
+checkTrue(
+  "brain picker is a free-text input, not a hard-coded dropdown",
+  /<input\s+id="model"/.test(consumerView) && !/<select\s+id="model"/.test(consumerView),
+  "brain picker is still a dropdown — new provider models won't be selectable"
+);
+checkTrue(
+  '"isn\'t set up" errors mention keys, not just invite codes',
+  (() => {
+    const setup = bg.match(/Roody isn't set up yet[^"]*/g) || [];
+    return setup.length > 0 && setup.every((s) => /api key/i.test(s));
+  })(),
+  "the setup-error copy still tells users to paste an invite code only"
+);
 checkTrue(
   "panel subtitle is coding-assistant copy",
   content.includes("AI coding assistant"),

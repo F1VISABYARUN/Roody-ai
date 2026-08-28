@@ -196,7 +196,14 @@ autoSaveKey(xkeyEl, "roodyXaiKey", $("xstatus"));
 autoSaveKey(okeyEl, "roodyOpenAIKey", $("ostatus"));
 
 // Auto-save all dropdowns and checkboxes on change — no Save button needed.
-modelEl.addEventListener("change", () => chrome.storage.local.set({ roodyModel: modelEl.value }));
+// Save the model ID on blur (like the key fields) so a mid-typing state isn't
+// persisted after every keystroke. Trim so a trailing space doesn't 400 the
+// provider ("gpt-4o " != "gpt-4o").
+modelEl.addEventListener("blur", () => chrome.storage.local.set({ roodyModel: (modelEl.value || "").trim() }));
+// If the user typed a value and hits Enter, save immediately.
+modelEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); modelEl.blur(); }
+});
 langEl.addEventListener("change", () => chrome.storage.local.set({ roodyLang: langEl.value }));
 webEl.addEventListener("change", () => chrome.storage.local.set({ roodyWebSearch: webEl.checked }));
 chimeEl.addEventListener("change", () => chrome.storage.local.set({ roodyAutoChime: chimeEl.checked }));
@@ -276,7 +283,7 @@ let autoTimer = setInterval(() => { if (autoEl.checked) showLog(); }, 1500);
 $("save").addEventListener("click", async () => {
   await chrome.storage.local.set({
     roodyApiKey: keyEl.value.trim(),
-    roodyModel: modelEl.value,
+    roodyModel: (modelEl.value || "").trim(),
     roodyGeminiKey: gkeyEl.value.trim(),
     roodyXaiKey: xkeyEl.value.trim(),
     roodyOpenAIKey: okeyEl.value.trim(),

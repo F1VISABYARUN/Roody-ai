@@ -241,7 +241,7 @@ async function askRoody({ userText, pageContext, history, site, title, pageMode,
     return {
       ok: false,
       error:
-        "Roody isn't set up yet — open Settings (⚙) and paste your invite code.",
+        "Roody isn't set up yet — open Settings (⚙) and paste an invite code or your own API key.",
     };
   }
 
@@ -458,7 +458,7 @@ async function askGeminiBrain({ userText, pageContext, history, model, lang, sys
   if (!routed) {
     return {
       ok: false,
-      error: "Roody isn't set up yet — open Settings (⚙) and paste your invite code.",
+      error: "Roody isn't set up yet — open Settings (⚙) and paste an invite code or your own API key.",
     };
   }
   const resp = routed.resp;
@@ -502,7 +502,7 @@ async function askOpenAIBrain({ userText, pageContext, history, model, lang, ope
   if (!openaiKey) {
     return {
       ok: false,
-      error: "Roody isn't set up yet — open Settings (⚙) and paste your invite code.",
+      error: "Roody isn't set up yet — open Settings (⚙) and paste an invite code or your own API key.",
     };
   }
   const ctxCap = 14000;
@@ -573,7 +573,7 @@ async function askGrokBrain({ userText, pageContext, history, model, lang, xaiKe
   if (!xaiKey) {
     return {
       ok: false,
-      error: "Roody isn't set up yet — open Settings (⚙) and paste your invite code.",
+      error: "Roody isn't set up yet — open Settings (⚙) and paste an invite code or your own API key.",
     };
   }
   const ctxCap = 14000;
