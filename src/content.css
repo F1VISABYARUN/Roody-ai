@@ -239,28 +239,6 @@
   flex: 0 0 auto;
 }
 #roody-send:hover { background: var(--roody-accent); }
-#roody-pdf, #roody-shot {
-  border: 1px solid var(--roody-border);
-  border-radius: 10px;
-  width: 38px;
-  height: 38px;
-  cursor: pointer;
-  font-size: 16px;
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--roody-text);
-  flex: 0 0 auto;
-}
-#roody-pdf:hover, #roody-shot:hover {
-  border-color: var(--roody-accent);
-  background: rgba(124, 155, 255, 0.14);
-}
-/* 📷 armed = a screenshot will ride along with the next message. */
-#roody-shot.on {
-  background: rgba(124, 155, 255, 0.3);
-  border-color: var(--roody-accent);
-  box-shadow: 0 0 0 2px rgba(124, 155, 255, 0.25);
-}
-
 /* Custom resize grabber (native `resize` doesn't play well with position:fixed). */
 #roody-resize {
   position: absolute;

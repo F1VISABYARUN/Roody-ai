@@ -137,10 +137,22 @@ checkTrue(
   "opener regressed to a deflecting question"
 );
 checkTrue(
-  "PDF opener auto-decodes the document",
-  content.includes("the one idea that matters most") &&
-    read("src/study.js").includes("the one idea that matters most"),
-  "PDF opener changed"
+  "Study tab's PDF opener still auto-decodes the document",
+  // The in-panel PDF button was removed for a cleaner input row; the Study
+  // tab remains the only visible PDF UI, so the opener assertion moves there.
+  read("src/study.js").includes("the one idea that matters most"),
+  "Study-tab PDF opener changed"
+);
+checkTrue(
+  "the removed PDF + screenshot buttons are gone from the panel input row",
+  !content.includes('id="roody-pdf"') && !content.includes('id="roody-shot"') &&
+    !read("src/content.css").includes("#roody-pdf") && !read("src/content.css").includes("#roody-shot"),
+  "an in-panel PDF or screenshot button is still present"
+);
+checkTrue(
+  "screenshot still auto-arms from wording / code-mode even without the button",
+  content.includes("VISUAL_INTENT.test(userText)") && content.includes("CODE_TALK.test(userText)"),
+  "auto-arm path lost when the manual button was removed"
 );
 checkTrue(
   "content.js renders Markdown (code blocks) into Roody bubbles",

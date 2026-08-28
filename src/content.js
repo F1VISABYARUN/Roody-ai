@@ -639,12 +639,9 @@
     </div>
     <div id="roody-log"></div>
     <div id="roody-inputrow">
-      <button id="roody-pdf" title="Read a PDF with Roody">📄</button>
-      <button id="roody-shot" title="Attach a screenshot of your screen to the next message">📷</button>
       <textarea id="roody-text" rows="1" placeholder="Ask about the code or the page… (Enter to send, Shift+Enter for a new line)"></textarea>
       <button id="roody-send" title="Send">➤</button>
     </div>
-    <input id="roody-pdf-file" type="file" accept="application/pdf,.pdf" style="display:none" />
     <div id="roody-resize" title="Drag to resize"></div>
   `;
 
@@ -974,14 +971,10 @@
   // auto-triggered on wording that clearly means "look at my screen". Coders
   // rarely say "this diagram" — they say "why does my code fail" or "what's
   // wrong with this". Match those too.
-  let attachShot = false;
   const VISUAL_INTENT = /\b(screenshot|on[-\s]?screen|on my screen|this (image|picture|photo|diagram|chart|graph|screen|ui|design|mockup|layout|render|error|output|test|result)|what('?s| is) (shown|on screen|wrong|the (error|issue|problem|bug))|what do you see|look at (this|my) (screen|image|picture|page|code|editor|error|output|test|result)|see (this|my) screen|the (image|picture|diagram|chart|screenshot|error|output|console|test result|test case)|visually|my (code|solution|function|answer|program|script|attempt)|why does .{0,20}(fail|break|error|crash|not work)|why (is|are|does|isn't|aren't|doesn't) (it|this|that|my) .{0,30}(fail|work|error|break|wrong)|debug|fix my|find the (bug|issue|error))\b/i;
   // On a page detected as code mode, mentioning code should auto-arm — the
   // screenshot is usually the answer to "what does Roody see" on those pages.
   const CODE_TALK = /\b(bug|error|fail|compile|syntax|runtime|exception|traceback|stack trace|nullpointer|segfault|test case|failing test|off by one|edge case|line \d+|function|method|class|variable|null|undefined|nan|infinity|infinite loop)\b/i;
-  const shotBtn = panel.querySelector("#roody-shot");
-  function updateShotBtn() { if (shotBtn) shotBtn.classList.toggle("on", attachShot); }
-  if (shotBtn) shotBtn.addEventListener("click", () => { attachShot = !attachShot; updateShotBtn(); });
 
   // You asked Roody something.
   async function send(userText) {
@@ -991,16 +984,12 @@
     addBubble("you", userText);
     input.value = "";
     autoGrow();
-    // Three ways a screenshot rides along:
-    //   1. Explicit tap of the 📷 button.
-    //   2. VISUAL_INTENT matches the words.
-    //   3. Page is in code mode AND the message talks about code — the
-    //      editor is exactly what the user wants Roody to look at, and this
-    //      catches the common "what's wrong with this?" case that misses the
-    //      regex above.
+    // A screenshot rides along whenever the wording clearly means "look at my
+    // screen" (VISUAL_INTENT), or the page is a code page and the message
+    // talks about code (CODE_TALK). No manual toggle — the button was
+    // redundant and cluttering the input row.
     const inCodeMode = detectMode() === "code";
-    const wantShot = attachShot || VISUAL_INTENT.test(userText) || (inCodeMode && CODE_TALK.test(userText));
-    attachShot = false; updateShotBtn();
+    const wantShot = VISUAL_INTENT.test(userText) || (inCodeMode && CODE_TALK.test(userText));
     const thinking = addBubble("roody", "…");
     const ctx = buildContext();
     let image = null;
@@ -1027,52 +1016,12 @@
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input.value); }
   });
 
-  // ---- Read a PDF -----------------------------------------------------------
-  const PDF_OPENER_PROMPT =
-    "(The user just loaded a PDF. In 2-3 sentences of Markdown, give the useful decode: what this document is, the one idea that matters most, and one thing people usually get wrong or should focus on. Then briefly offer to go deeper or quiz them. Lead with substance.)";
-
-  async function loadStudyPdf(file) {
-    if (!file) return;
-    const note = addBubble("roody", `📄 Reading ${file.name}…`);
-    try {
-      const buf = await file.arrayBuffer();
-      const text = await extractPdfText(buf);
-      if (!text || text.length < 40) {
-        studyDoc = null;
-        fillBubble(note, `Hmm, I couldn't pull readable text out of ${file.name} — it's probably a scanned/image PDF. Copy-paste the part you want and I'll read it with you.`);
-        return;
-      }
-      studyDoc = { name: file.name, text };
-      pageCache = text;
-      seenLines.clear();
-      const sub = panel.querySelector("#roody-sub");
-      if (sub) sub.textContent = `📄 reading ${file.name}`;
-      fillBubble(note, `📄 Got it — I read ${file.name} (${text.length.toLocaleString()} characters). Ask me anything.`);
-      const thinking = addBubble("roody", "…");
-      callRoody(PDF_OPENER_PROMPT, text.slice(0, 2500), (t) => fillBubble(thinking, t));
-    } catch (e) {
-      studyDoc = null;
-      fillBubble(note, "I couldn't open that file — mind trying again?");
-    }
-  }
-
-  const pdfBtn = panel.querySelector("#roody-pdf");
-  const pdfFile = panel.querySelector("#roody-pdf-file");
-  if (pdfBtn && pdfFile) {
-    pdfBtn.addEventListener("click", () => pdfFile.click());
-    pdfFile.addEventListener("change", () => {
-      const f = pdfFile.files && pdfFile.files[0];
-      pdfFile.value = "";
-      if (f) loadStudyPdf(f);
-    });
-  }
-  panel.addEventListener("dragover", (e) => { e.preventDefault(); });
-  panel.addEventListener("drop", (e) => {
-    e.preventDefault();
-    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f && /pdf/i.test((f.type || "") + " " + (f.name || ""))) loadStudyPdf(f);
-  });
-
+  // ---- Auto-read a PDF if Roody was summoned on one ------------------------
+  // The visible 📄 button is gone (removed for a cleaner input row), but if
+  // the user clicks the toolbar icon while sitting on a PDF URL, silently
+  // load the text so questions about it Just Work. Chrome's built-in PDF
+  // viewer usually blocks injection, in which case background.js opens the
+  // Study tab instead — this path only fires when injection succeeds.
   (async function autoStudyPdf() {
     try {
       const looksPdf =
