@@ -30,6 +30,28 @@ shared extension ZIP. See [Windows steps](START-HERE-WINDOWS.txt) for usage.
 The orb lives inside Chrome. Screen sharing lets it discuss visible native
 editor windows; it cannot read files from disk or edit/click for the user.
 
+## Web demo and current tools
+
+The Vercel homepage serves three fictional samples: a two-file JavaScript bug,
+a founder's demo plan, and a practice appointment summary. **Show a sample reply**
+is a labeled scripted preview and makes no API request. Connecting a guest code
+allows actual text replies through `/api/demo`. Live voice remains in the Chrome
+extension. The public page assets are `public/index.html`, `demo.css`, and `demo.js`.
+
+| Component | Technology in the current code |
+|---|---|
+| Browser companion | JavaScript, HTML/CSS, Chrome Manifest V3, content scripts, service worker, offscreen document |
+| Live voice | OpenAI Realtime API (`gpt-realtime`), WebRTC, microphone permission, audio transcription |
+| Page and screen context | Browser DOM/editor extraction, tab screenshots, explicit screen sharing with sampled images |
+| Vercel guest text | OpenAI Responses API (`gpt-4.1-mini`), Node.js serverless function |
+| Guest access | Invite codes, Upstash Redis REST with atomic credit accounting, Vercel `waitUntil` for voice shutdown |
+| Optional own-key providers | OpenAI, Anthropic Claude, Google Gemini, xAI Grok |
+| Separate prototypes | Electron Windows app; VS Code-compatible editor extension with Gemini transcription and optional ElevenLabs voice |
+
+No Model Context Protocol (MCP) server/client or external-app tool execution is
+implemented in this build. The personas and assistance modes are prompt-driven;
+they are not autonomous agents that click, edit, book, or send messages.
+
 The Windows desktop companion hackathon prototype is in [`desktop/`](desktop/README.md).
 It includes a floating orb, voice connection, selected-window analysis, local
 goals/tasks, and three labeled persona demo scenarios. See its README for setup
@@ -84,7 +106,7 @@ You, on any page ──▶ code · docs · an error · a rendered app
 - **Click-to-summon.** Normal use injects the content script on a toolbar click
   (`activeTab` + `scripting`). Optional **Follow browser** requests website access
   and injects the orb on active pages while following is enabled. It starts off
-  and stops when voice is paused or closed.
+  and stops when voice is paused. Closing the panel leaves voice running.
 - **Page reading.** `readPage()` extracts the visible article/code/chat text,
   stripping nav and chrome; `detectMode()` tags the page (code / research /
   writing / …) so Roody acts like the right kind of expert.
@@ -92,8 +114,9 @@ You, on any page ──▶ code · docs · an error · a rendered app
   `chrome.tabs.captureVisibleTab` and attaches the image to the model request
   (Gemini `inlineData` / Claude image block) for a message you send. Optional voice
   screen sharing separately sends changed frames through OpenAI Realtime.
-- **Brains.** With an invite code, requests ride the founder's credits proxy
-  (Gemini); with your own key, they go straight to the provider.
+- **Brains.** A Vercel demo address plus code uses OpenAI through the guest gateway.
+  Legacy invite-only access uses the older Gemini proxy; own keys go directly
+  to their selected provider.
 
 ## Files
 
