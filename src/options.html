@@ -5,13 +5,13 @@
     <title>Roody — settings</title>
     <style>
       :root {
-        --bg: #12141c;
-        --panel: #1a1d27;
-        --panel2: #20242f;
+        --bg: #111b15;
+        --panel: #1b2b21;
+        --panel2: #23372a;
         --text: #e8ebf2;
         --muted: #9aa3b2;
-        --accent: #7c9bff;
-        --accent-strong: #6a86ff;
+        --accent: #b3dfb0;
+        --accent-strong: #3d7850;
         --border: rgba(255, 255, 255, 0.1);
         --ok: #7ee0a8;
       }
@@ -119,8 +119,8 @@
     </style>
   </head>
   <body>
-    <h1>Roody &lt;/&gt;</h1>
-    <p class="sub">Your AI coding assistant — click the Roody icon on any page to summon it. It reads the page (and your screen), answers questions, and writes code in the chat.</p>
+    <h1>Roody ✦ <small style="font-size:14px">Companion 3.0</small></h1>
+    <p class="sub">Your companion for learning, coding and planning. Click the green orb, choose a persona and mode, and save your goal. Live voice opens in a separate Roody window.</p>
 
     <label class="toggle">
       <input id="enabled" type="checkbox" checked />
@@ -130,7 +130,18 @@
     <!-- ═══════════ SIMPLE VIEW — this is all a normal user needs ═══════════ -->
 
     <!-- POWER ROODY — one clean way in -->
-    <h2>🔑 Power Roody</h2>
+    <h2>🔑 Connect OpenAI</h2>
+    <label for="okey" style="margin-top:10px">OpenAI (GPT) API key <a class="getkey" href="https://platform.openai.com/api-keys" target="_blank" style="float:right;padding:2px 8px;font-size:11px">Get a key ↗</a></label>
+    <div class="row">
+      <input id="okey" type="password" placeholder="sk-..." autocomplete="off" />
+      <button id="saveopenai" type="button">Save key</button>
+      <button id="clearo" class="ghost small" title="Remove this key">✕</button>
+    </div>
+    <p id="ostatus" class="keystatus"></p>
+    <p id="openaimodel" class="modelline"></p>
+
+    <p class="note">Paste your key and click <b>Save key</b>. It is stored in this Chrome extension on your computer and used directly with OpenAI. Do not paste it into chat. Voice requires OpenAI Realtime access.</p>
+    <h2>Or use an invite code for text chat</h2>
     <div class="pcard hot">
       <h3>🎟 Invite code</h3>
       <p>Paste the code you got from the Roody team — the model is on us. Free daily messages, refills every morning.</p>
@@ -214,14 +225,6 @@
     </div>
     <p id="keystatus" class="keystatus"></p>
     <p id="claudemodel" class="modelline"></p>
-
-    <label for="okey" style="margin-top:10px">OpenAI (GPT) API key <a class="getkey" href="https://platform.openai.com/api-keys" target="_blank" style="float:right;padding:2px 8px;font-size:11px">Get a key ↗</a></label>
-    <div class="row">
-      <input id="okey" type="password" placeholder="sk-..." />
-      <button id="clearo" class="ghost small" title="Remove this key">✕</button>
-    </div>
-    <p id="ostatus" class="keystatus"></p>
-    <p id="openaimodel" class="modelline"></p>
 
     <label for="xkey" style="margin-top:10px">xAI (Grok) API key <a class="getkey" href="https://console.x.ai" target="_blank" style="float:right;padding:2px 8px;font-size:11px">Get a key ↗</a></label>
     <div class="row">

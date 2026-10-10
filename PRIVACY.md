@@ -1,8 +1,8 @@
 # Roody Privacy Policy
 
-*Last updated: August 2026*
+*Last updated: October 10, 2026*
 
-Roody is a browser extension that acts as an on-demand AI coding assistant.
+Roody is a browser extension that acts as an on-demand AI companion.
 This policy explains exactly what data Roody touches and where it goes.
 
 ## The short version
@@ -11,7 +11,9 @@ This policy explains exactly what data Roody touches and where it goes.
 - Roody **refuses to run** on personal pages: banking, payments, email,
   messaging, social media, government sites, and any page containing
   password or payment-card fields.
-- Your **conversations are never stored** — not by us, not anywhere.
+- Full conversations, screenshots, and voice audio are not saved by the
+  extension. Short notebook snippets/summaries, goals, and tasks are saved
+  locally. Provider data handling depends on your API account's settings.
 - With your **own API key**, everything goes directly from your browser to
   the AI provider — we're not in the middle at all.
 - With an **invite code**, requests pass through our small relay server,
@@ -26,8 +28,19 @@ When — and only when — you summon Roody on a page, it reads the visible text
 of that page so the AI can help you with it. If you ask about something
 visual (or tap the 📷 button), Roody captures a screenshot of the current
 tab and sends that image with your message so the AI can see what you see.
-Screenshots are taken only for a message you send and are never captured in
-the background.
+Screenshots are taken only for a message you send or when you click **Look at
+this**, and are never captured in the background.
+
+## Optional live voice
+
+Clicking **Voice** opens a Roody extension-owned window and shares a one-time
+text snapshot from the current page. Microphone access begins only after you
+click **Start conversation** and approve Chrome's permission request. While
+connected, audio is streamed to OpenAI's Realtime service for conversation and
+transcription. Pause or close the window to stop the microphone. The voice
+window receives an ephemeral credential; your full API key stays in extension
+storage and the background worker. It does not continuously watch your screen.
+Voice transcripts stay in the window for that session and are not saved by Roody.
 
 ## Where data goes
 
@@ -38,6 +51,7 @@ using **your** API key:
 - Google Gemini (generativelanguage.googleapis.com)
 - Anthropic Claude (api.anthropic.com)
 - xAI Grok (api.x.ai)
+- OpenAI (api.openai.com), including optional Realtime voice
 
 Their handling of that data is governed by their own privacy policies.
 
@@ -65,12 +79,16 @@ Stored only in your browser's local extension storage:
 
 - Your API keys
 - Your preferences (reply language, settings)
+- Your current goal, task titles/statuses/blockers, persona, and assistance mode
 - Roody's "notebook" — short snippets of pages where you talked to Roody,
   so it can connect context across tabs
 - A usage/cost counter
 
-You can view and erase the notebook and all settings at any time from the
-extension's Settings page. Uninstalling the extension deletes everything.
+API keys are stored in Chrome's local extension storage; this is separate from
+the desktop app's OS-encrypted key storage. Key-entry fields exist only on the
+extension-owned Settings page, never inside the webpage's orb panel. You can
+remove keys in Settings, clear the notebook there, and edit tasks in the orb.
+Uninstalling the extension deletes its local data.
 
 ## What Roody never does
 

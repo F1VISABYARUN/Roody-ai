@@ -194,6 +194,21 @@ autoSaveKey(keyEl, "roodyApiKey", $("keystatus"));
 autoSaveKey(gkeyEl, "roodyGeminiKey", $("gstatus"));
 autoSaveKey(xkeyEl, "roodyXaiKey", $("xstatus"));
 autoSaveKey(okeyEl, "roodyOpenAIKey", $("ostatus"));
+$("saveopenai").addEventListener("click", async () => {
+  const key = okeyEl.value.trim();
+  if (!/^sk-[A-Za-z0-9_-]{17,}$/.test(key)) {
+    $("ostatus").textContent = "Paste your OpenAI key beginning with sk- into the field above.";
+    return;
+  }
+  try {
+    await chrome.storage.local.set({ roodyOpenAIKey: key, roodyBrainPref: "openai" });
+    showKeyStatus($("ostatus"), true);
+    document.querySelectorAll('#brainpref .chip').forEach(c => c.classList.toggle('active', c.dataset.pref === 'openai'));
+    refreshModels(false);
+  } catch {
+    $("ostatus").textContent = "Could not save the key. Please try again.";
+  }
+});
 
 // Auto-save all dropdowns and checkboxes on change — no Save button needed.
 // ---- Model auto-discovery -------------------------------------------------

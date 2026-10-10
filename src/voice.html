@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Roody Companion — live voice</title>
+    <link rel="stylesheet" href="voice.css" />
+  </head>
+  <body data-state="paused">
+    <main class="voice-shell">
+      <header class="header">
+        <div>
+          <p class="eyebrow">ROODY COMPANION <span>3.0</span></p>
+          <h1>Let’s talk it through.</h1>
+        </div>
+        <button id="settings" class="icon-button" type="button" aria-label="Open Roody settings" title="Open settings">⚙</button>
+      </header>
+
+      <section class="conversation-control" aria-label="Voice connection">
+        <div class="orb" aria-hidden="true"><span>✦</span></div>
+        <p id="status" class="status" role="status">Voice is paused</p>
+        <p id="status-detail" class="status-detail">Click below to allow your microphone and start talking.</p>
+        <button id="voice-toggle" class="primary-button" type="button">Start conversation</button>
+        <button id="enable-sound" class="secondary-button" type="button" hidden>Enable sound</button>
+        <p class="mic-note">Microphone access starts only when you click. Pause or close this window to stop.</p>
+      </section>
+
+      <section class="context-card" aria-label="Conversation context">
+        <div class="context-heading"><span id="persona">Developer</span><span id="language" class="badge">English / తెలుగు</span></div>
+        <p id="mode">Do with me · work through the next step together</p>
+        <p id="goal" class="goal">No goal saved yet. Add one in the page orb.</p>
+        <p id="task-summary" class="context-note">Your local tasks will appear here.</p>
+        <p id="page-context" class="context-note">No page shared with voice. You can describe what you’re working on.</p>
+      </section>
+
+      <section class="transcript-section" aria-label="Conversation transcript">
+        <div class="section-heading"><h2>Conversation</h2><button id="clear-transcript" class="text-button" type="button">Clear</button></div>
+        <div id="transcript" class="transcript" role="log" aria-label="Voice transcript" aria-live="polite" aria-relevant="additions text">
+          <p id="empty-transcript" class="empty-transcript">Speak English, తెలుగు, or switch between them. Roody can explain, plan, and ask useful questions.</p>
+        </div>
+      </section>
+
+      <footer>
+        <p>Prefer typing? Use chat in the Roody orb on your page. Set persona, language, and tasks there.</p>
+        <p class="limitation">Voice discusses your shared context and tasks. It cannot operate apps or change your task board.</p>
+        <button id="open-settings" class="text-button" type="button">Open settings to connect your OpenAI key</button>
+      </footer>
+    </main>
+    <audio id="remote-audio" autoplay></audio>
+    <script src="voice.js"></script>
+  </body>
+</html>

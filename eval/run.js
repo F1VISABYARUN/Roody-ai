@@ -70,8 +70,8 @@ console.log("\n— Persona: professional coding assistant (src/persona.js) —")
 
 const persona = read("src/persona.js");
 checkTrue(
-  "identity is an AI coding assistant, not a companion",
-  persona.includes("AI coding assistant") && !persona.includes("best friend"),
+  "identity is a personal companion with coding support",
+  persona.includes("personal AI companion") && persona.includes("learn, code, and plan"),
   "persona is not the coding assistant"
 );
 checkTrue(
@@ -263,15 +263,15 @@ checkTrue(
   "proxy would drop the screenshot when routing to Claude/Grok"
 );
 
-console.log("\n— Voice is fully removed —");
+console.log("\n— Voice stays isolated from host-page recording —");
 
 checkTrue(
-  "no TTS/STT code remains in the background",
+  "legacy separate TTS/STT relay remains retired",
   !/geminiTTS|elevenLabsTTS|geminiSTT|roody:tts|roody:stt/.test(bg),
   "voice code still present in background.js"
 );
 checkTrue(
-  "no microphone / speech code remains in content.js",
+  "host-page content script has no microphone recorder",
   !/SpeechRecognition|webkitSpeechRecognition|MediaRecorder|speechSynthesis|roody:tts/.test(content),
   "voice code still present in content.js"
 );
@@ -551,8 +551,8 @@ checkTrue(
   "the setup-error copy still tells users to paste an invite code only"
 );
 checkTrue(
-  "panel subtitle is coding-assistant copy",
-  content.includes("AI coding assistant"),
+  "panel visibly identifies the companion version",
+  content.includes("Your companion · 3.0"),
   "panel subtitle not updated"
 );
 checkTrue(
@@ -664,7 +664,7 @@ checkTrue(
 );
 checkTrue(
   "default panel width bumped for readable code blocks",
-  /#roody-panel\s*\{[\s\S]{0,600}width:\s*440px/.test(read("src/content.css")),
+  /#roody-panel\s*\{[\s\S]{0,600}width:\s*(440|450)px/.test(read("src/content.css")),
   "default panel is still too narrow for code"
 );
 checkTrue(

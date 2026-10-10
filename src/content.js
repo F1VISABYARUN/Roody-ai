@@ -1,7 +1,7 @@
-// Roody lives here: a glass orb you summon on any page. It reads what's on the
-// screen (the page's code/text, and — on request — a screenshot), then answers
-// your questions and writes code, all in the chat. Read-only: it never touches
-// the page. No voice.
+// Roody lives here: a companion orb you summon on a work page. Chat, shared
+// goals, and task progress stay in this panel. Live voice and API key settings
+// open in extension-owned windows, away from the host page's DOM. Page access
+// remains read-only; this panel does not click or edit the underlying page.
 
 (function () {
   if (window.__roodyLoaded) return;
@@ -352,7 +352,7 @@
         ".menu, .sidebar, .nav, .navbar, .footer, .header, .ad, .ads, " +
         "[class*='cookie'], [class*='consent'], [class*='banner'], " +
         "[class*='related'], [class*='recommend'], [class*='newsletter'], " +
-        "[aria-hidden='true'], button"
+        "[aria-hidden='true'], button, #roody-panel, #roody-orb, #roody-refusal"
       ).forEach((el) => el.remove());
       return clone;
     }
@@ -362,7 +362,7 @@
         "nav, aside, header, footer, script, style, noscript, " +
         "[role='navigation'], [role='banner'], [role='complementary'], " +
         "[class*='sidebar'], [class*='side-bar'], [class*='history'], " +
-        ".menu, .nav, .navbar, [aria-hidden='true']"
+        ".menu, .nav, .navbar, [aria-hidden='true'], #roody-panel, #roody-orb, #roody-refusal"
       ).forEach((el) => el.remove());
       if ((clone.innerText || "").trim().length > 200) return clone;
     } catch (_) {}
@@ -622,25 +622,74 @@
   // ---- UI -------------------------------------------------------------------
   const orb = document.createElement("div");
   orb.id = "roody-orb";
-  orb.title = "Ask Roody";
-  // No emoji glyph — the glassy look comes from CSS.
+  orb.title = "Roody Companion 3.0 · click to open, drag to move";
+  orb.setAttribute("role", "button");
+  orb.setAttribute("aria-label", "Open Roody Companion");
+  orb.tabIndex = 0;
 
   const panel = document.createElement("div");
   panel.id = "roody-panel";
+  panel.dataset.version = "3.0.0";
+  panel.setAttribute("role", "region");
+  panel.setAttribute("aria-label", "Roody companion");
   panel.style.display = "none";
   panel.innerHTML = `
     <div id="roody-header">
       <div id="roody-headtext">
         <span id="roody-title">Roody</span>
-        <span id="roody-sub">AI coding assistant</span>
+        <span id="roody-sub">Your companion · 3.0</span>
       </div>
       <button id="roody-gear" title="Settings">⚙</button>
       <button id="roody-close" title="Close">×</button>
     </div>
-    <div id="roody-log"></div>
+    <div id="roody-companion-controls">
+      <div id="roody-preferences">
+        <label for="roody-persona">I'm here as
+          <select id="roody-persona">
+            <option value="developer">Developer</option>
+            <option value="grandparent">Grandparent</option>
+            <option value="founder">Founder</option>
+          </select>
+        </label>
+        <label for="roody-language">Language
+          <select id="roody-language">
+            <option value="auto">Auto</option>
+            <option value="en">English</option>
+            <option value="te">తెలుగు</option>
+          </select>
+        </label>
+      </div>
+      <div id="roody-modes" role="group" aria-label="How Roody helps">
+        <button data-mode="teach" type="button" aria-pressed="false">Teach me</button>
+        <button data-mode="with" type="button" aria-pressed="true">Do with me</button>
+        <button data-mode="for" type="button" aria-pressed="false" title="Draft a plan or answer for review; browser automation is not available">Do for me</button>
+      </div>
+      <div id="roody-tools">
+        <button id="roody-voice" type="button" title="Open a live voice window. Your microphone is used only after you start a session.">◉ Voice</button>
+        <button id="roody-look" type="button" title="Share one screenshot of this tab for analysis">▣ Look at this</button>
+        <button id="roody-demo" type="button" title="Load a labeled sample prompt for the selected persona">Try a sample</button>
+      </div>
+      <div id="roody-companion-status" role="status" aria-live="polite">Goals and tasks are saved on this browser.</div>
+    </div>
+    <details id="roody-planner" open>
+      <summary>My goal &amp; tasks <span id="roody-task-count">0 tasks</span></summary>
+      <div id="roody-plan-body">
+        <label id="roody-goal-label" for="roody-goal">What are we working toward?</label>
+        <div id="roody-goal-row">
+          <input id="roody-goal" type="text" maxlength="500" placeholder="e.g. Prepare my hackathon demo" autocomplete="off">
+          <button id="roody-save-goal" type="button">Save</button>
+        </div>
+        <div id="roody-tasks"></div>
+        <form id="roody-task-form">
+          <input id="roody-new-task" type="text" maxlength="300" placeholder="Add the next small step…" aria-label="New task" autocomplete="off">
+          <button id="roody-add-task" type="submit">+ Add</button>
+        </form>
+      </div>
+    </details>
+    <div id="roody-log" role="log" aria-label="Conversation"></div>
     <div id="roody-inputrow">
-      <textarea id="roody-text" rows="1" placeholder="Ask about the code or the page… (Enter to send, Shift+Enter for a new line)"></textarea>
-      <button id="roody-send" title="Send">➤</button>
+      <textarea id="roody-text" rows="1" placeholder="Ask, learn, or plan with Roody…" aria-label="Message to Roody"></textarea>
+      <button id="roody-send" title="Send (Enter)" aria-label="Send message">➤</button>
     </div>
     <div id="roody-resize" title="Drag to resize"></div>
   `;
@@ -703,6 +752,7 @@
     let lastPanelDisplay = panel.style.display;
     new MutationObserver(() => {
       const d = panel.style.display;
+      orb.setAttribute("aria-expanded", String(d !== "none"));
       if (d === lastPanelDisplay) return;
       lastPanelDisplay = d;
       if (orbPos && d !== "none") placeRoody(orbPos.x, orbPos.y);
@@ -764,7 +814,7 @@
 
   // How see-through the panel is (Settings → Transparency). Drives the
   // --roody-alpha CSS variable that every glass surface derives from.
-  const DEFAULT_ALPHA = 0.18;
+  const DEFAULT_ALPHA = 0.78;
   function applyOpacity(v) {
     const a = Math.min(0.95, Math.max(0.1, Number(v) || DEFAULT_ALPHA));
     panel.style.setProperty("--roody-alpha", String(a));
@@ -780,6 +830,180 @@
   const log = panel.querySelector("#roody-log");
   const input = panel.querySelector("#roody-text");
 
+  // Shared companion memory is managed by the extension, never the website.
+  // User text is always rendered with textContent rather than HTML.
+  const statusLine = panel.querySelector("#roody-companion-status");
+  const personaSelect = panel.querySelector("#roody-persona");
+  const languageSelect = panel.querySelector("#roody-language");
+  const goalInput = panel.querySelector("#roody-goal");
+  const taskInput = panel.querySelector("#roody-new-task");
+  let companionState = { goal: "", tasks: [], preferences: { persona: "developer", mode: "with", language: "auto" } };
+  let samplePrompt = null;
+
+  function companionStatus(text, error) {
+    statusLine.textContent = text;
+    statusLine.dataset.error = error ? "true" : "false";
+  }
+
+  function runtimeRequest(message) {
+    return new Promise((resolve, reject) => {
+      try {
+        chrome.runtime.sendMessage(message, (result) => {
+          const err = chrome.runtime.lastError;
+          if (err) { reject(new Error(err.message)); return; }
+          if (!result || !result.ok) {
+            reject(new Error((result && result.error) || "Roody could not complete that action."));
+            return;
+          }
+          resolve(result);
+        });
+      } catch (error) { reject(error); }
+    });
+  }
+
+  function renderCompanion(state) {
+    if (!state) return;
+    companionState = state;
+    const preferences = state.preferences || {};
+    personaSelect.value = preferences.persona || "developer";
+    languageSelect.value = preferences.language || "auto";
+    panel.querySelectorAll("#roody-modes [data-mode]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.mode === (preferences.mode || "with")));
+    });
+    // Leave a half-written goal intact if another tab updates its task board.
+    if (document.activeElement !== goalInput) goalInput.value = state.goal || "";
+    const tasks = Array.isArray(state.tasks) ? state.tasks : [];
+    const done = tasks.filter((task) => task.status === "done").length;
+    panel.querySelector("#roody-task-count").textContent = tasks.length ? `${done}/${tasks.length} done` : "0 tasks";
+    const taskList = panel.querySelector("#roody-tasks");
+    taskList.textContent = "";
+    if (!tasks.length) {
+      taskList.appendChild(el("p", "roody-empty-tasks", "One small step is enough to start."));
+    }
+    tasks.forEach((task) => {
+      const row = el("div", "roody-task-row");
+      row.dataset.status = task.status || "pending";
+      const taskText = el("div", "roody-task-text");
+      taskText.appendChild(el("span", "roody-task-title", task.title));
+      if (task.blocker) taskText.appendChild(el("small", "roody-task-blocker", task.blocker));
+      row.appendChild(taskText);
+      const status = el("select", "roody-task-status");
+      status.setAttribute("aria-label", `Status of ${task.title}`);
+      [["pending", "To do"], ["active", "Doing"], ["done", "Done"], ["blocked", "Blocked"]].forEach(([value, label]) => {
+        const option = el("option", null, label);
+        option.value = value;
+        status.appendChild(option);
+      });
+      status.value = task.status || "pending";
+      status.addEventListener("change", async () => {
+        status.disabled = true;
+        const saved = await updateCompanion({ type: "task", id: task.id, status: status.value }, "Task progress saved.");
+        if (!saved) { status.value = task.status || "pending"; status.disabled = false; }
+      });
+      row.appendChild(status);
+      taskList.appendChild(row);
+    });
+  }
+
+  async function updateCompanion(payload, message) {
+    try {
+      const result = await runtimeRequest({ type: "roody:companionUpdate", payload });
+      renderCompanion(result.state);
+      companionStatus(message || "Saved on this browser.");
+      return true;
+    } catch (error) {
+      companionStatus(`Couldn't save: ${error.message}`, true);
+      return false;
+    }
+  }
+
+  async function refreshCompanion() {
+    try {
+      const result = await runtimeRequest({ type: "roody:companionState" });
+      renderCompanion(result.state);
+    } catch (error) {
+      companionStatus(`Couldn't load goals and tasks: ${error.message}`, true);
+    }
+  }
+  refreshCompanion();
+
+  async function savePreferences(mode) {
+    await updateCompanion({
+      type: "preferences",
+      mode: mode || companionState.preferences?.mode || "with",
+      persona: personaSelect.value,
+      language: languageSelect.value,
+    }, "Roody's persona, help mode, and language saved.");
+  }
+  personaSelect.addEventListener("change", () => savePreferences());
+  languageSelect.addEventListener("change", () => savePreferences());
+  panel.querySelectorAll("#roody-modes [data-mode]").forEach((button) => {
+    button.addEventListener("click", () => savePreferences(button.dataset.mode));
+  });
+
+  async function saveGoal() {
+    const saved = await updateCompanion({ type: "goal", text: goalInput.value.trim() }, "Goal saved. Roody will keep it in mind.");
+    if (saved) goalInput.value = companionState.goal || "";
+  }
+  panel.querySelector("#roody-save-goal").addEventListener("click", saveGoal);
+  goalInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") { event.preventDefault(); event.stopPropagation(); saveGoal(); }
+  });
+  panel.querySelector("#roody-task-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const text = taskInput.value.trim();
+    if (!text) { taskInput.focus(); return; }
+    const button = panel.querySelector("#roody-add-task");
+    button.disabled = true;
+    const saved = await updateCompanion({ type: "add-task", text }, "Task added. Choose Doing when you begin.");
+    if (saved) taskInput.value = "";
+    button.disabled = false;
+  });
+
+  panel.querySelector("#roody-voice").addEventListener("click", async () => {
+    if (pageIsSensitive()) { tripSensitive(); return; }
+    try {
+      await runtimeRequest({
+        type: "roody:openVoice",
+        payload: { pageContext: buildContext().slice(-12000), site: location.hostname, title: document.title },
+      });
+      companionStatus("Voice window opened. Click Start there to allow your microphone.");
+    } catch (error) { companionStatus(`Couldn't open voice: ${error.message}`, true); }
+  });
+
+  panel.querySelector("#roody-look").addEventListener("click", async () => {
+    const button = panel.querySelector("#roody-look");
+    button.disabled = true;
+    try {
+      await send(input.value.trim() || "Look at this page. Explain what I should understand and suggest my next small step.", { screenshot: true });
+    } finally { button.disabled = false; }
+  });
+
+  const SAMPLE_SCENARIOS = {
+    developer: {
+      goal: "Understand and fix a sample login bug",
+      prompt: "SAMPLE SCENARIO — use only the fictional example below, not the current page. My app sends POST /login and receives 401. The UI catches every error and shows 'Something went wrong'. Walk me through how to investigate it, teach me what 401 means, and suggest a small improvement I can review. Ask me one useful question.",
+    },
+    grandparent: {
+      goal: "Learn to understand a booking page",
+      prompt: "SAMPLE SCENARIO — use only the fictional example below, not the current page. A booking page shows departure city, destination, date, passenger count, and a Search button. Explain these slowly in simple language and help me decide what to fill in first. Ask me one question at a time. Do not pretend to make a booking.",
+    },
+    founder: {
+      goal: "Choose the next onboarding improvement",
+      prompt: "SAMPLE SCENARIO — use only these fictional numbers, not the current page. Of 100 new signups, 60 start onboarding, 25 finish it, and 8 return the next day. Help me read these numbers, choose one hypothesis, and make a small three-step experiment plan. Ask me what success should look like.",
+    },
+  };
+  panel.querySelector("#roody-demo").addEventListener("click", async () => {
+    const sample = SAMPLE_SCENARIOS[personaSelect.value] || SAMPLE_SCENARIOS.developer;
+    input.value = sample.prompt;
+    samplePrompt = sample.prompt;
+    goalInput.value = sample.goal;
+    autoGrow();
+    input.focus();
+    await updateCompanion({ type: "goal", text: sample.goal }, "Sample scenario loaded. Review the fictional example, then press Send.");
+  });
+
   let openerSent = false; // guarantees Roody only greets you once per page
   orb.addEventListener("click", () => {
     const open = panel.style.display === "none";
@@ -789,6 +1013,9 @@
       openingHello();
     }
   });
+  orb.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); orb.click(); }
+  });
 
   // Roody opens by looking at what's on the screen and leading with substance.
   const OPENER_PROMPT =
@@ -797,7 +1024,7 @@
   function openingHello() {
     const recent = recentTask();
     if (!recent) {
-      addBubble("roody", "Hey — I'm Roody, your coding assistant. What are we looking at?");
+      addBubble("roody", "Hey — I'm Roody, your companion. Pick a persona, share your goal, or try a sample. We can learn and plan together.");
       return;
     }
     const thinking = addBubble("roody", "…");
@@ -931,6 +1158,7 @@
   // nothing on the page reflows; two rAFs guarantee the compositor painted the
   // hidden state before captureVisibleTab fires. Restore in `finally`.
   function grabScreenshot() {
+    if (pageIsSensitive()) { tripSensitive(); return Promise.resolve(null); }
     return new Promise((resolve) => {
       const orbVis = orb.style.visibility;
       const panelVis = panel.style.visibility;
@@ -977,27 +1205,33 @@
   const CODE_TALK = /\b(bug|error|fail|compile|syntax|runtime|exception|traceback|stack trace|nullpointer|segfault|test case|failing test|off by one|edge case|line \d+|function|method|class|variable|null|undefined|nan|infinity|infinite loop)\b/i;
 
   // You asked Roody something.
-  async function send(userText) {
+  async function send(userText, options) {
+    options = options || {};
     userText = (userText || "").trim();
     if (!userText) return;
+    if (pageIsSensitive() || sensitiveTripped) { tripSensitive(); return; }
+    const isSample = samplePrompt === userText && !options.screenshot;
+    samplePrompt = null;
     rememberPage();
     addBubble("you", userText);
     input.value = "";
     autoGrow();
-    // A screenshot rides along whenever the wording clearly means "look at my
+    // The explicit Look at this button captures exactly once. Otherwise a
+    // screenshot rides along whenever the wording clearly means "look at my
     // screen" (VISUAL_INTENT), or the page is a code page and the message
-    // talks about code (CODE_TALK). No manual toggle — the button was
-    // redundant and cluttering the input row.
+    // talks about code (CODE_TALK). Labeled sample prompts use only their
+    // supplied example and do not capture the current page.
     const inCodeMode = detectMode() === "code";
-    const wantShot = VISUAL_INTENT.test(userText) || (inCodeMode && CODE_TALK.test(userText));
+    const wantShot = options.screenshot === true || (!isSample && (VISUAL_INTENT.test(userText) || (inCodeMode && CODE_TALK.test(userText))));
     const thinking = addBubble("roody", "…");
-    const ctx = buildContext();
+    const ctx = isSample ? "" : buildContext();
     let image = null;
     if (wantShot) {
       // Deliberately leave the thinking bubble as "…" — anything visible here
       // gets captured into the screenshot itself and read back by the model.
       image = await grabScreenshot();
       if (!image) addBubble("roody", "_(couldn't grab a screenshot — answering from the page text)_");
+      companionStatus(image ? "One screenshot shared for this message." : "Screenshot unavailable. Roody will use the page text.", !image);
     }
     callRoody(userText, ctx, (t) => fillBubble(thinking, t), { image });
   }
@@ -1034,7 +1268,7 @@
         studyDoc = { name: document.title || "this PDF", text };
         pageCache = text;
         const sub = panel.querySelector("#roody-sub");
-        if (sub) sub.textContent = `📄 reading this PDF`;
+        if (sub) sub.textContent = `Your companion · 3.0 · reading PDF`;
       }
     } catch (_) {}
   })();
@@ -1194,6 +1428,7 @@
         }
         // Drag the Settings slider and every open Roody restyles instantly.
         if (changes.roodyOpacity) applyOpacity(changes.roodyOpacity.newValue);
+        if (changes.roodyCompanion) renderCompanion(changes.roodyCompanion.newValue);
       });
     }).catch((e) => { rlog(`⚠ boot failed: ${e.message}`); });
 })();
