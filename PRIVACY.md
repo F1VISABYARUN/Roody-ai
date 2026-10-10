@@ -34,38 +34,49 @@ Ordinary tab screenshots are taken for a message you send or when you click
 
 ## Optional live voice
 
-Clicking **Voice** opens a Roody extension-owned window and shares a one-time
-text snapshot from the current page. Microphone access begins only after you
-click **Start conversation** and approve Chrome's permission request. While
-connected, audio is streamed to OpenAI's Realtime service for conversation and
-transcription. Pause or close the window to stop the microphone. The voice
-window receives an ephemeral credential; your full API key stays in extension
-storage and the background worker.
+Voice controls and Settings run in protected extension-origin frames inside
+the orb. Microphone access starts after you click **Talk** and approve Chrome's
+permission request. The offscreen audio engine keeps voice running when the
+panel closes or browser pages change. **Pause voice** stops the microphone.
+Own-key voice receives an ephemeral credential; the full key stays in local
+extension storage and the background worker. Guest demo calls are created
+through the owner's Vercel server; the owner key stays on that server.
 
 **Follow browser** is off initially. When you enable it and approve Chrome's
 optional website-access request, Roody refreshes the active work page roughly
 every five seconds. The orb is injected on eligible pages while following is
 enabled. Existing exclusions for personal pages and password/payment fields
 still apply. The two most recent page snapshots are held in memory for that
-session, not saved in local storage. Pausing or closing voice stops following.
+session, not saved in local storage. Pausing voice stops following. Closing the panel leaves voice running.
 The website permission may remain granted in Chrome, but reading stops until
 you turn following on again.
 
-**Share screen** opens Chrome's screen picker after you click it. Only the
+**See my screen** opens Chrome's screen picker after you click it. Only the
 window, tab, or screen you choose is captured; screen audio is not captured.
 While sharing, changed images are sampled roughly every twelve seconds and
 sent directly to OpenAI Realtime. These are sampled images, not a continuous
 video stream to the model. Screen sharing cannot apply the browser's page
 exclusions to every visible app; everything visible in your chosen surface
 can be included. **Stop sharing**, **Pause voice**, Chrome's sharing stop
-control, or closing the voice window stops capture. Screen frames are not
+control, or navigating/closing the page hosting the sharing controls stops capture. Screen frames are not
 saved by the extension.
 
 **Speak up** requests brief spoken observations after changes in shared context.
-Roody retains voice transcripts only for the current window session. A bounded
+Roody retains voice transcripts only for the current audio-engine session. A bounded
 excerpt of its latest reply and connection/sharing indicators are relayed to
 the webpage orb and kept in Chrome's temporary session storage. These are not
-written to persistent local storage. Closing voice clears the displayed status.
+written to persistent local storage. Pausing voice clears the displayed status.
+
+## Guest demo server
+
+Demo text, page excerpts and one-shot chat images pass through the owner's
+configured Vercel server to OpenAI. Live microphone audio and sampled voice
+images use the WebRTC connection to OpenAI after the server creates the call.
+Redis stores hashed code identifiers, balances, active-session locks and call
+metadata for accounting; the gateway does not persist messages or audio there.
+Codes authorize spending the owner's allowance. Protect them as credentials.
+The three-minute server shutdown uses a Vercel background task and can be
+interrupted by hosting/network failure; it is not a guaranteed billing cap.
 
 ## Where data goes
 

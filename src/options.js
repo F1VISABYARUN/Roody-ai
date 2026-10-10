@@ -41,7 +41,7 @@ chrome.storage.local
   .get([
     "roodyApiKey", "roodyGeminiKey", "roodyXaiKey", "roodyOpenAIKey",
     "roodyLang", "roodyWebSearch", "roodyEnabled", "roodyAutoChime", "roodyOpacity",
-    "roodyProfile", "roodyInviteCode", "roodyProxyUrl",
+    "roodyProfile", "roodyInviteCode", "roodyProxyUrl", "roodyDemoUrl",
   ])
   .then((s) => {
     if (s.roodyApiKey) keyEl.value = s.roodyApiKey;
@@ -60,6 +60,7 @@ chrome.storage.local
     if (s.roodyProfile) profileEl.value = s.roodyProfile;
     profileCountEl.textContent = (profileEl.value || "").length;
     if (s.roodyInviteCode) inviteEl.value = s.roodyInviteCode;
+    $("demourl").value = s.roodyDemoUrl || "";
     if (s.roodyProxyUrl) proxyUrlEl.value = s.roodyProxyUrl;
     showKeyStatus($("invitestatus"), !!s.roodyInviteCode);
     showUsage(); // values just arrived — paint the usage bar now
@@ -74,6 +75,15 @@ async function showUsage() {
   const box = $("usagebox");
   if (!code) { box.style.display = "none"; return; }
   try {
+    if ($("demourl").value.trim()) {
+      const response = await fetch(new URL("/api/demo", $("demourl").value), { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + code }, body: JSON.stringify({ action: "balance" }) });
+      const data = await response.json();
+      box.style.display = "block";
+      $("usagehello").textContent = data.ok ? "Demo balance" : "Demo access unavailable";
+      $("usagefill").style.width = data.ok ? ((data.limit - data.remaining) / data.limit * 100) + "%" : "0%";
+      $("usagetext").textContent = data.ok ? `${data.remaining} of ${data.limit} credits left · text 1 · voice 30 for up to 3 minutes` : data.error || "Check your code and server address.";
+      return;
+    }
     const base = ((proxyUrlEl.value || "").trim() || DEFAULT_PROXY).replace(/\/+$/, "");
     const r = await fetch(`${base}/me?code=${encodeURIComponent(code)}`);
     const me = await r.json();
@@ -97,6 +107,23 @@ async function showUsage() {
 showUsage();
 setInterval(showUsage, 20000);
 inviteEl.addEventListener("blur", () => setTimeout(showUsage, 300));
+
+$("savedemo").addEventListener("click", async () => {
+  try {
+    const raw = $("demourl").value.trim();
+    let origin = "";
+    if (raw) {
+      const url = new URL(raw);
+      if (url.protocol !== "https:" || url.username || url.password) throw new Error("Use your HTTPS Vercel address.");
+      origin = url.origin;
+      const granted = await chrome.permissions.request({ origins: [origin + "/*"] });
+      if (!granted) throw new Error("Allow access to your demo server in Chrome.");
+    }
+    await chrome.storage.local.set({ roodyDemoUrl: origin, roodyInviteCode: inviteEl.value.trim() });
+    $("invitestatus").textContent = "Demo access saved. Return to the orb and press Talk.";
+    showUsage();
+  } catch (error) { $("invitestatus").textContent = error.message || "Demo access could not save."; }
+});
 
 // Invite code + proxy URL — auto-save on blur like the key fields.
 autoSaveKey(inviteEl, "roodyInviteCode", $("invitestatus"));

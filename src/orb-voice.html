@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Voice inside Roody</title><link rel="stylesheet" href="orb-voice.css">
+  </head>
+  <body>
+    <main>
+      <div class="voice-row"><strong id="status" role="status">Talk with Roody</strong><span id="connection">Mic off</span></div>
+      <p id="detail">Start here once, then speak while you work. Everything stays in your orb.</p>
+      <div class="actions">
+        <button id="toggle" type="button">Talk</button>
+        <button id="sound" type="button" hidden>Enable sound</button>
+        <button id="share" type="button" disabled>See my screen</button>
+      </div>
+      <details><summary>Browser following &amp; speaking</summary><div class="choices">
+        <label><input id="follow" type="checkbox" disabled><span>Follow my browser</span></label>
+        <label><input id="speak-up" type="checkbox" checked disabled><span>Speak up</span></label>
+      </div>
+      </details>
+      <p class="hint">For two code files, share your editor window and open them side by side. Changed images are sampled about every 12 seconds.</p>
+      <p id="sharing" hidden>Screen sharing is on. Anything visible in the window you chose can be shared.</p>
+      <p id="allowance" hidden></p>
+      <p class="hint">Close the orb panel to keep working. Voice keeps running; Pause turns the microphone and sharing off.</p>
+    </main>
+    <video id="video" muted playsinline hidden></video>
+    <script src="orb-voice.js"></script>
+  </body>
+</html>

@@ -1,50 +1,46 @@
-ROODY COMPANION 3.1 — TALK WHILE YOU WORK
+ROODY COMPANION 3.2 — VOICE INSIDE THE ORB
 
-INSTALL THIS ZIP IN CHROME
-1. Right-click Roody-Companion-3.1.0-Chrome.zip and choose Extract All.
-2. Open Chrome and type chrome://extensions in the address bar.
-3. Turn OFF any older Roody extension. Turn Developer mode ON.
-4. Click Load unpacked. Select the extracted folder containing manifest.json.
-   If you do not see manifest.json in that folder, open the folder inside it.
-5. Confirm the extension version is 3.1.0. Refresh your work webpage.
-6. Click the Roody toolbar icon to summon the green orb.
+INSTALL OR UPDATE IN CHROME
+1. Right-click Roody-Companion-3.2.0-Chrome.zip and select Extract All.
+2. Open chrome://extensions in Chrome and enable Developer mode.
+3. Disable older Roody installs. Click Load unpacked and select the folder
+   containing manifest.json. If already using that folder, click Reload.
+4. Confirm version 3.2.0 and refresh your work webpage.
+5. Click the Roody toolbar icon to open the orb.
+No npm command is needed to use the Chrome extension.
 
-CONNECT YOUR KEY
-Click the orb's Settings gear. Paste your OpenAI API key in the OpenAI field
-and click Save key. This needs API billing/credits and Realtime model access.
-Do not paste your key in a chat. No npm command is needed for this extension.
+DEMO ACCESS
+Open the orb Settings gear. Enter the owner's Vercel server address and
+invite code, then click Save demo access. A code has 100 credits total:
+1 per text reply, or 30 for voice lasting up to 3 minutes. Pausing early does
+not refund started voice. A shared code shares its balance. Credits are app
+units, not OpenAI dollars. The server must be deployed and configured first.
 
-START THE COMPANION
-1. Choose Developer, Grandparent, or Founder and save your current goal.
-2. Click Voice, then Start conversation. Allow Chrome's microphone request.
-3. Roody greets you and asks a useful question. Speak normally.
-4. Enable Follow my browser and allow the optional website-access request.
-   Roody reads active work-page text about every five seconds.
-5. For VS Code or other desktop code, click Share screen or code window.
-   Choose the editor window in Chrome's picker. Open two files side by side.
-   Roody receives changed screen images about every twelve seconds.
-6. Leave Speak up when something changes ON for brief observations/questions.
-   Automatic observations wait while either of you is speaking and have a
-   thirty-second cooldown. Ask directly whenever you need help sooner.
-7. Click Keep orb talking to minimize the controls and work normally.
-   Keep the voice window running. Closing it stops the conversation.
-8. Click Voice controls in the page orb to restore the voice window.
-   Click Pause voice to stop microphone, page following, and screen capture.
+YOUR OWN KEY
+In Settings, expand Use my own OpenAI key instead. Paste your key and click
+Save key. Clear the demo server address and save demo access to use your own
+key. API billing and Realtime access are required. Do not include the key
+in shared files or paste it into chat.
 
-TRY SAYING
-"Roody, compare these two files. Point out one likely issue, explain your
-reasoning, and ask me one question. Keep guiding me as I work."
+TALK AND WORK
+1. Press Talk in the orb and allow microphone access.
+2. Roody greets you. Speak naturally; interrupt by speaking.
+3. Press See my screen and choose a work/code window in Chrome's picker.
+   To compare files, open both side by side in the selected window.
+4. Expand Browser following & speaking to enable Follow my browser and
+   allow optional website access. Speak up is on initially for brief
+   observations when shared context changes and neither of you is speaking.
+5. Close the orb panel to work. Voice keeps running across browser page
+   changes. Screen sharing stops if its source page navigates; choose the
+   screen again from the new page's orb.
+6. Pause voice stops the microphone, browser following, and screen sharing.
+7. Expand More for personas, language, goals, and tasks. Explain page and
+   the message box are available for text chat.
 
-IF SILENT
-Look at the voice window's status message. Click Enable sound if it appears.
-Check that Windows output volume is on and Chrome has microphone permission.
-Check the saved API key, API credits, and Realtime model access in Settings.
+The orb appears inside Chrome, not over native Windows apps. Screen sharing
+lets Roody discuss visible desktop code; it cannot read files from disk,
+click controls, or apply edits. Browser text is sampled about every 5 seconds,
+changed screen images every 12 seconds, with a 30-second spoken check-in
+cooldown. Choose a work window to avoid sharing personal information.
 
-DEMO SCOPE
-The floating orb lives inside Chrome. Sharing a VS Code window lets Roody
-discuss its visible pixels; it does not place an orb over other Windows apps
-or read files directly from disk. Roody suggests fixes and plans; you apply
-edits yourself. Browser following skips personal/sensitive pages. Screen
-sharing includes whatever is visible in the surface you choose, so choose
-your work window. Page snapshots, sampled images, and voice use your API
-account. See PRIVACY.md for details.
+OWNER: see server/VERCEL-DEMO.md for hosting and demo-code setup.

@@ -1,4 +1,4 @@
-/* Roody Companion 3.1: mint glass, saved plans, and live voice in the orb. */
+/* Roody Companion 3.2: one orb for voice, context, and saved plans. */
 
 #roody-orb, #roody-panel {
   /* Scoped tokens (the panel lives in the host page's light DOM, so we avoid
@@ -89,6 +89,10 @@
   overflow-y: auto;
 }
 #roody-panel [hidden] { display: none !important; }
+#roody-voice-container, #roody-settings-container { flex: 1; min-height: 130px; display: flex; flex-direction: column; overflow: hidden; }
+#roody-voice-heading, #roody-settings-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; color: var(--roody-accent); font-size: 11px; flex-shrink: 0; }
+#roody-back-chat, #roody-back-settings { border: 1px solid var(--roody-border); border-radius: 7px; background: transparent; color: var(--roody-text); font-size: 10px; padding: 5px 8px; cursor: pointer; }
+#roody-voice-frame, #roody-settings-frame { width: 100%; flex: 1; min-height: 0; border: none; display: block; background: #10201d; }
 @media (prefers-reduced-motion: reduce) {
   #roody-orb[data-voice], #roody-orb.roody-thinking { animation: none; }
 }
@@ -104,8 +108,8 @@
   width: 450px;
   min-width: 320px;
   max-width: 720px;
-  height: min(76vh, 720px);
-  min-height: min(460px, calc(100vh - 106px));
+  height: min(66vh, 560px);
+  min-height: min(360px, calc(100vh - 106px));
   max-height: calc(100vh - 106px);
   background: var(--roody-glass);
   border: 1px solid var(--roody-border);
@@ -442,3 +446,9 @@
   #roody-orb { transition: none; }
   #roody-orb.roody-thinking { animation: none; }
 }
+
+#roody-more { flex: 0 1 auto; overflow-y: auto; border-bottom: 1px solid var(--roody-border); padding: 9px 12px; }
+#roody-more > summary { cursor: pointer; font-size: 11px; color: var(--roody-muted); }
+#roody-more #roody-preferences { margin-top: 12px; }
+#roody-tools #roody-voice { background: var(--roody-accent); color: #0c251c; flex: 1; }
+#roody-more #roody-demo { margin-bottom: 8px; border: 1px solid var(--roody-border); border-radius: 7px; padding: 7px; background: transparent; color: var(--roody-text); cursor: pointer; }

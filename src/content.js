@@ -1,6 +1,6 @@
 // Roody lives here: a companion orb you summon on a work page. Chat, shared
 // goals, and task progress stay in this panel. Live voice and API key settings
-// open in extension-owned windows, away from the host page's DOM. Page access
+// stay in protected extension frames, away from the host page's DOM. Page access
 // remains read-only; this panel does not click or edit the underlying page.
 
 (function () {
@@ -626,14 +626,14 @@
   // ---- UI -------------------------------------------------------------------
   const orb = document.createElement("div");
   orb.id = "roody-orb";
-  orb.title = "Roody Companion 3.1 · click to open, drag to move";
+  orb.title = "Roody Companion 3.2 · click to open, drag to move";
   orb.setAttribute("role", "button");
   orb.setAttribute("aria-label", "Open Roody Companion");
   orb.tabIndex = 0;
 
   const panel = document.createElement("div");
   panel.id = "roody-panel";
-  panel.dataset.version = "3.1.0";
+  panel.dataset.version = "3.2.0";
   panel.setAttribute("role", "region");
   panel.setAttribute("aria-label", "Roody companion");
   panel.style.display = "none";
@@ -641,12 +641,24 @@
     <div id="roody-header">
       <div id="roody-headtext">
         <span id="roody-title">Roody</span>
-        <span id="roody-sub">Your companion · 3.1</span>
+        <span id="roody-sub">Your companion · 3.2</span>
       </div>
       <button id="roody-gear" title="Settings">⚙</button>
       <button id="roody-close" title="Close">×</button>
     </div>
     <div id="roody-companion-controls">
+      <div id="roody-tools">
+        <button id="roody-voice" type="button" title="Talk with Roody inside this orb">◉ Talk</button>
+        <button id="roody-pause-voice" type="button" hidden title="Stop microphone, page following, and screen sharing">Pause voice</button>
+        <button id="roody-look" type="button" title="Share one screenshot of this tab for analysis">▣ Explain page</button>
+
+      </div>
+      <div id="roody-live-status" hidden role="status" aria-live="polite"></div>
+      <p id="roody-live-transcript" hidden></p>
+      <div id="roody-companion-status" role="status" aria-live="polite">Talk to Roody or ask a question below.</div>
+    </div>
+    <details id="roody-more">
+      <summary>More · persona, language &amp; tasks</summary>
       <div id="roody-preferences">
         <label for="roody-persona">I'm here as
           <select id="roody-persona">
@@ -668,17 +680,8 @@
         <button data-mode="with" type="button" aria-pressed="true">Do with me</button>
         <button data-mode="for" type="button" aria-pressed="false" title="Draft a plan or answer for review; browser automation is not available">Do for me</button>
       </div>
-      <div id="roody-tools">
-        <button id="roody-voice" type="button" title="Open a live voice window. Your microphone is used only after you start a session.">◉ Voice</button>
-        <button id="roody-pause-voice" type="button" hidden title="Stop microphone, page following, and screen sharing">Pause voice</button>
-        <button id="roody-look" type="button" title="Share one screenshot of this tab for analysis">▣ Look at this</button>
-        <button id="roody-demo" type="button" title="Load a labeled sample prompt for the selected persona">Try a sample</button>
-      </div>
-      <div id="roody-live-status" hidden role="status" aria-live="polite"></div>
-      <p id="roody-live-transcript" hidden></p>
-      <div id="roody-companion-status" role="status" aria-live="polite">Goals and tasks are saved on this browser.</div>
-    </div>
-    <details id="roody-planner" open>
+<button id="roody-demo" type="button">Try a sample</button>
+    <details id="roody-planner">
       <summary>My goal &amp; tasks <span id="roody-task-count">0 tasks</span></summary>
       <div id="roody-plan-body">
         <label id="roody-goal-label" for="roody-goal">What are we working toward?</label>
@@ -693,6 +696,13 @@
         </form>
       </div>
     </details>
+    </details>
+    <div id="roody-voice-container" hidden>
+      <div id="roody-voice-heading"><span>Talk inside your orb</span><button id="roody-back-chat" type="button">Back to chat</button></div>
+    </div>
+    <div id="roody-settings-container" hidden>
+      <div id="roody-settings-heading"><span>Roody settings</span><button id="roody-back-settings" type="button">Back</button></div>
+    </div>
     <div id="roody-log" role="log" aria-label="Conversation"></div>
     <div id="roody-inputrow">
       <textarea id="roody-text" rows="1" placeholder="Ask, learn, or plan with Roody…" aria-label="Message to Roody"></textarea>
@@ -969,15 +979,39 @@
     button.disabled = false;
   });
 
-  panel.querySelector("#roody-voice").addEventListener("click", async () => {
+  async function showVoice() {
     if (pageIsSensitive()) { tripSensitive(); return; }
     try {
       await runtimeRequest({
-        type: "roody:openVoice",
+        type: "roody:shareVoicePage",
         payload: { pageContext: readPage().slice(-12000), site: location.hostname, title: document.title, pageMode: detectMode() },
       });
-      companionStatus("Voice controls opened. Start once, then enable Follow browser or Share screen. You can minimize the controls while Roody talks.");
+      const container = panel.querySelector('#roody-voice-container');
+      if (!container.querySelector('iframe')) {
+        const frame = document.createElement('iframe');
+        frame.src = chrome.runtime.getURL('src/orb-voice.html');
+        frame.id = 'roody-voice-frame';
+        frame.title = 'Roody voice controls';
+        frame.allow = 'microphone; display-capture; autoplay';
+        container.appendChild(frame);
+      }
+      container.hidden = false;
+      panel.querySelector('#roody-voice').hidden = true;
+      panel.querySelector('#roody-settings-container').hidden = true;
+      panel.querySelector('#roody-companion-controls').hidden = false;
+      panel.querySelector('#roody-more').hidden = false;
+      panel.querySelector('#roody-inputrow').hidden = false;
+      log.hidden = true;
+      panel.querySelector('#roody-more').open = false;
+      companionStatus('Voice is here in your orb. Start talking once, then close this panel to keep working.');
     } catch (error) { companionStatus(`Couldn't open voice: ${error.message}`, true); }
+  }
+  panel.querySelector("#roody-voice").addEventListener("click", showVoice);
+  panel.querySelector('#roody-back-chat').addEventListener('click', () => {
+    panel.querySelector('#roody-voice-container').hidden = true;
+    panel.querySelector('#roody-voice').hidden = false;
+    log.hidden = false;
+    companionStatus('Voice stays on until you press Pause voice.');
   });
 
   let liveVoiceStatus = null;
@@ -995,8 +1029,8 @@
     transcript.hidden = !latest;
     transcript.textContent = latest;
     panel.querySelector('#roody-pause-voice').hidden = !active;
-    panel.querySelector('#roody-voice').textContent = active ? '◉ Voice controls' : '◉ Voice';
-    orb.title = active ? `Roody ${state}${sources.length ? ' · ' + sources.join(' · ') : ''} · click for controls` : 'Roody Companion 3.1 · click to open, drag to move';
+    panel.querySelector('#roody-voice').textContent = active ? '◉ Talk controls' : '◉ Talk';
+    orb.title = active ? `Roody ${state}${sources.length ? ' · ' + sources.join(' · ') : ''} · click for controls` : 'Roody Companion 3.2 · click to open, drag to move';
     orb.setAttribute('aria-label', active ? `Open Roody. Voice is ${state}.` : 'Open Roody Companion');
   }
   panel.querySelector('#roody-pause-voice').addEventListener('click', async () => {
@@ -1046,7 +1080,7 @@
     panel.style.display = open ? "flex" : "none";
     if (open && !openerSent && !liveVoiceStatus?.active) {
       openerSent = true;
-      openingHello();
+      showVoice();
     }
   });
   orb.addEventListener("keydown", (event) => {
@@ -1058,13 +1092,7 @@
     "(The user just opened you on this page. Look at what's on their screen and lead with the single most useful thing — the bug you spot, the key point, or a sharp observation about what they're doing. One or two sentences in Markdown. Do NOT ask 'what are you working on?' — you can see. No whole-page summary.)";
 
   function openingHello() {
-    const recent = recentTask();
-    if (!recent) {
-      addBubble("roody", "Hey — I'm Roody, your companion. Pick a persona, share your goal, or try a sample. We can learn and plan together.");
-      return;
-    }
-    const thinking = addBubble("roody", "…");
-    callRoody(OPENER_PROMPT, recent, (t) => fillBubble(thinking, t));
+    addBubble("roody", "I'm here with you. Press Talk to speak, or ask me about this page below.");
   }
 
   // Session recap — when a conversation wraps, ask the background to distill it
@@ -1086,7 +1114,30 @@
     maybeRecap();
   });
   panel.querySelector("#roody-gear").addEventListener("click", () => {
-    try { chrome.runtime.sendMessage({ type: "roody:openOptions" }); } catch (_) {}
+    const container = panel.querySelector('#roody-settings-container');
+    if (!container.querySelector('iframe')) {
+      const frame = document.createElement('iframe');
+      frame.src = chrome.runtime.getURL('src/options.html');
+      frame.id = 'roody-settings-frame';
+      frame.title = 'Roody settings — protected extension page';
+      container.appendChild(frame);
+    }
+    container.hidden = false;
+    panel.querySelector('#roody-voice-container').hidden = true;
+    panel.querySelector('#roody-companion-controls').hidden = true;
+    panel.querySelector('#roody-more').hidden = true;
+    panel.querySelector('#roody-inputrow').hidden = true;
+    log.hidden = true;
+  });
+  panel.querySelector('#roody-back-settings').addEventListener('click', () => {
+    panel.querySelector('#roody-settings-container').hidden = true;
+    panel.querySelector('#roody-companion-controls').hidden = false;
+    panel.querySelector('#roody-more').hidden = false;
+    panel.querySelector('#roody-inputrow').hidden = false;
+    const hasVoice = panel.querySelector('#roody-voice-frame') && liveVoiceStatus?.active;
+    panel.querySelector('#roody-voice-container').hidden = !hasVoice;
+    log.hidden = Boolean(hasVoice);
+    panel.querySelector('#roody-voice').hidden = Boolean(hasVoice);
   });
 
   // Toolbar icon clicked again while we're already here → toggle everything.
@@ -1255,6 +1306,9 @@
 
   // You asked Roody something.
   async function send(userText, options) {
+    panel.querySelector('#roody-voice-container').hidden = true;
+    panel.querySelector('#roody-voice').hidden = false;
+    log.hidden = false;
     options = options || {};
     userText = (userText || "").trim();
     if (!userText) return;
@@ -1317,7 +1371,7 @@
         studyDoc = { name: document.title || "this PDF", text };
         pageCache = text;
         const sub = panel.querySelector("#roody-sub");
-        if (sub) sub.textContent = `Your companion · 3.1 · reading PDF`;
+        if (sub) sub.textContent = `Your companion · 3.2 · reading PDF`;
       }
     } catch (_) {}
   })();
@@ -1465,7 +1519,7 @@
       if (!passiveSummon && s.roodyEnabled !== false && !openerSent) {
         openerSent = true;
         panel.style.display = "flex";
-        openingHello();
+        showVoice();
       }
       if (!passiveSummon) setTimeout(dailyRituals, 6000);
 

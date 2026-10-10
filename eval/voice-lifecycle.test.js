@@ -47,7 +47,7 @@ class Element {
 // These mocks exercise the actual popup program at its browser boundaries,
 // including explicit permission gestures, RTC events and late async results.
 // Virtual time lets us verify recurring cleanup and idle behavior immediately.
-function voiceEnvironment({ mic, token, fetcher, display, permission = true, poll, staticFrames = false } = {}) {
+function voiceEnvironment({ mic, token, fetcher, display, permission = true, poll, staticFrames = false, engineMode = false, demoMode = false } = {}) {
   const nodes = new Map();
   const el = (id) => {
     if (!nodes.has(id)) nodes.set(id, new Element());
@@ -102,6 +102,7 @@ function voiceEnvironment({ mic, token, fetcher, display, permission = true, pol
       return node;
     },
     body: { dataset: {} },
+    documentElement: { dataset: { voiceEngine: engineMode ? "true" : "false" } },
   };
   const context = vm.createContext({
     document,
@@ -112,10 +113,12 @@ function voiceEnvironment({ mic, token, fetcher, display, permission = true, pol
     chrome: {
       runtime: {
         id: "roody-test-extension",
+        getURL: file => "chrome-extension://roody-test-extension/" + file,
         async sendMessage(message) {
           calls.push(clone(message));
           if (message.type === "roody:companionState") return { ok: true, state: { goal: "Fix login", tasks: [], preferences: { persona: "developer", mode: "teach", language: "en" } }, pageContext: { text: "Initial page text", title: "Docs", site: "example.com" } };
-          if (message.type === "roody:voiceToken") return token ? token.promise : { ok: true, value: "ephemeral-test-only" };
+          if (message.type === "roody:voiceToken") return token ? token.promise : demoMode ? { ok: true, demo: true } : { ok: true, value: "ephemeral-test-only" };
+          if (message.type === "roody:voiceDemoCall") return message.payload.action === "stop" ? { ok: true } : { ok: true, sdp: "demo-answer", sessionId: "demo-session-id", seconds: 180 };
           if (message.type === "roody:followBrowser") return { ok: true, enabled: !!message.payload.enabled };
           if (message.type === "roody:voiceContextPoll") return clone(pageResult);
           return { ok: true };
@@ -443,4 +446,19 @@ test("only the extension can pause live voice remotely and the Settings off swit
   assert.equal(other.screenTrack.stopped, true);
   assert.equal(other.microphoneTrack.stopped, true);
   assert.equal(other.connections[0].closed, true);
+});
+
+
+test("offscreen engine uses only runtime APIs and rejects direct commands from page frames", async t => {
+  const env=voiceEnvironment({engineMode:true});t.after(()=>env.cleanup());await flush();
+  assert.equal(env.storage(),undefined);
+  env.runtime()({type:"roody:engineControl",payload:{action:"start"}},{id:"roody-test-extension",tab:{id:7},url:"https://page.test"},()=>{});await flush();assert.equal(env.microphoneCalls.length,0);
+  env.runtime()({type:"roody:engineControl",payload:{action:"start"}},{id:"roody-test-extension"},()=>{});await flush();assert.equal(env.context.document.body.dataset.state,"listening");
+  env.runtime()({type:"roody:engineControl",payload:{action:"pause"}},{id:"roody-test-extension"},()=>{});assert.equal(env.microphoneTrack.stopped,true);
+});
+
+test("demo voice uses server SDP without receiving a key and stops after three minutes", async t => {
+  const env=voiceEnvironment({engineMode:true,demoMode:true});t.after(()=>env.cleanup());await flush();
+  env.runtime()({type:"roody:engineControl",payload:{action:"start"}},{id:"roody-test-extension"},()=>{});await flush();assert.equal(env.context.document.body.dataset.state,"listening");assert.equal(env.fetchCalls.length,0);
+  await env.advance(180000);assert.equal(env.microphoneTrack.stopped,true);assert.equal(env.context.document.body.dataset.state,"paused");assert(env.calls.some(c=>c.type==="roody:voiceDemoCall"&&c.payload.action==="stop"));
 });

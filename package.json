@@ -1,13 +1,16 @@
 {
   "name": "roody-server",
   "version": "1.0.0",
-  "description": "Roody credits proxy — deployed to Hostinger Node.js from this repo. (The browser extension lives in src/, the editor extension in editor/.)",
+  "description": "Roody credits proxy \u2014 deployed to Hostinger Node.js from this repo. (The browser extension lives in src/, the editor extension in editor/.)",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
     "eval": "node eval/run.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@vercel/functions": "^3.9.11"
   }
 }

@@ -344,9 +344,9 @@ checkTrue(
   "possible secret in portal.html"
 );
 checkTrue(
-  "still zero npm dependencies",
+  "only the Vercel runtime helper is added; legacy proxy stays dependency-free",
   !fs.existsSync(__dirname + "/../server/node_modules") &&
-    !JSON.parse(read("package.json")).dependencies,
+    JSON.stringify(Object.keys(JSON.parse(read("package.json")).dependencies || {})) === JSON.stringify(["@vercel/functions"]),
   "a dependency crept in"
 );
 

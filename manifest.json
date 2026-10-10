@@ -1,23 +1,40 @@
 {
   "manifest_version": 3,
-  "name": "Roody Companion — Hackathon Demo",
-  "version": "3.1.0",
-  "description": "Your companion for learning, coding and planning: a floating orb, personas, goals, screen analysis and an OpenAI live voice window.",
+  "name": "Roody Companion \u2014 Hackathon Demo",
+  "version": "3.2.0",
+  "minimum_chrome_version": "116",
+  "description": "A speaking companion inside one orb: learn, code and plan with optional page context, screen sharing and demo access.",
   "permissions": [
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "offscreen"
   ],
   "host_permissions": [
     "https://api.anthropic.com/*",
     "https://generativelanguage.googleapis.com/*",
     "https://api.openai.com/*",
     "https://api.x.ai/*",
-    "https://midnightblue-wolf-859857.hostingersite.com/*"
+    "https://midnightblue-wolf-859857.hostingersite.com/*",
+    "https://*.vercel.app/*"
   ],
   "optional_host_permissions": [
     "http://*/*",
     "https://*/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/orb-voice.html",
+        "src/orb-voice.js",
+        "src/orb-voice.css",
+        "src/options.html"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
+    }
   ],
   "background": {
     "service_worker": "src/background.js"

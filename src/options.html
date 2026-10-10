@@ -2,6 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Roody — settings</title>
     <style>
       :root {
@@ -25,6 +26,7 @@
         line-height: 1.5;
       }
       h1 { color: var(--accent); margin-bottom: 4px; }
+      @media (max-width: 500px) { body { margin: 12px auto; padding: 0 12px 30px; font-size: 12px; } h1 { font-size: 22px; } }
       h2 { color: var(--text); font-size: 16px; margin-top: 28px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
       .sub { color: var(--muted); margin-top: 0; }
       label { display: block; font-weight: 600; margin: 14px 0 6px; }
@@ -119,8 +121,8 @@
     </style>
   </head>
   <body>
-    <h1>Roody ✦ <small style="font-size:14px">Companion 3.1</small></h1>
-    <p class="sub">Your companion for learning, coding and planning. Start Voice from the orb, enable Follow browser or Share screen, then minimize the controls while Roody talks with you.</p>
+    <h1>Roody ✦ <small style="font-size:14px">Companion 3.2</small></h1>
+    <p class="sub">Your companion for learning, coding and planning. Voice, browser following, and screen sharing now live inside your orb. Close the panel to keep working while Roody talks.</p>
 
     <label class="toggle">
       <input id="enabled" type="checkbox" checked />
@@ -130,6 +132,28 @@
     <!-- ═══════════ SIMPLE VIEW — this is all a normal user needs ═══════════ -->
 
     <!-- POWER ROODY — one clean way in -->
+    <h2>Demo access</h2>
+    <label for="demourl">Demo server</label>
+    <input id="demourl" type="url" placeholder="https://your-roody-demo.vercel.app" autocomplete="off">
+    <div class="pcard hot">
+      <h3>🎟 Invite code</h3>
+      <p>Enter the demo code from the owner. Each code has 100 credits: 1 per text message, or 30 for up to 3 minutes of voice.</p>
+      <div class="row">
+        <input id="invitecode" type="text" placeholder="ROODY-XXXXXXXX" autocomplete="off" />
+        <button id="clearinvite" class="ghost small" title="Remove code">✕</button>
+      </div>
+      <button id="savedemo" type="button">Save demo access</button>
+      <p id="invitestatus" class="keystatus" style="margin:0"></p>
+    </div>
+    <div id="usagebox" style="display:none;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:14px 16px;margin-top:12px">
+      <div id="usagehello" style="font-weight:700;margin-bottom:6px"></div>
+      <div style="background:var(--panel2);border-radius:8px;height:12px;overflow:hidden">
+        <div id="usagefill" style="background:linear-gradient(90deg,#7c9bff,#6a86ff);height:100%;width:0%;transition:width .4s"></div>
+      </div>
+      <div id="usagetext" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
+    </div>
+
+    <details class="adv"><summary>Use my own OpenAI key instead</summary>
     <h2>🔑 Connect OpenAI</h2>
     <label for="okey" style="margin-top:10px">OpenAI (GPT) API key <a class="getkey" href="https://platform.openai.com/api-keys" target="_blank" style="float:right;padding:2px 8px;font-size:11px">Get a key ↗</a></label>
     <div class="row">
@@ -141,23 +165,8 @@
     <p id="openaimodel" class="modelline"></p>
 
     <p class="note">Paste your key and click <b>Save key</b>. It is stored in this Chrome extension on your computer and used directly with OpenAI. Do not paste it into chat. Voice requires OpenAI Realtime access.</p>
-    <h2>Or use an invite code for text chat</h2>
-    <div class="pcard hot">
-      <h3>🎟 Invite code</h3>
-      <p>Paste the code you got from the Roody team — the model is on us. Free daily messages, refills every morning.</p>
-      <div class="row">
-        <input id="invitecode" type="text" placeholder="ROODY-XXXXXXXX" autocomplete="off" />
-        <button id="clearinvite" class="ghost small" title="Remove code">✕</button>
-      </div>
-      <p id="invitestatus" class="keystatus" style="margin:0"></p>
-    </div>
-    <div id="usagebox" style="display:none;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:14px 16px;margin-top:12px">
-      <div id="usagehello" style="font-weight:700;margin-bottom:6px"></div>
-      <div style="background:var(--panel2);border-radius:8px;height:12px;overflow:hidden">
-        <div id="usagefill" style="background:linear-gradient(90deg,#7c9bff,#6a86ff);height:100%;width:0%;transition:width .4s"></div>
-      </div>
-      <div id="usagetext" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
-    </div>
+    <p class="note">Clear the demo server address to switch back to your own key.</p>
+    </details>
 
     <!-- ABOUT ME -->
     <h2>👤 About You</h2>

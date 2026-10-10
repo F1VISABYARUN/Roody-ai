@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en" data-voice-engine="true">
+  <head><meta charset="utf-8"><title>Roody active voice session</title></head>
+  <body data-state="paused">
+    <!-- Protected offscreen audio host. The user controls it from orb-voice.html.
+         Keeping it independent of a webpage prevents navigation from ending voice. -->
+    <div id="status">Voice is paused</div><div id="status-detail"></div>
+    <button id="voice-toggle">Start conversation</button>
+    <button id="enable-sound" hidden>Enable sound</button>
+    <button id="minimize-voice"></button><button id="share-screen"></button>
+    <input id="follow-browser" type="checkbox"><input id="speak-up" type="checkbox" checked>
+    <div id="live-context-detail"></div><div id="persona"></div><div id="language"></div>
+    <div id="mode"></div><div id="goal"></div><div id="task-summary"></div><div id="page-context"></div>
+    <div id="transcript"><p id="empty-transcript"></p></div>
+    <button id="clear-transcript"></button><button id="settings"></button><button id="open-settings"></button>
+    <audio id="remote-audio" autoplay></audio><video id="shared-video" muted playsinline></video>
+    <script src="voice.js"></script>
+  </body>
+</html>
