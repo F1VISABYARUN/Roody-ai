@@ -1,0 +1,33 @@
+{
+  "name": "roody-desktop",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Roody \u2014 your desktop companion for learning, building, and planning",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "dist:win": "electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "ai.roody.desktop",
+    "productName": "Roody",
+    "files": [
+      "main.js",
+      "preload.js",
+      "lib/**",
+      "ui/**"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

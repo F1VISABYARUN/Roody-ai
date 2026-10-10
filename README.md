@@ -1,5 +1,10 @@
 # Roody &lt;/&gt;
 
+The Windows desktop companion hackathon prototype is in [`desktop/`](desktop/README.md).
+It includes a floating orb, voice connection, selected-window analysis, local
+goals/tasks, and three labeled persona demo scenarios. See its README for setup
+and current limitations. The browser extension below remains available.
+
 **A transparent, read-only AI coding assistant that lives on any page.**
 
 Roody is a Chrome extension that puts a glass orb on top of whatever you're

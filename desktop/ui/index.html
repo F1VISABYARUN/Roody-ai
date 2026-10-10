@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://api.openai.com; img-src 'self' data:; media-src 'self' blob:; style-src 'self'; script-src 'self'">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Roody</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="panel" hidden>
+    <header class="drag"><div><span class="eyebrow">YOUR DESKTOP COMPANION</span><h1>Roody <span>✦</span></h1></div><div class="header-buttons"><button id="settings-toggle" class="no-drag icon" aria-label="Open Settings" title="Settings" aria-expanded="false" aria-controls="settings">⚙</button><button id="collapse" class="no-drag icon" aria-label="Collapse">−</button></div></header>
+    <div class="intro"><span id="status-dot"></span><span id="status" role="status">Here with you.</span><button id="quit" title="Quit Roody">×</button></div>
+    <section id="settings" hidden aria-label="Roody Settings">
+      <h2>Power your Roody</h2>
+      <p>Paste your OpenAI API key here to enable conversation, voice, and screen analysis.</p>
+      <form id="key-form">
+        <label for="api-key">OpenAI API key</label>
+        <input id="api-key" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="512">
+        <label class="remember"><input id="remember-key" type="checkbox"> Remember on this computer</label>
+        <small id="key-storage-note">Saved keys use your operating system’s encrypted storage.</small>
+        <div class="row"><button id="save-key" type="submit">Save key</button><button id="remove-key" type="button">Remove key</button><button id="settings-close" type="button">Done</button></div>
+      </form>
+      <p id="key-status" role="status"></p>
+      <small>Your saved key is never displayed again or added to chat. Saving configures Roody; it does not verify API access.</small>
+    </section>
+    <section class="preferences">
+      <label>Today I’m a<select id="persona"><option value="developer">Developer</option><option value="grandparent">Grandparent</option><option value="founder">Founder / CEO</option></select></label>
+      <label>Language<select id="language"><option value="auto">English + తెలుగు</option><option value="en">English</option><option value="te">తెలుగు</option></select></label>
+    </section>
+    <nav class="modes" aria-label="How Roody helps"><button data-mode="teach">Teach me</button><button data-mode="with">Do with me</button><button data-mode="for">Do for me</button></nav>
+    <section class="goal"><label for="goal">WHAT ARE WE WORKING TOWARD?</label><div class="row"><input id="goal" placeholder="Finish login before the demo…" maxlength="2000"><button id="save-goal">Save</button></div></section>
+    <div class="actions"><button id="look">⌁ Look at this</button><button id="voice">◉ Start voice</button><button id="stop">Pause / interrupt</button></div>
+    <div class="context"><span id="context-label">Private · screen access is off</span><button id="clear-context" hidden>Clear</button></div>
+    <div id="source-picker" hidden><p>Choose one window to share with Roody.</p><div id="source-list"></div><button id="cancel-share">Cancel</button></div>
+    <div id="follow-controls" hidden><label><input id="follow" type="checkbox"> Follow this window and speak on page changes</label><small>Shares this window while enabled. At most one check-in per minute.</small></div>
+    <section id="messages" aria-label="Conversation" aria-live="polite"><div class="message roody">Hey, I’m Roody. What are we building or learning today?</div></section>
+    <form id="chat"><textarea id="text" rows="2" placeholder="Ask, explain your goal, or say “teach me”…" maxlength="12000" aria-label="Message"></textarea><button id="send" type="submit">↗</button></form>
+    <div class="secondary"><button id="investigate">Investigate context</button><button id="demo">Load demo scenario</button><button id="remind">Check in in 5m</button></div>
+    <details><summary>Our task board <span id="task-count">0</span></summary><div id="tasks"></div><form id="task-form" class="row"><input id="task-title" placeholder="Add our next step…" maxlength="2000"><button>Add</button></form></details>
+    <p id="notice">Local memory · screen capture only with permission · drafts require your review</p>
+  </main>
+  <div id="orb-wrap"><button id="orb" aria-label="Open Roody"><span>✦</span></button><span id="orb-state">ROODY</span></div>
+  <audio id="remote-audio" autoplay></audio>
+  <script src="renderer.js"></script>
+</body>
+</html>
