@@ -1,137 +1,218 @@
-# Roody ✦ Companion
+# Roody AI Companion ✦
 
-**Chrome hackathon demo 3.2.0:** live voice and settings inside one orb.
+**A speaking companion that helps you understand your work, learn, and plan—right inside a floating orb.**
 
-[Download the Chrome extension ZIP](https://github.com/F1VISABYARUN/Roody-ai/raw/refs/heads/codex/roody-desktop-demo-settings/Roody-Companion-3.2.0-Chrome.zip). Extract it before loading in Chrome.
-The main view has **Talk**, **See my screen**, and text chat. Personas, language,
-modes, goals, and tasks are under **More**. No npm command is needed to use
-Chrome's **Load unpacked**; select the folder containing `manifest.json`,
-reload the extension, and refresh the webpage after updating source files.
+Roody was built with **Claude**, with later companion, voice, demo-access, and
+website updates developed with **Codex**. Claude's original commits remain in
+this repository. These are development tools; the running app uses the model
+APIs described below.
 
-Voice runs in a protected offscreen extension document so closing the panel
-or navigating browser pages can leave the conversation running. **Pause voice**
-stops the microphone and sharing. A screen selected through one page stops
-being shared when that source page navigates; select it again in the new orb.
-Browser following is optional and requires website access. It samples page
-text about every five seconds; changed screen images about every twelve.
-Spoken check-ins wait while either participant speaks and use a cooldown.
+**Current version: Chrome hackathon demo 3.2.0.**
 
-For guest demos, deploy the Vercel backend using [the setup guide](server/VERCEL-DEMO.md).
-The owner key stays in server environment variables. Guests enter the Vercel
-address and a code in Settings. Each code has 100 total app credits: 1 for text
-or 30 for up to three minutes of voice. Balances live in Redis; these units
-are separate from OpenAI billing. The code-generation admin page is
-`/demo-admin.html`. This backend has not been deployed by these file updates.
+[Download the Chrome extension ZIP](https://github.com/F1VISABYARUN/Roody-ai/raw/refs/heads/claude/roody-k6s5sb/Roody-Companion-3.2.0-Chrome.zip)
+· [Windows installation steps](START-HERE-WINDOWS.txt)
+· [Vercel demo setup](server/VERCEL-DEMO.md)
 
-Own-key access remains under **Use my own OpenAI key instead** in Settings.
-Clear the demo server address to switch back. Never embed an owner key in a
-shared extension ZIP. See [Windows steps](START-HERE-WINDOWS.txt) for usage.
+## What we built
 
-The orb lives inside Chrome. Screen sharing lets it discuss visible native
-editor windows; it cannot read files from disk or edit/click for the user.
+Roody is a Chrome extension for developers, founders, and people learning to
+navigate unfamiliar pages. Open its orb on a work page to ask questions, talk
+through a problem, or understand visible code without copying everything into
+a separate chatbot.
 
-## Web demo and current tools
+- **Talk while you work.** OpenAI Realtime voice supports English, Telugu, and
+  natural interruption. Voice controls and Settings stay inside the orb.
+- **Read the page together.** Roody extracts page text and visible code from
+  Monaco, CodeMirror, and Ace editors. It can discuss articles, documentation,
+  code, and PDFs.
+- **Analyze what you share.** Explain page can attach a tab screenshot. See my
+  screen lets you choose an editor window, tab, or screen for sampled images.
+  Open two files side by side to discuss their visible differences.
+- **Get useful check-ins.** Optional browser following refreshes readable page
+  text about every five seconds. Changed shared images are sampled about every
+  twelve seconds. Speak up offers brief observations when the context changes,
+  waits while either participant speaks, and uses a thirty-second cooldown.
+- **Remember your next step.** Goals, tasks, blockers, persona, and language are
+  saved locally and included as context in conversations.
+- **Keep the controls simple.** The main view focuses on Talk and chat;
+  personas, language, assistance modes, goals, and tasks are under More.
 
-The Vercel homepage serves three fictional samples: a two-file JavaScript bug,
-a founder's demo plan, and a practice appointment summary. **Show a sample reply**
-is a labeled scripted preview and makes no API request. Connecting a guest code
-allows actual text replies through `/api/demo`. Live voice remains in the Chrome
-extension. The public page assets are `public/index.html`, `demo.css`, and `demo.js`.
+The voice engine runs in a protected offscreen extension document. Closing the
+panel or changing browser pages can leave voice running. **Pause voice** stops
+microphone access, browser following, and screen sharing. Screen sharing from a
+particular page stops when that page navigates or closes; select the screen
+again from the new page's orb.
 
-| Component | Technology in the current code |
+## Personas and assistance modes
+
+| Persona | How Roody helps |
 |---|---|
-| Browser companion | JavaScript, HTML/CSS, Chrome Manifest V3, content scripts, service worker, offscreen document |
-| Live voice | OpenAI Realtime API (`gpt-realtime`), WebRTC, microphone permission, audio transcription |
-| Page and screen context | Browser DOM/editor extraction, tab screenshots, explicit screen sharing with sampled images |
-| Vercel guest text | OpenAI Responses API (`gpt-4.1-mini`), Node.js serverless function |
-| Guest access | Invite codes, Upstash Redis REST with atomic credit accounting, Vercel `waitUntil` for voice shutdown |
-| Optional own-key providers | OpenAI, Anthropic Claude, Google Gemini, xAI Grok |
-| Separate prototypes | Electron Windows app; VS Code-compatible editor extension with Gemini transcription and optional ElevenLabs voice |
+| Developer | Reasons through visible code, debugging, and architecture; explains the next step. |
+| Founder | Acts as a CEO/CTO-style adviser: weighs tradeoffs and turns goals into a practical plan. |
+| Grandparent | Uses patient, simple explanations and helps understand unfamiliar pages one step at a time. |
 
-No Model Context Protocol (MCP) server/client or external-app tool execution is
-implemented in this build. The personas and assistance modes are prompt-driven;
-they are not autonomous agents that click, edit, book, or send messages.
+| Mode | What it does |
+|---|---|
+| Teach me | Explains the reasoning and asks useful learning questions. |
+| Do with me | Works through a problem with you. |
+| Do for me | Prepares code drafts, plans, or analysis for you to review. |
 
-The Windows desktop companion hackathon prototype is in [`desktop/`](desktop/README.md).
-It includes a floating orb, voice connection, selected-window analysis, local
-goals/tasks, and three labeled persona demo scenarios. See its README for setup
-and current limitations. The browser extension below remains available.
+These modes guide conversation. Roody does not click controls, edit files,
+send messages, book appointments, or make payments.
 
-**A transparent, read-only companion for learning, coding, and planning.**
+## Install in Chrome on Windows
 
-Roody is a Chrome extension that puts a glass orb on top of whatever you're
-working on. It reads what's on your screen — the code and text on the page, and,
-when you ask, a **screenshot** of the actual screen — then answers your questions
-and **writes code drafts** in the chat. Live conversation is available in the
-orb; text replies use Markdown and runnable code blocks.
+No npm command or terminal is needed for the Chrome extension.
 
+1. Download **Roody-Companion-3.2.0-Chrome.zip** and choose **Extract All**.
+2. Open `chrome://extensions` and turn on **Developer mode**.
+3. Disable older Roody installs. Click **Load unpacked** and select the extracted
+   folder containing `manifest.json`.
+4. Confirm version **3.2.0**, then refresh the webpage where you want Roody.
+5. Click the toolbar icon or press **Alt + R** to summon the orb.
+
+### Connect your own key
+
+Open orb **Settings → Use my own OpenAI key instead**, paste your key, and click
+**Save key**. Clear any demo server address and save demo access to switch back
+to your own key. OpenAI voice requires API billing and Realtime access; ChatGPT
+subscriptions do not include API credits. Never put an owner key in a shared
+ZIP or paste it into chat.
+
+The extension also supports optional own-key Claude, Gemini, and Grok models
+for text/vision requests. Model discovery chooses available models without
+requiring users to type model IDs. Live voice uses OpenAI Realtime.
+
+### Connect guest demo access
+
+An owner can host the guest gateway on Vercel and keep the OpenAI key in server
+environment variables. Guests enter the server address and their invite code
+in orb Settings, then click **Save demo access**.
+
+- Each code has **100 total app credits**.
+- A text reply costs **1 credit**.
+- A started voice session costs **30 credits** for up to **3 minutes**.
+- Pausing a started session early does not refund its reservation.
+- Sharing a code shares its balance. Redis keeps the balance across restarts
+  and extension reinstalls.
+
+App credits are separate from OpenAI dollar charges. A server background task
+schedules voice shutdown, with a client timer as well; hosting or network
+failure can interrupt shutdown, so this is not an unconditional billing cap.
+See [Vercel setup and limits](server/VERCEL-DEMO.md) before distributing codes.
+
+## Website and sample demos
+
+Deployment address: **https://roodyaicompanion.vercel.app/**.
+
+The homepage contains three clearly labeled fictional scenarios:
+
+1. **Developer:** compare two JavaScript files and find a missing `await`.
+2. **Founder:** choose a realistic priority before a hackathon presentation.
+3. **Grandparent:** understand a practice appointment summary.
+
+**Show a sample reply** displays a scripted preview with no API request or
+credit use. Connecting a guest code enables actual text replies through the
+OpenAI Responses API. Live voice and screen sharing use the Chrome extension.
+
+Deploy this default branch, **`claude/roody-k6s5sb`**, with Vercel Framework
+**Other**, repository root, and output directory **`public`**. The repository's
+`vercel.json` configures the API. The public address returning a 404 means the
+homepage deployment has not reached that address; a live provider-backed demo
+also requires the environment variables in the setup guide.
+
+## Tools and architecture
+
+| Component | Technology implemented |
+|---|---|
+| Development assistance | Claude for the original build; Codex for later updates |
+| Chrome orb | JavaScript, HTML/CSS, Chrome Manifest V3, content scripts, service worker |
+| Voice | OpenAI Realtime API (`gpt-realtime`), WebRTC, microphone permission, transcription |
+| Persistent voice host | Chrome offscreen document with extension runtime messages |
+| Page and code context | DOM extraction, editor text extraction, tab screenshots, explicit screen sharing |
+| Guest demo text | OpenAI Responses API (`gpt-4.1-mini`), Node.js Vercel function |
+| Demo access and accounting | Invite codes, Upstash Redis REST, atomic credit reservations |
+| Voice shutdown | OpenAI call hangup endpoint and Vercel `waitUntil` background task |
+| Optional model providers | OpenAI, Anthropic Claude, Google Gemini, xAI Grok |
+| Separate Windows prototype | Electron, selected-window screenshots, local goals/tasks, voice |
+| Separate editor prototype | VS Code-compatible extension, Gemini transcription, optional ElevenLabs voice |
+
+**MCP status:** this build has no Model Context Protocol server/client or MCP
+app integrations. Personas and assistance modes are prompt-driven. Direct API
+calls and browser context reading should not be described as MCP integrations.
+
+```mermaid
+flowchart LR
+    Page[Work page or shared screen] --> Orb[Chrome orb]
+    Orb --> Worker[Extension worker]
+    Worker --> Own[Selected provider using own key]
+    Worker --> Demo[Vercel demo gateway]
+    Demo --> OpenAI[OpenAI APIs]
+    Demo --> Redis[Redis credit balance]
+    Orb --> Voice[Offscreen WebRTC voice engine]
+    Voice --> Realtime[OpenAI Realtime]
 ```
-You, on any page ──▶ code · docs · an error · a rendered app
-                          │
-                     </> Roody (glass orb overlay)
-                          │  reads the page (read-only)
-                          │  optionally captures a screenshot
-                          ▼
-                     Gemini / Claude / Grok (Roody's brain)
-                     answers questions · writes code · spots bugs
+
+## Privacy and current limits
+
+- Roody's browser orb runs on work pages. Browser reading excludes banking,
+  payment, email, messaging, social media, government, and pages with sensitive
+  password/card fields.
+- Screen sharing includes visible information in the surface you choose; those
+  browser exclusions cannot filter every visible desktop app.
+- Goals and tasks are stored locally. The extension does not persist screen
+  images or voice recordings. Supplied text, images, and audio are transmitted
+  to the selected provider to generate responses.
+- The Chrome orb appears inside browser pages. It does not float over native
+  Windows apps; selected screen sharing only lets it discuss their pixels.
+- Desktop and editor prototypes are separate projects with separate settings.
+- This is a hackathon prototype. Automated checks do not validate live billing,
+  Windows microphone behavior, or Vercel background-task persistence.
+
+Read [PRIVACY.md](PRIVACY.md) for details.
+
+## Project layout
+
+| Path | Purpose |
+|---|---|
+| `manifest.json` | Chrome extension manifest |
+| `src/content.js` / `content.css` | Orb, chat, goals/tasks, page and editor reading |
+| `src/background.js` | Provider routing, screenshots, protected voice controls |
+| `src/companion.js` | Structured companion memory and preferences |
+| `src/live-engine.html` / `voice.js` | Persistent audio engine |
+| `src/orb-voice.html` / `orb-voice.js` / `orb-voice.css` | Voice controls inside the orb |
+| `src/options.html` / `options.js` | Keys, invite code, server address, preferences |
+| `src/study.html` / `study.js` / `pdf.js` | PDF study page |
+| `public/` | Vercel homepage, samples, guest text demo, owner code page |
+| `api/demo.js` / `server/demo.js` | Vercel guest gateway |
+| `server/VERCEL-DEMO.md` | Deployment variables and setup instructions |
+| `server/index.js` | Legacy Hostinger invite-code proxy |
+| `desktop/` | Separate Electron Windows prototype |
+| `editor/` | Separate VS Code-compatible editor prototype |
+| `backend/` / `backend-php/` | Alternative legacy backends |
+| `site/` | Earlier website and portal |
+| `eval/` | Regression and behavior checks |
+
+## Run the checks
+
+Use Node.js 20+ for the root project:
+
+```bash
+npm ci
+npm run eval
+node --test eval/*.test.js
 ```
 
-## What Roody does
+The desktop prototype has its own instructions and dependencies:
+[desktop/README.md](desktop/README.md). The editor prototype is documented in
+[editor/README.md](editor/README.md).
 
-- **</> Answers &amp; writes code.** Ask about a bug, an error, or an approach —
-  Roody replies in the chat with real code in copy-able, syntax-friendly blocks.
-- **👀 Reads the page with you.** Code on GitHub, Stack Overflow, docs, editors,
-  articles, and PDFs. Summon Roody and ask "what's wrong here?"
-- **📷 Sees your screen.** Tap the camera (or ask about something visual) and
-  Roody captures a screenshot of the current tab and sends it to a vision model,
-  so it can read diagrams, rendered UIs, and error dialogs — not just text.
-- **🧠 Pick your brain.** Gemini 2.5 Flash by default (cheap &amp; multimodal);
-  **OpenAI (GPT-4o / 4.1), Claude, and Grok** selectable with your own key. A
-  screenshot on a text-only brain is routed to Gemini vision automatically, and a
-  missing key falls back to Gemini instead of erroring.
-- **🌏 Answers in your language.** English, Telugu, Hindi, Tamil, and more.
-- **🔒 Read-only by design.** Roody never edits, clicks, or types on the page, and
-  it refuses to run on banking, email, chat, and other personal pages.
+## Roody's journey
 
-## Install (developer mode)
-
-1. Open `chrome://extensions` and turn on **Developer mode** (top right).
-2. Click **Load unpacked** and select this folder (`Roody-ai`).
-3. Click the Roody icon in the toolbar → paste your **invite code** (or a free
-   [Gemini API key](https://aistudio.google.com/apikey)) in Settings.
-4. Open any work page, click the orb, and ask away.
-
-## How it works
-
-- **Click-to-summon.** Normal use injects the content script on a toolbar click
-  (`activeTab` + `scripting`). Optional **Follow browser** requests website access
-  and injects the orb on active pages while following is enabled. It starts off
-  and stops when voice is paused. Closing the panel leaves voice running.
-- **Page reading.** `readPage()` extracts the visible article/code/chat text,
-  stripping nav and chrome; `detectMode()` tags the page (code / research /
-  writing / …) so Roody acts like the right kind of expert.
-- **Screenshots.** The background captures the visible tab with
-  `chrome.tabs.captureVisibleTab` and attaches the image to the model request
-  (Gemini `inlineData` / Claude image block) for a message you send. Optional voice
-  screen sharing separately sends changed frames through OpenAI Realtime.
-- **Brains.** A Vercel demo address plus code uses OpenAI through the guest gateway.
-  Legacy invite-only access uses the older Gemini proxy; own keys go directly
-  to their selected provider.
-
-## Files
-
-| File | What it is |
-|------|------------|
-| `manifest.json` | Extension manifest (MV3) |
-| `src/persona.js` | Roody's personality (the coding-assistant system prompt) |
-| `src/background.js` | Calls the model, captures screenshots, routes brains |
-| `src/content.js` | The orb, the chat panel, Markdown rendering, page reading |
-| `src/content.css` | Roody's transparent glass look |
-| `src/study.html/js` | Standalone "Read with Roody" tab for PDFs |
-| `src/options.html/js` | Settings — invite code, language, keys (dev panel) |
-
-## Notes
-
-- Keys and your invite code are stored locally (`chrome.storage.local`) and only
-  sent to the AI provider you chose. See [PRIVACY.md](PRIVACY.md).
-- Run the regression suite with `node eval/run.js`.
+- **v1:** a voice companion that read along and talked out loud.
+- **v2:** a coding assistant with a glass orb, editor reading, screenshots, and
+  multiple model providers, built with Claude.
+- **v3:** a broader companion with personas, assistance modes, goals/tasks,
+  English/Telugu voice, and a separate desktop prototype.
+- **v3.2:** simpler voice controls inside the orb, persistent audio, optional
+  browser/screen context, Vercel guest credits, and a sample demo homepage.
