@@ -2,14 +2,13 @@
 
 **A speaking companion that helps you understand your work, learn, and plan—right inside a floating orb.**
 
-Roody was built with **Claude**, with later companion, voice, demo-access, and
-website updates developed with **Codex**. Claude's original commits remain in
-this repository. These are development tools; the running app uses the model
-APIs described below.
+**Built with OpenAI Codex.** A hackathon companion for learning, coding, and planning.
+
+**Website: [roodyaicompanion.vercel.app](https://roodyaicompanion.vercel.app/)**
 
 **Current version: Chrome hackathon demo 3.2.0.**
 
-[Download the Chrome extension ZIP](https://github.com/F1VISABYARUN/Roody-ai/raw/refs/heads/claude/roody-k6s5sb/Roody-Companion-3.2.0-Chrome.zip)
+[Download the Chrome extension ZIP](https://github.com/F1VISABYARUN/Roody-ai/raw/refs/heads/codex/roody-desktop-demo-settings/Roody-Companion-3.2.0-Chrome.zip)
 · [Windows installation steps](START-HERE-WINDOWS.txt)
 · [Vercel demo setup](server/VERCEL-DEMO.md)
 
@@ -79,7 +78,7 @@ to your own key. OpenAI voice requires API billing and Realtime access; ChatGPT
 subscriptions do not include API credits. Never put an owner key in a shared
 ZIP or paste it into chat.
 
-The extension also supports optional own-key Claude, Gemini, and Grok models
+The extension also supports optional own-key Anthropic, Gemini, and Grok models
 for text/vision requests. Model discovery chooses available models without
 requiring users to type model IDs. Live voice uses OpenAI Realtime.
 
@@ -115,17 +114,17 @@ The homepage contains three clearly labeled fictional scenarios:
 credit use. Connecting a guest code enables actual text replies through the
 OpenAI Responses API. Live voice and screen sharing use the Chrome extension.
 
-Deploy this default branch, **`claude/roody-k6s5sb`**, with Vercel Framework
-**Other**, repository root, and output directory **`public`**. The repository's
-`vercel.json` configures the API. The public address returning a 404 means the
-homepage deployment has not reached that address; a live provider-backed demo
-also requires the environment variables in the setup guide.
+Deploy the repository’s default branch with Vercel Framework **Other**,
+repository root, and output directory **`public`**. The repository’s
+`vercel.json` configures the API. The homepage is available at the website
+link above. Live provider-backed replies require the environment variables
+in the setup guide.
 
 ## Tools and architecture
 
 | Component | Technology implemented |
 |---|---|
-| Development assistance | Claude for the original build; Codex for later updates |
+| Development assistance | OpenAI Codex |
 | Chrome orb | JavaScript, HTML/CSS, Chrome Manifest V3, content scripts, service worker |
 | Voice | OpenAI Realtime API (`gpt-realtime`), WebRTC, microphone permission, transcription |
 | Persistent voice host | Chrome offscreen document with extension runtime messages |
@@ -133,7 +132,7 @@ also requires the environment variables in the setup guide.
 | Guest demo text | OpenAI Responses API (`gpt-4.1-mini`), Node.js Vercel function |
 | Demo access and accounting | Invite codes, Upstash Redis REST, atomic credit reservations |
 | Voice shutdown | OpenAI call hangup endpoint and Vercel `waitUntil` background task |
-| Optional model providers | OpenAI, Anthropic Claude, Google Gemini, xAI Grok |
+| Optional model providers | OpenAI, Anthropic, Google Gemini, xAI Grok |
 | Separate Windows prototype | Electron, selected-window screenshots, local goals/tasks, voice |
 | Separate editor prototype | VS Code-compatible extension, Gemini transcription, optional ElevenLabs voice |
 
@@ -211,7 +210,7 @@ The desktop prototype has its own instructions and dependencies:
 
 - **v1:** a voice companion that read along and talked out loud.
 - **v2:** a coding assistant with a glass orb, editor reading, screenshots, and
-  multiple model providers, built with Claude.
+  multiple model providers.
 - **v3:** a broader companion with personas, assistance modes, goals/tasks,
   English/Telugu voice, and a separate desktop prototype.
 - **v3.2:** simpler voice controls inside the orb, persistent audio, optional
