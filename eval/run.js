@@ -552,7 +552,7 @@ checkTrue(
 );
 checkTrue(
   "panel visibly identifies the companion version",
-  content.includes("Your companion · 3.0"),
+  content.includes("Your companion · " + JSON.parse(read("manifest.json")).version.split(".").slice(0, 2).join(".")),
   "panel subtitle not updated"
 );
 checkTrue(

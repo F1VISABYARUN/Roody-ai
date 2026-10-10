@@ -7,7 +7,8 @@ This policy explains exactly what data Roody touches and where it goes.
 
 ## The short version
 
-- Roody loads **nothing** until you click its icon on a page.
+- Roody starts when you summon it. Optional **Follow browser** reads active
+  work pages during a voice session after you grant website access.
 - Roody **refuses to run** on personal pages: banking, payments, email,
   messaging, social media, government sites, and any page containing
   password or payment-card fields.
@@ -28,8 +29,8 @@ When — and only when — you summon Roody on a page, it reads the visible text
 of that page so the AI can help you with it. If you ask about something
 visual (or tap the 📷 button), Roody captures a screenshot of the current
 tab and sends that image with your message so the AI can see what you see.
-Screenshots are taken only for a message you send or when you click **Look at
-this**, and are never captured in the background.
+Ordinary tab screenshots are taken for a message you send or when you click
+**Look at this**. Optional voice screen sharing is described below.
 
 ## Optional live voice
 
@@ -39,8 +40,32 @@ click **Start conversation** and approve Chrome's permission request. While
 connected, audio is streamed to OpenAI's Realtime service for conversation and
 transcription. Pause or close the window to stop the microphone. The voice
 window receives an ephemeral credential; your full API key stays in extension
-storage and the background worker. It does not continuously watch your screen.
-Voice transcripts stay in the window for that session and are not saved by Roody.
+storage and the background worker.
+
+**Follow browser** is off initially. When you enable it and approve Chrome's
+optional website-access request, Roody refreshes the active work page roughly
+every five seconds. The orb is injected on eligible pages while following is
+enabled. Existing exclusions for personal pages and password/payment fields
+still apply. The two most recent page snapshots are held in memory for that
+session, not saved in local storage. Pausing or closing voice stops following.
+The website permission may remain granted in Chrome, but reading stops until
+you turn following on again.
+
+**Share screen** opens Chrome's screen picker after you click it. Only the
+window, tab, or screen you choose is captured; screen audio is not captured.
+While sharing, changed images are sampled roughly every twelve seconds and
+sent directly to OpenAI Realtime. These are sampled images, not a continuous
+video stream to the model. Screen sharing cannot apply the browser's page
+exclusions to every visible app; everything visible in your chosen surface
+can be included. **Stop sharing**, **Pause voice**, Chrome's sharing stop
+control, or closing the voice window stops capture. Screen frames are not
+saved by the extension.
+
+**Speak up** requests brief spoken observations after changes in shared context.
+Roody retains voice transcripts only for the current window session. A bounded
+excerpt of its latest reply and connection/sharing indicators are relayed to
+the webpage orb and kept in Chrome's temporary session storage. These are not
+written to persistent local storage. Closing voice clears the displayed status.
 
 ## Where data goes
 

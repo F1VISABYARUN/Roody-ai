@@ -10,7 +10,7 @@
     <main class="voice-shell">
       <header class="header">
         <div>
-          <p class="eyebrow">ROODY COMPANION <span>3.0</span></p>
+          <p class="eyebrow">ROODY COMPANION <span>3.1</span></p>
           <h1>Let’s talk it through.</h1>
         </div>
         <button id="settings" class="icon-button" type="button" aria-label="Open Roody settings" title="Open settings">⚙</button>
@@ -22,7 +22,17 @@
         <p id="status-detail" class="status-detail">Click below to allow your microphone and start talking.</p>
         <button id="voice-toggle" class="primary-button" type="button">Start conversation</button>
         <button id="enable-sound" class="secondary-button" type="button" hidden>Enable sound</button>
-        <p class="mic-note">Microphone access starts only when you click. Pause or close this window to stop.</p>
+        <button id="minimize-voice" class="secondary-button" type="button" disabled>Keep orb talking · minimize</button>
+        <p class="mic-note">Start once, then minimize this window and return to your work. Pause or close it to stop.</p>
+      </section>
+
+      <section class="context-card live-controls" aria-label="Live companion controls">
+        <h2>Work together, out loud</h2>
+        <label class="check-control"><input id="follow-browser" type="checkbox" disabled /><span><strong>Follow my browser</strong><small>Share the active webpage’s text as you browse. Chrome asks for site access.</small></span></label>
+        <button id="share-screen" class="secondary-button" type="button" disabled>Share screen or code window</button>
+        <p class="context-note">Choose an editor, tab, or screen. Roody receives occasional images while sharing, so it can discuss visible code and compare files as you switch.</p>
+        <label class="check-control"><input id="speak-up" type="checkbox" checked disabled /><span><strong>Speak up when something changes</strong><small>Offer an observation or a useful question while you work. Roody waits until you finish speaking.</small></span></label>
+        <p id="live-context-detail" class="context-note" role="status">Start voice to enable browser following or screen sharing.</p>
       </section>
 
       <section class="context-card" aria-label="Conversation context">
@@ -42,11 +52,12 @@
 
       <footer>
         <p>Prefer typing? Use chat in the Roody orb on your page. Set persona, language, and tasks there.</p>
-        <p class="limitation">Voice discusses your shared context and tasks. It cannot operate apps or change your task board.</p>
+        <p class="limitation">Share readable code to discuss it. Roody can suggest changes; save edits and task updates yourself.</p>
         <button id="open-settings" class="text-button" type="button">Open settings to connect your OpenAI key</button>
       </footer>
     </main>
     <audio id="remote-audio" autoplay></audio>
+    <video id="shared-video" muted playsinline hidden></video>
     <script src="voice.js"></script>
   </body>
 </html>

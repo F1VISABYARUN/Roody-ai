@@ -1,4 +1,4 @@
-/* Roody Companion 3.0: mint glass, saved plans, and a new star orb. */
+/* Roody Companion 3.1: mint glass, saved plans, and live voice in the orb. */
 
 #roody-orb, #roody-panel {
   /* Scoped tokens (the panel lives in the host page's light DOM, so we avoid
@@ -70,6 +70,28 @@
 }
 /* Roody is reading/thinking about a fresh answer. */
 #roody-orb.roody-thinking { animation: roody-think 1.1s infinite ease-in-out; }
+#roody-orb[data-voice="listening"] {
+  box-shadow: 0 0 0 5px rgba(115, 231, 186, 0.18), 0 0 30px rgba(115, 231, 186, 0.45);
+}
+#roody-orb[data-voice="speaking"] { animation: roody-speaking 0.8s infinite ease-in-out; }
+#roody-orb[data-voice="connecting"] { animation: roody-think 1.1s infinite ease-in-out; }
+@keyframes roody-speaking {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 4px rgba(115, 231, 186, 0.2); }
+  50% { transform: scale(1.09); box-shadow: 0 0 0 11px rgba(115, 231, 186, 0.08), 0 0 36px rgba(115, 231, 186, 0.6); }
+}
+#roody-live-status { font-size: 11px; line-height: 1.5; color: var(--roody-accent); }
+#roody-live-transcript {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--roody-text);
+  max-height: 72px;
+  overflow-y: auto;
+}
+#roody-panel [hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  #roody-orb[data-voice], #roody-orb.roody-thinking { animation: none; }
+}
 @keyframes roody-think {
   0%, 100% { transform: scale(1); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4); }
   50% { transform: scale(1.13); box-shadow: 0 8px 32px rgba(102, 241, 190, 0.5); }
@@ -276,7 +298,9 @@
    typography and form controls. The planner scrolls separately from chat. */
 #roody-companion-controls {
   padding: 10px 12px 8px;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-height: 76px;
+  overflow-y: auto;
   border-bottom: 1px solid var(--roody-border);
 }
 #roody-preferences { display: flex; gap: 8px; }
@@ -348,7 +372,9 @@
 #roody-planner {
   display: block;
   border-bottom: 1px solid var(--roody-border);
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-height: 42px;
+  overflow-y: auto;
   margin: 0;
   background: rgba(9, 23, 20, 0.16);
 }

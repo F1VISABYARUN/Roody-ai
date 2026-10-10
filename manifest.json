@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Roody Companion — Hackathon Demo",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Your companion for learning, coding and planning: a floating orb, personas, goals, screen analysis and an OpenAI live voice window.",
   "permissions": [
     "storage",
@@ -14,6 +14,10 @@
     "https://api.openai.com/*",
     "https://api.x.ai/*",
     "https://midnightblue-wolf-859857.hostingersite.com/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
   ],
   "background": {
     "service_worker": "src/background.js"

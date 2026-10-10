@@ -6,6 +6,8 @@
 (function () {
   if (window.__roodyLoaded) return;
   window.__roodyLoaded = true;
+  const passiveSummon = window.__roodyPassiveSummon === true;
+  delete window.__roodyPassiveSummon;
 
   // ---- Privacy shield -------------------------------------------------------
   // Roody's hard boundary: NO personal pages. Banking, payments, email, chats,
@@ -63,6 +65,7 @@
     try {
       chrome.runtime.onMessage.addListener((msg, _s, send) => {
         if (msg?.type === "roody:toggle") { refusalToast(); send({ ok: true }); }
+        if (msg?.type === "roody:readVoiceContext") send({ sensitive: true });
       });
     } catch (_) {}
     return;
@@ -70,6 +73,7 @@
 
   const history = []; // running chat between the human and Roody
   let exchangeCount = 0; // total exchanges ever — history caps at 20, this doesn't
+  let roodyEnabled = true;
 
   // Tuning knobs.
   const REACT_DEBOUNCE_MS = 1800; // how long the page must be quiet = answer finished
@@ -242,53 +246,44 @@
   const CODE_SITES = /(leetcode\.com|hackerrank\.com|codesignal\.com|codewars\.com|hackerearth\.com|atcoder\.jp|codeforces\.com|codepen\.io|codesandbox\.io|replit\.com|jsfiddle\.net|stackblitz\.com)/;
   function extractEditorCode() {
     try {
-      // ---- Monaco (VS Code, HackerRank, LeetCode) ----
-      // Monaco recycles <div class="view-line"> nodes as you scroll, so their
-      // DOM order is meaningless — the visual order comes from the `top` px
-      // in the inline style. Sort by that.
-      const monacoLines = document.querySelectorAll(".monaco-editor .view-lines .view-line");
-      if (monacoLines.length >= 2) {
-        const rows = [];
-        monacoLines.forEach((el) => {
-          const m = /top\s*:\s*(-?\d+(?:\.\d+)?)px/.exec(el.getAttribute("style") || "");
-          const top = m ? parseFloat(m[1]) : Number.MAX_SAFE_INTEGER;
-          rows.push({ top, text: el.textContent || "" });
+      // Keep split editors separate: sorting all Monaco rows together mixes
+      // two files at the same vertical position into an invalid program.
+      const editors = [];
+      const visible = node => node.getClientRects().length > 0 && !node.closest('#roody-panel');
+      const labelFor = (node, index) => {
+        const group = node.closest('.editor-group-container, .editor-pane, [data-file], [data-filename]');
+        const selected = group?.querySelector('[role="tab"][aria-selected="true"], .tab.active .label-name, .tab.active');
+        const name = node.getAttribute('data-file') || node.getAttribute('data-filename') ||
+          group?.getAttribute('data-file') || group?.getAttribute('data-filename') || selected?.textContent || node.getAttribute('aria-label');
+        return (name || `visible editor ${index + 1}`).trim().slice(0, 160);
+      };
+      const addEditor = (node, kind, selector, sorted) => {
+        if (!visible(node)) return;
+        const rows = Array.from(node.querySelectorAll(selector)).map(line => {
+          const match = /top\s*:\s*(-?\d+(?:\.\d+)?)px/.exec(line.getAttribute('style') || '');
+          return { top: match ? Number(match[1]) : Number.MAX_SAFE_INTEGER, text: line.textContent || '' };
         });
-        rows.sort((a, b) => a.top - b.top);
-        const code = rows.map((r) => r.text).join("\n");
-        if (code.trim().length > 0) return { kind: "monaco", code, virtualised: true };
-      }
-      // ---- CodeMirror 6 (Replit, StackBlitz, many docs) ----
-      const cm6 = document.querySelector(".cm-content");
-      if (cm6) {
-        const lines = Array.from(cm6.querySelectorAll(".cm-line"));
-        if (lines.length >= 2) {
-          const code = lines.map((el) => el.textContent || "").join("\n");
-          if (code.trim().length > 0) return { kind: "cm6", code, virtualised: true };
-        }
-      }
-      // ---- CodeMirror 5 ----
-      const cm5 = document.querySelector(".CodeMirror-code");
-      if (cm5) {
-        const lines = Array.from(cm5.querySelectorAll(".CodeMirror-line"));
-        if (lines.length >= 2) {
-          const code = lines.map((el) => el.textContent || "").join("\n");
-          if (code.trim().length > 0) return { kind: "cm5", code, virtualised: true };
-        }
-      }
-      // ---- Ace ----
-      const ace = document.querySelector(".ace_editor .ace_text-layer");
-      if (ace) {
-        const lines = Array.from(ace.querySelectorAll(".ace_line"));
-        if (lines.length >= 2) {
-          const code = lines.map((el) => el.textContent || "").join("\n");
-          if (code.trim().length > 0) return { kind: "ace", code, virtualised: true };
-        }
+        if (sorted) rows.sort((a, b) => a.top - b.top);
+        const code = rows.map(row => row.text).join('\n').trimEnd();
+        if (code.trim()) editors.push({ kind, code, label: labelFor(node, editors.length) });
+      };
+      document.querySelectorAll('.monaco-editor').forEach(node => addEditor(node, 'monaco', '.view-lines .view-line', true));
+      document.querySelectorAll('.cm-content').forEach(node => addEditor(node, 'cm6', '.cm-line', false));
+      document.querySelectorAll('.CodeMirror-code').forEach(node => addEditor(node, 'cm5', '.CodeMirror-line', false));
+      document.querySelectorAll('.ace_editor .ace_text-layer').forEach(node => addEditor(node, 'ace', '.ace_line', false));
+      if (editors.length) {
+        const selected = editors.slice(0, 4);
+        const budget = Math.floor(12000 / selected.length);
+        return {
+          kind: selected.map(editor => editor.kind).join(' + '),
+          code: selected.map(editor => `FILE / EDITOR: ${editor.label}\n${editor.code.slice(0, budget)}${editor.code.length > budget ? '\n… (visible code truncated)' : ''}`).join('\n\n'),
+          virtualised: true,
+        };
       }
       // ---- Plain <textarea> the user is actively typing in ----
       // (Anything > 40 chars — an editor input, not the search bar.)
       const ta = document.activeElement;
-      if (ta && ta.tagName === "TEXTAREA" && (ta.value || "").length > 40) {
+      if (ta && ta.tagName === "TEXTAREA" && !ta.closest('#roody-panel') && (ta.value || "").length > 40) {
         return { kind: "textarea", code: ta.value, virtualised: false };
       }
     } catch (e) { rlog(`⚠ editor extract: ${e.message}`); }
@@ -340,6 +335,11 @@
 
   // Find the biggest article-like block on a regular page — biggest <article>,
   // <main>, or content-heavy <div>. Skips nav/header/footer/aside/menus.
+  function bodyTextWithoutRoody() {
+    const clone = document.body.cloneNode(true);
+    clone.querySelectorAll('#roody-panel, #roody-orb, #roody-refusal, script, style, noscript').forEach(node => node.remove());
+    return (clone.innerText || clone.textContent || '').trim();
+  }
   function findArticle() {
     const article = document.querySelector("article");
     if (article && article.innerText && article.innerText.length > 300) return article;
@@ -366,7 +366,11 @@
       ).forEach((el) => el.remove());
       if ((clone.innerText || "").trim().length > 200) return clone;
     } catch (_) {}
-    return document.body;
+    // Small pages still need a clone; reading the live body includes Roody's
+    // transcript, which would feed its own speech back as new page context.
+    const clone = document.body.cloneNode(true);
+    clone.querySelectorAll('#roody-panel, #roody-orb, #roody-refusal, script, style, noscript').forEach(node => node.remove());
+    return clone;
   }
 
   function readPage() {
@@ -402,14 +406,14 @@
       }
       if (!text) {
         const el = findArticle();
-        text = (el.innerText || "").trim();
+        text = (el.innerText || el.textContent || "").trim();
       }
-      if (!text) text = (document.body.innerText || "").trim();
+      if (!text) text = bodyTextWithoutRoody();
       text = text.replace(/\n\s*\n+/g, "\n\n").replace(/[ \t]+/g, " ");
       if (text.length > 16000) text = text.slice(-16000);
       return text;
     } catch (_) {
-      return (document.body.innerText || "").trim().slice(-16000);
+      return bodyTextWithoutRoody().slice(-16000);
     }
   }
 
@@ -622,14 +626,14 @@
   // ---- UI -------------------------------------------------------------------
   const orb = document.createElement("div");
   orb.id = "roody-orb";
-  orb.title = "Roody Companion 3.0 · click to open, drag to move";
+  orb.title = "Roody Companion 3.1 · click to open, drag to move";
   orb.setAttribute("role", "button");
   orb.setAttribute("aria-label", "Open Roody Companion");
   orb.tabIndex = 0;
 
   const panel = document.createElement("div");
   panel.id = "roody-panel";
-  panel.dataset.version = "3.0.0";
+  panel.dataset.version = "3.1.0";
   panel.setAttribute("role", "region");
   panel.setAttribute("aria-label", "Roody companion");
   panel.style.display = "none";
@@ -637,7 +641,7 @@
     <div id="roody-header">
       <div id="roody-headtext">
         <span id="roody-title">Roody</span>
-        <span id="roody-sub">Your companion · 3.0</span>
+        <span id="roody-sub">Your companion · 3.1</span>
       </div>
       <button id="roody-gear" title="Settings">⚙</button>
       <button id="roody-close" title="Close">×</button>
@@ -666,9 +670,12 @@
       </div>
       <div id="roody-tools">
         <button id="roody-voice" type="button" title="Open a live voice window. Your microphone is used only after you start a session.">◉ Voice</button>
+        <button id="roody-pause-voice" type="button" hidden title="Stop microphone, page following, and screen sharing">Pause voice</button>
         <button id="roody-look" type="button" title="Share one screenshot of this tab for analysis">▣ Look at this</button>
         <button id="roody-demo" type="button" title="Load a labeled sample prompt for the selected persona">Try a sample</button>
       </div>
+      <div id="roody-live-status" hidden role="status" aria-live="polite"></div>
+      <p id="roody-live-transcript" hidden></p>
       <div id="roody-companion-status" role="status" aria-live="polite">Goals and tasks are saved on this browser.</div>
     </div>
     <details id="roody-planner" open>
@@ -823,6 +830,7 @@
 
   // Honor the "Roody is off" master switch — hide everything and bail.
   function applyEnabled(enabled) {
+    roodyEnabled = enabled;
     orb.style.display = enabled ? "flex" : "none";
     if (!enabled) panel.style.display = "none";
   }
@@ -966,11 +974,39 @@
     try {
       await runtimeRequest({
         type: "roody:openVoice",
-        payload: { pageContext: buildContext().slice(-12000), site: location.hostname, title: document.title },
+        payload: { pageContext: readPage().slice(-12000), site: location.hostname, title: document.title, pageMode: detectMode() },
       });
-      companionStatus("Voice window opened. Click Start there to allow your microphone.");
+      companionStatus("Voice controls opened. Start once, then enable Follow browser or Share screen. You can minimize the controls while Roody talks.");
     } catch (error) { companionStatus(`Couldn't open voice: ${error.message}`, true); }
   });
+
+  let liveVoiceStatus = null;
+  function renderVoiceStatus(value) {
+    liveVoiceStatus = value && typeof value === 'object' ? value : null;
+    const active = liveVoiceStatus?.active === true;
+    const state = active && ['connecting', 'listening', 'speaking'].includes(liveVoiceStatus.state) ? liveVoiceStatus.state : 'paused';
+    orb.dataset.voice = state;
+    const status = panel.querySelector('#roody-live-status');
+    status.hidden = !active;
+    const sources = [liveVoiceStatus?.following ? 'following browser' : '', liveVoiceStatus?.sharing ? 'screen shared' : ''].filter(Boolean);
+    status.textContent = active ? `◉ ${state === 'speaking' ? 'Roody is speaking' : state === 'connecting' ? 'Connecting voice' : 'Roody is listening'}${sources.length ? ' · ' + sources.join(' · ') : ''}` : '';
+    const transcript = panel.querySelector('#roody-live-transcript');
+    const latest = active && typeof liveVoiceStatus.transcript === 'string' ? liveVoiceStatus.transcript.slice(0, 600) : '';
+    transcript.hidden = !latest;
+    transcript.textContent = latest;
+    panel.querySelector('#roody-pause-voice').hidden = !active;
+    panel.querySelector('#roody-voice').textContent = active ? '◉ Voice controls' : '◉ Voice';
+    orb.title = active ? `Roody ${state}${sources.length ? ' · ' + sources.join(' · ') : ''} · click for controls` : 'Roody Companion 3.1 · click to open, drag to move';
+    orb.setAttribute('aria-label', active ? `Open Roody. Voice is ${state}.` : 'Open Roody Companion');
+  }
+  panel.querySelector('#roody-pause-voice').addEventListener('click', async () => {
+    try {
+      await runtimeRequest({ type: 'roody:pauseVoice' });
+      renderVoiceStatus({ state: 'paused', active: false });
+      companionStatus('Voice paused. Microphone and sharing are off.');
+    } catch (error) { companionStatus(`Couldn't pause voice: ${error.message}`, true); }
+  });
+  runtimeRequest({ type: 'roody:getVoiceStatus' }).then(result => renderVoiceStatus(result.status)).catch(() => {});
 
   panel.querySelector("#roody-look").addEventListener("click", async () => {
     const button = panel.querySelector("#roody-look");
@@ -1008,7 +1044,7 @@
   orb.addEventListener("click", () => {
     const open = panel.style.display === "none";
     panel.style.display = open ? "flex" : "none";
-    if (open && !openerSent) {
+    if (open && !openerSent && !liveVoiceStatus?.active) {
       openerSent = true;
       openingHello();
     }
@@ -1056,6 +1092,19 @@
   // Toolbar icon clicked again while we're already here → toggle everything.
   try {
     chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
+      if (msg?.type === 'roody:voiceStatus') {
+        renderVoiceStatus(msg.payload);
+        sendResponse({ ok: true });
+      }
+      if (msg?.type === 'roody:readVoiceContext') {
+        if (!roodyEnabled || document.hidden) { sendResponse({ unavailable: true }); return; }
+        if (sensitiveTripped || domainBlocked(location.hostname) || pageIsSensitive()) {
+          tripSensitive();
+          sendResponse({ sensitive: true });
+        } else {
+          sendResponse({ text: readPage().slice(0, 16000), title: document.title.slice(0, 300), site: location.hostname, pageMode: detectMode(), sensitive: false });
+        }
+      }
       if (msg?.type === "roody:toggle") {
         const hidden = orb.style.display === "none" || panel.style.display === "none";
         if (sensitiveTripped) { refusalToast(); }
@@ -1268,7 +1317,7 @@
         studyDoc = { name: document.title || "this PDF", text };
         pageCache = text;
         const sub = panel.querySelector("#roody-sub");
-        if (sub) sub.textContent = `Your companion · 3.0 · reading PDF`;
+        if (sub) sub.textContent = `Your companion · 3.1 · reading PDF`;
       }
     } catch (_) {}
   })();
@@ -1413,12 +1462,12 @@
       lastAnswerSig = readPage().slice(-600);
       startWatching();
       // The user just SUMMONED Roody — open the panel and greet right away.
-      if (!openerSent) {
+      if (!passiveSummon && s.roodyEnabled !== false && !openerSent) {
         openerSent = true;
         panel.style.display = "flex";
         openingHello();
       }
-      setTimeout(dailyRituals, 6000);
+      if (!passiveSummon) setTimeout(dailyRituals, 6000);
 
       chrome.storage.onChanged.addListener((changes) => {
         if (changes.roodyEnabled) applyEnabled(changes.roodyEnabled.newValue !== false);

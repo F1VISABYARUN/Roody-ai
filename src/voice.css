@@ -14,6 +14,7 @@ body { margin: 0; min-width: 310px; background: radial-gradient(ellipse at 50% 0
 button { font: inherit; cursor: pointer; transition: background 150ms ease, border-color 150ms ease; }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 button:disabled { opacity: 0.65; cursor: wait; }
+button:disabled, input:disabled { cursor: default; }
 .voice-shell { width: min(100%, 600px); margin: 0 auto; padding: 24px; }
 .header { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
 .eyebrow { margin: 0 0 9px; font-size: 10px; font-weight: 700; letter-spacing: 0.17em; color: var(--accent); }
@@ -37,6 +38,14 @@ body[data-state="connecting"] .primary-button, body[data-state="listening"] .pri
 .secondary-button { display: block; padding: 8px 12px; margin: 10px auto 0; border: 1px solid var(--line); border-radius: 10px; background: rgba(145, 237, 189, 0.1); color: var(--accent); }
 .mic-note { margin: 12px auto 0; max-width: 335px; color: #879b8e; line-height: 1.5; font-size: 11px; }
 .context-card { padding: 16px; border: 1px solid var(--line); border-radius: 17px; background: rgba(232, 255, 241, 0.03); }
+.live-controls { margin-bottom: 14px; }
+.live-controls .secondary-button { margin: 12px 0 6px; width: 100%; min-height: 40px; }
+.check-control { display: flex; gap: 10px; align-items: flex-start; margin-top: 16px; font-size: 12px; cursor: pointer; }
+.check-control input { width: 16px; height: 16px; margin: 2px 0 0; flex-shrink: 0; accent-color: var(--accent); }
+.check-control strong { display: block; font-weight: 600; color: var(--text); }
+.check-control small { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.check-control input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+#live-context-detail { color: var(--accent); margin-top: 12px; }
 .context-heading { display: flex; gap: 10px; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 600; }
 .badge { padding: 4px 8px; border-radius: 7px; font-size: 10px; color: var(--accent); background: rgba(145, 237, 189, 0.09); white-space: nowrap; }
 #mode { margin: 7px 0 14px; font-size: 12px; color: var(--muted); }
